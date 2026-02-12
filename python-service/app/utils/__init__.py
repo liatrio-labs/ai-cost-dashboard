@@ -1,6 +1,7 @@
 """Utility modules."""
 
 from app.utils.supabase_client import get_supabase_client, test_connection
+from app.utils.scheduler import get_scheduler, start_scheduler, shutdown_scheduler, CollectionScheduler
 from app.utils.crypto import (
     encrypt_api_key,
     decrypt_api_key,
@@ -21,6 +22,10 @@ from app.utils.crypto import (
 __all__ = [
     "get_supabase_client",
     "test_connection",
+    "get_scheduler",
+    "start_scheduler",
+    "shutdown_scheduler",
+    "CollectionScheduler",
     "encrypt_api_key",
     "decrypt_api_key",
     "mask_api_key",

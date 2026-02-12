@@ -261,9 +261,60 @@ async with OpenAICollector(
 
 ### Scheduled Collection
 
-APScheduler runs collectors on configured intervals:
-- **Anthropic**: Every hour (`0 * * * *`)
-- **OpenAI**: Every 6 hours (`0 */6 * * *`)
+The scheduler automatically runs collectors at configured intervals using APScheduler.
+
+**Schedule:**
+- **Anthropic**: Every hour at :05 (avoids top-of-hour traffic)
+- **OpenAI**: Every 6 hours at :10 (0:10, 6:10, 12:10, 18:10 UTC)
+- **Aggregate Refresh**: Every 15 minutes (updates materialized views)
+- **Forecasting**: Daily at midnight UTC
+
+**Features:**
+- Async execution with AsyncIOScheduler
+- Prevents overlapping runs (max_instances=1)
+- Error tracking and history logging
+- Manual job triggering via API
+- Health checks for monitoring
+
+**Usage:**
+
+The scheduler starts automatically with the FastAPI application:
+
+```python
+# Scheduler is started in main.py lifespan
+# No manual initialization needed
+```
+
+**API Endpoints:**
+
+```bash
+# Get scheduler status
+GET /api/scheduler/status
+
+# List all jobs
+GET /api/scheduler/jobs
+
+# Get job details
+GET /api/scheduler/jobs/anthropic_collection
+
+# Manually trigger a job
+POST /api/scheduler/jobs/anthropic_collection/trigger
+
+# Get job execution history
+GET /api/scheduler/history
+
+# Get next scheduled runs
+GET /api/scheduler/next-runs
+
+# Scheduler health check
+GET /api/scheduler/health
+```
+
+**Job IDs:**
+- `anthropic_collection` - Collect Anthropic data for all users
+- `openai_collection` - Collect OpenAI data for all users
+- `aggregate_refresh` - Refresh materialized views
+- `forecasting` - Run ML forecasting (daily)
 
 ## Forecasting
 

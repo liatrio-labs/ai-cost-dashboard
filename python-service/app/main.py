@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.routers import health, collection
+from app.routers import health, collection, forecast, scheduler
+from app.utils.scheduler import start_scheduler, shutdown_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -22,7 +23,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     logger.info("Starting AI Cost Dashboard backend service...")
+
+    # Start the scheduler
+    start_scheduler()
+    logger.info("Scheduler started")
+
     yield
+
+    # Shutdown the scheduler
+    shutdown_scheduler()
+    logger.info("Scheduler shut down")
+
     logger.info("Shutting down AI Cost Dashboard backend service...")
 
 
@@ -50,6 +61,8 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(collection.router)
+app.include_router(forecast.router)
+app.include_router(scheduler.router)
 
 
 @app.get("/")
