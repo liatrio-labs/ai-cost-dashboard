@@ -197,6 +197,68 @@ python test_collector.py --api-key YOUR_KEY --skip-db
 python test_collector.py --api-key YOUR_KEY --user-id USER_UUID --provider-id PROVIDER_UUID
 ```
 
+#### OpenAI Collector
+
+The `OpenAICollector` collects data from OpenAI's API:
+
+**Features:**
+- Uses OpenAI API endpoints: `/v1/usage`, `/v1/dashboard/billing/usage`, `/v1/dashboard/billing/subscription`
+- Rate limiting: Respects rate limits from response headers
+- Date range queries with `start_date`/`end_date`
+- Groups by: project_id, model, api_key_id
+- Historical limit: 90 days (OpenAI's limitation)
+- Collection frequency: Every 6 hours (less frequent than Anthropic)
+
+**Usage:**
+
+```python
+from app.collectors.openai_collector import OpenAICollector
+
+async with OpenAICollector(
+    api_key="your-openai-api-key",
+    user_id="user-uuid",
+    provider_id="provider-uuid"
+) as collector:
+    # Collect last day
+    records = await collector.collect_data()
+
+    # Backfill historical data (max 90 days)
+    result = await collector.backfill_historical_data(days=90)
+
+    # Get subscription limits
+    limits = await collector.get_subscription_limits()
+
+    # Run full workflow (collect + store)
+    result = await collector.run()
+```
+
+**API Endpoints Used:**
+
+1. **Usage Data** (`GET /v1/usage`):
+   - Returns daily usage by operation type
+   - Includes token counts (context + generated)
+   - Request counts per operation
+   - Daily aggregation
+
+2. **Billing Usage** (`GET /v1/dashboard/billing/usage`):
+   - Cost data in USD
+   - Daily breakdown with line items per model
+   - Total usage for period
+   - Matches with usage data by timestamp
+
+3. **Subscription Info** (`GET /v1/dashboard/billing/subscription`):
+   - Soft and hard limits
+   - Payment method status
+   - Access expiration
+   - Current usage against limits
+
+**Key Differences from Anthropic:**
+- Uses date-based queries instead of time windows
+- 90-day historical limit (vs unlimited for Anthropic)
+- Less frequent collection (6 hours vs 1 hour)
+- Rate limits from headers instead of fixed delays
+- Operation-to-model mapping required
+
 ### Scheduled Collection
 
 APScheduler runs collectors on configured intervals:

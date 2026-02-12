@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import logging
 
 from app.collectors.anthropic_collector import AnthropicCollector
+from app.collectors.openai_collector import OpenAICollector
 from app.utils.supabase_client import get_supabase_client
 
 router = APIRouter(prefix="/api/collection", tags=["collection"])
@@ -132,10 +133,30 @@ async def trigger_collection(request: CollectionRequest):
                     error=result.get("error")
                 )
 
+        elif request.provider == "openai":
+            async with OpenAICollector(
+                api_key=api_key,
+                user_id=request.user_id,
+                provider_id=provider_id
+            ) as collector:
+                if request.backfill:
+                    result = await collector.backfill_historical_data(days=request.backfill_days)
+                else:
+                    result = await collector.run()
+
+                return CollectionResponse(
+                    status=result["status"],
+                    provider=result["provider"],
+                    records_collected=result.get("records_collected", 0),
+                    records_stored=result.get("records_stored", 0),
+                    timestamp=result.get("timestamp", datetime.utcnow().isoformat()),
+                    error=result.get("error")
+                )
+
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Provider '{request.provider}' not supported yet. Supported: anthropic"
+                detail=f"Provider '{request.provider}' not supported. Supported: anthropic, openai"
             )
 
     except HTTPException:
@@ -214,3 +235,46 @@ async def get_collection_status(provider: str, user_id: str):
     except Exception as e:
         logger.error(f"Failed to get collection status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+@router.get("/subscription/{provider}")
+async def get_subscription_info(provider: str, user_id: str):
+    """
+    Get subscription information for OpenAI provider.
+
+    Args:
+        provider: Provider name (currently only 'openai' supported)
+        user_id: User ID
+
+    Returns:
+        Subscription limits and billing info
+    """
+    if provider != "openai":
+        raise HTTPException(
+            status_code=400,
+            detail="Subscription info only available for OpenAI provider"
+        )
+
+    try:
+        # Get user's API credentials
+        api_key, provider_id = await get_provider_credentials(user_id, provider)
+
+        # Fetch subscription info
+        async with OpenAICollector(
+            api_key=api_key,
+            user_id=user_id,
+            provider_id=provider_id
+        ) as collector:
+            subscription = await collector.get_subscription_limits()
+
+            return {
+                "provider": provider,
+                "user_id": user_id,
+                **subscription
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get subscription info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get subscription info: {str(e)}")
