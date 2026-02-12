@@ -1,0 +1,105 @@
+name: Test Backend
+
+on:
+  pull_request:
+    paths:
+      - 'python-service/**'
+      - '.github/workflows/test-backend.yml'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'python-service/**'
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd python-service
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+
+      - name: Run unit tests
+        run: |
+          cd python-service
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+        continue-on-error: false
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./python-service/coverage.xml
+          flags: backend
+          name: backend-coverage
+        continue-on-error: true
+
+  lint:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd python-service
+          pip install ruff mypy
+
+      - name: Lint with ruff
+        run: |
+          cd python-service
+          ruff check app/ --output-format=github
+
+      - name: Type check with mypy
+        run: |
+          cd python-service
+          mypy app/ --ignore-missing-imports
+        continue-on-error: true
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Bandit security scan
+        uses: tj-actions/bandit@v5
+        with:
+          targets: python-service/app/
+          options: "-r -ll"
+        continue-on-error: true
+
+      - name: Run Safety check
+        run: |
+          cd python-service
+          pip install safety
+          safety check --json
+        continue-on-error: true

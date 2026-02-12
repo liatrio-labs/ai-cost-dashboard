@@ -1,0 +1,59 @@
+# Render Blueprint for AI Cost Dashboard Backend
+# https://render.com/docs/blueprint-spec
+
+services:
+  # FastAPI Backend Service
+  - type: web
+    name: ai-cost-dashboard-api
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r python-service/requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    rootDir: python-service
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+    # Auto-deploy on push to main branch
+    autoDeploy: true
+    # Health check configuration
+    healthCheckTimeout: 30
+    healthCheckInterval: 30
+    # Scaling configuration
+    numInstances: 1
+    # Disk for logs and temporary files
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
+
+# Note: Render native cron jobs are configured separately in the Render dashboard
+# or via API. See deployment documentation for cron job setup.
+
+# Cron Jobs (configured separately in Render dashboard):
+# 1. Anthropic Collection: 5 * * * * (every hour at :05)
+#    Command: python -c "import asyncio; from app.utils.scheduler import get_scheduler; asyncio.run(get_scheduler().collect_anthropic_data())"
+#
+# 2. OpenAI Collection: 10 0,6,12,18 * * * (every 6 hours at :10)
+#    Command: python -c "import asyncio; from app.utils.scheduler import get_scheduler; asyncio.run(get_scheduler().collect_openai_data())"
+#
+# 3. Aggregate Refresh: */15 * * * * (every 15 minutes)
+#    Command: python -c "import asyncio; from app.utils.scheduler import get_scheduler; asyncio.run(get_scheduler().refresh_aggregates())"
+#
+# 4. Forecasting: 0 0 * * * (daily at midnight)
+#    Command: python -c "import asyncio; from app.utils.scheduler import get_scheduler; asyncio.run(get_scheduler().run_forecasting())"
