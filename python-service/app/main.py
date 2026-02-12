@@ -5,6 +5,7 @@ Handles data collection from AI providers and ML-based forecasting.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import logging
 
@@ -12,7 +13,7 @@ from app.routers import health, collection, forecast, scheduler
 from app.utils.scheduler import start_scheduler, shutdown_scheduler
 from app.utils.logging_config import setup_logging
 from app.utils.sentry_config import init_sentry
-from app.middleware import RequestLoggingMiddleware
+from app.middleware import RequestLoggingMiddleware, CacheControlMiddleware, SecurityHeadersMiddleware
 
 # Configure structured logging
 setup_logging()
@@ -47,6 +48,15 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Add security headers middleware (first for all responses)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Add GZip compression for responses > 1000 bytes
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add cache control headers
+app.add_middleware(CacheControlMiddleware)
 
 # Add request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
