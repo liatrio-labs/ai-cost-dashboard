@@ -10,12 +10,12 @@ import logging
 
 from app.routers import health, collection, forecast, scheduler
 from app.utils.scheduler import start_scheduler, shutdown_scheduler
+from app.utils.logging_config import setup_logging
+from app.utils.sentry_config import init_sentry
+from app.middleware import RequestLoggingMiddleware
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configure structured logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     logger.info("Starting AI Cost Dashboard backend service...")
+
+    # Initialize Sentry error tracking
+    init_sentry()
 
     # Start the scheduler
     start_scheduler()
@@ -44,6 +47,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # Configure CORS to allow Vercel frontend
 app.add_middleware(

@@ -438,3 +438,14 @@ def shutdown_scheduler():
     """Shutdown the global scheduler."""
     scheduler = get_scheduler()
     scheduler.shutdown()
+
+
+def get_scheduler_status() -> Dict[str, Any]:
+    """
+    Get status of the global scheduler.
+
+    Returns:
+        Dict with scheduler status and job information
+    """
+    scheduler = get_scheduler()
+    return scheduler.get_status()
