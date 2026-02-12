@@ -150,7 +150,7 @@ export type Database = {
 /**
  * Create a Supabase client for use in API routes with cookie-based auth
  */
-export function createClient(cookieStore: ReturnType<typeof cookies>) {
+export async function createClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -203,8 +203,8 @@ export function createRouteHandlerClient(
  * Get the currently authenticated user from cookies
  * Returns null if not authenticated
  */
-export async function getCurrentUser(cookieStore: ReturnType<typeof cookies>) {
-  const supabase = createClient(cookieStore)
+export async function getCurrentUser(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  const supabase = await createClient(cookieStore)
   const {
     data: { user },
     error,
@@ -221,7 +221,7 @@ export async function getCurrentUser(cookieStore: ReturnType<typeof cookies>) {
  * Verify user is authenticated and return user ID
  * Throws error if not authenticated
  */
-export async function requireAuth(cookieStore: ReturnType<typeof cookies>): Promise<string> {
+export async function requireAuth(cookieStore: Awaited<ReturnType<typeof cookies>>): Promise<string> {
   const user = await getCurrentUser(cookieStore)
 
   if (!user) {
