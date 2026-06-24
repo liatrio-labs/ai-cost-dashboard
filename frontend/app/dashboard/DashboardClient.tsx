@@ -7,9 +7,9 @@ import {
   LayoutDashboard,
   LineChart as LineChartIcon,
   TableProperties,
-  PlusCircle,
   CalendarDays,
   Inbox,
+  Settings,
 } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -30,10 +30,9 @@ import { TrendChart } from "@/components/trend-chart"
 import { ForecastChart } from "@/components/forecast-chart"
 import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
 import { ToolsTable } from "@/components/tools-table"
-import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { formatMonthLong, type DashboardData } from "@/lib/dashboard-types"
 
-export function DashboardClient() {
+export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
@@ -126,11 +125,14 @@ export function DashboardClient() {
               )}
             </div>
           </div>
-          <Link href="/dashboard/chatgpt">
-            <Button variant="ghost" size="sm">
-              ChatGPT entries
-            </Button>
-          </Link>
+          {isAdmin && (
+            <Link href="/admin">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <Settings className="h-4 w-4" />
+                Admin
+              </Button>
+            </Link>
+          )}
         </div>
       </header>
 
@@ -148,17 +150,24 @@ export function DashboardClient() {
               </div>
               <h2 className="text-lg font-semibold text-foreground">No spend data yet</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                Once the collectors run, your AI spend will appear here. You can also add a manual
-                entry below for providers without an API.
+                Once the collectors run, your AI spend will appear here.
+                {isAdmin
+                  ? " Use the Admin area to pull data or add a manual entry."
+                  : ""}
               </p>
-              <div className="mt-4 w-full max-w-lg text-left">
-                <MonthlyEntryForm onSaveSuccess={() => loadData(selectedMonth)} />
-              </div>
+              {isAdmin && (
+                <Link href="/admin" className="mt-4">
+                  <Button className="gap-2">
+                    <Settings className="h-4 w-4" />
+                    Go to Admin
+                  </Button>
+                </Link>
+              )}
             </CardContent>
           </Card>
         ) : (
           <Tabs defaultValue="dashboard" className="space-y-6">
-            <TabsList className="grid w-full max-w-lg grid-cols-4">
+            <TabsList className="grid w-full max-w-md grid-cols-3">
               <TabsTrigger value="dashboard" className="gap-2">
                 <LayoutDashboard className="h-4 w-4" />
                 <span className="hidden sm:inline">Dashboard</span>
@@ -170,10 +179,6 @@ export function DashboardClient() {
               <TabsTrigger value="tools" className="gap-2">
                 <TableProperties className="h-4 w-4" />
                 <span className="hidden sm:inline">Tools</span>
-              </TabsTrigger>
-              <TabsTrigger value="entry" className="gap-2">
-                <PlusCircle className="h-4 w-4" />
-                <span className="hidden sm:inline">Entry</span>
               </TabsTrigger>
             </TabsList>
 
@@ -203,11 +208,6 @@ export function DashboardClient() {
             <TabsContent value="tools" className="space-y-6">
               <KPICards kpis={data!.kpis} />
               <ToolsTable tools={data!.tools} />
-            </TabsContent>
-
-            {/* Entry */}
-            <TabsContent value="entry" className="space-y-6">
-              <MonthlyEntryForm onSaveSuccess={() => loadData(selectedMonth)} />
             </TabsContent>
           </Tabs>
         )}

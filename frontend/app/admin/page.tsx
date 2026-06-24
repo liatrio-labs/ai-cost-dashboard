@@ -1,23 +1,20 @@
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { getCurrentUser, isAdminEmail } from "@/lib/db"
-import { DashboardClient } from "./dashboard/DashboardClient"
+import { AdminClient } from "./AdminClient"
 
 export const dynamic = "force-dynamic"
 
-// The homepage IS the dashboard (graphs). Auth-gated; ingest lives under /admin.
-export default async function Home() {
+// Owner-only admin/ingest area: trigger collection + manual entry.
+export default async function AdminPage() {
   const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === "true"
 
-  let isAdmin = skipAuth
   if (!skipAuth) {
     const cookieStore = await cookies()
     const user = await getCurrentUser(cookieStore)
-    if (!user) {
-      redirect("/login")
-    }
-    isAdmin = isAdminEmail(user.email)
+    if (!user) redirect("/login")
+    if (!isAdminEmail(user.email)) redirect("/")
   }
 
-  return <DashboardClient isAdmin={isAdmin} />
+  return <AdminClient />
 }

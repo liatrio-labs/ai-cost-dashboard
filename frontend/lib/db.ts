@@ -244,3 +244,37 @@ export function errorResponse(message: string, status: number = 500) {
 export function successResponse<T>(data: T, status: number = 200) {
   return NextResponse.json(data, { status })
 }
+
+/**
+ * Owners/admins who can access the ingest/admin area. Sourced from the
+ * ADMIN_EMAILS env var (comma-separated), falling back to DASHBOARD_OWNER_EMAIL,
+ * then to the project owner. Case-insensitive.
+ */
+export function getAdminEmails(): string[] {
+  const raw =
+    process.env.ADMIN_EMAILS ||
+    process.env.DASHBOARD_OWNER_EMAIL ||
+    "robert@liatrio.com"
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+export function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false
+  return getAdminEmails().includes(email.toLowerCase())
+}
+
+/**
+ * Verify the request is from an authenticated admin/owner.
+ * Throws "Unauthorized" (401) if not logged in, "Forbidden" (403) if not admin.
+ */
+export async function requireAdmin(
+  cookieStore: Awaited<ReturnType<typeof cookies>>
+): Promise<{ id: string; email: string }> {
+  const user = await getCurrentUser(cookieStore)
+  if (!user) throw new Error("Unauthorized")
+  if (!isAdminEmail(user.email)) throw new Error("Forbidden")
+  return { id: user.id, email: user.email! }
+}
