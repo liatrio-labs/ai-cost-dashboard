@@ -1,177 +1,223 @@
 "use client"
 
-import { useState } from "react"
-import { DateRange } from "react-day-picker"
-import { subDays } from "date-fns"
-import { DollarSign, TrendingUp, Calendar, Sparkles } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
+import {
+  LayoutDashboard,
+  LineChart as LineChartIcon,
+  TableProperties,
+  PlusCircle,
+  CalendarDays,
+  Inbox,
+} from "lucide-react"
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Spinner } from "@/components/ui/spinner"
 import { Button } from "@/components/ui/button"
-import { MetricsCard } from "@/components/dashboard/MetricsCard"
-import { DateRangePicker } from "@/components/dashboard/DateRangePicker"
-import { CostTimeSeriesChart } from "@/components/charts/CostTimeSeriesChart"
-import { ProviderBreakdownChart } from "@/components/charts/ProviderBreakdownChart"
-import { ForecastChart } from "@/components/charts/ForecastChart"
-import { RecentActivityTable } from "@/components/dashboard/RecentActivityTable"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Card, CardContent } from "@/components/ui/card"
 
-// Mock data - will be replaced with real API calls
-const generateMockTimeSeriesData = () => {
-  const data = []
-  for (let i = 30; i >= 0; i--) {
-    const date = new Date()
-    date.setDate(date.getDate() - i)
-    data.push({
-      date: date.toISOString().split("T")[0],
-      OpenAI: Math.random() * 50 + 20,
-      Anthropic: Math.random() * 30 + 10,
-      ChatGPT: Math.random() * 20 + 5,
-    })
-  }
-  return data
-}
-
-const generateMockForecastData = () => {
-  const data = []
-  // Historical data
-  for (let i = 30; i >= 0; i--) {
-    const date = new Date()
-    date.setDate(date.getDate() - i)
-    data.push({
-      date: date.toISOString().split("T")[0],
-      actual: Math.random() * 100 + 50,
-    })
-  }
-  // Forecast data
-  for (let i = 1; i <= 30; i++) {
-    const date = new Date()
-    date.setDate(date.getDate() + i)
-    const predicted = Math.random() * 120 + 60
-    data.push({
-      date: date.toISOString().split("T")[0],
-      predicted,
-      lower_bound: predicted * 0.8,
-      upper_bound: predicted * 1.2,
-    })
-  }
-  return data
-}
-
-const mockProviderData = [
-  { name: "OpenAI", value: 1250.45 },
-  { name: "Anthropic", value: 850.30 },
-  { name: "ChatGPT", value: 425.15 },
-]
-
-const mockRecentActivity = [
-  {
-    id: "1",
-    timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-    provider: "OpenAI",
-    model: "gpt-4",
-    cost: 0.0324,
-    tokens: 1580,
-  },
-  {
-    id: "2",
-    timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    provider: "Anthropic",
-    model: "claude-3-opus",
-    cost: 0.0456,
-    tokens: 2100,
-  },
-  {
-    id: "3",
-    timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    provider: "ChatGPT",
-    model: "gpt-3.5-turbo",
-    cost: 0.0012,
-    tokens: 450,
-  },
-  {
-    id: "4",
-    timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    provider: "OpenAI",
-    model: "gpt-4-turbo",
-    cost: 0.0289,
-    tokens: 1420,
-  },
-  {
-    id: "5",
-    timestamp: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-    provider: "Anthropic",
-    model: "claude-3-sonnet",
-    cost: 0.0234,
-    tokens: 1680,
-  },
-]
+import { KPICards } from "@/components/kpi-cards"
+import { SpendBreakdownChart } from "@/components/spend-breakdown-chart"
+import { TrendChart } from "@/components/trend-chart"
+import { ForecastChart } from "@/components/forecast-chart"
+import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
+import { ToolsTable } from "@/components/tools-table"
+import { MonthlyEntryForm } from "@/components/monthly-entry-form"
+import { formatMonthLong, type DashboardData } from "@/lib/dashboard-types"
 
 export function DashboardClient() {
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 30),
-    to: new Date(),
-  })
+  const router = useRouter()
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const timeSeriesData = generateMockTimeSeriesData()
-  const forecastData = generateMockForecastData()
+  const loadData = useCallback(
+    async (month: string | null) => {
+      setError(null)
+      try {
+        const qs = month ? `?month=${encodeURIComponent(month)}` : ""
+        const res = await fetch(`/api/dashboard${qs}`)
+
+        if (res.status === 401) {
+          router.push("/login")
+          return
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "Failed to load dashboard data")
+        }
+
+        // GET /api/dashboard returns the contract object directly (successResponse).
+        const json: DashboardData = await res.json()
+        setData(json)
+        // Sync the selected month to whatever the API resolved.
+        setSelectedMonth((prev) => prev ?? json.selectedMonth ?? null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load dashboard data")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [router]
+  )
+
+  // Initial load.
+  useEffect(() => {
+    loadData(null)
+  }, [loadData])
+
+  // Re-fetch when the user picks a different month.
+  useEffect(() => {
+    if (selectedMonth) {
+      loadData(selectedMonth)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth])
+
+  if (loading && !data) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Spinner className="h-8 w-8" />
+          <p className="text-muted-foreground">Loading AI spend data…</p>
+        </div>
+      </div>
+    )
+  }
+
+  const hasData = !!data && data.months.length > 0 && data.tools.length > 0
 
   return (
-    <div className="container mx-auto py-8 space-y-8">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Track your AI API costs and forecasts
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <DateRangePicker date={dateRange} onDateChange={setDateRange} />
-          <Link href="/settings">
-            <Button>Settings</Button>
+      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-lg">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-lg font-semibold text-foreground">AI Spend Dashboard</h1>
+              {data && data.months.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3 w-3 text-muted-foreground" />
+                  <Select
+                    value={selectedMonth || data.selectedMonth}
+                    onValueChange={(value) => setSelectedMonth(value)}
+                  >
+                    <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground focus:ring-0">
+                      <SelectValue placeholder="Select month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {data.months.map((month) => (
+                        <SelectItem key={month} value={month}>
+                          {formatMonthLong(month)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          </div>
+          <Link href="/dashboard/chatgpt">
+            <Button variant="ghost" size="sm">
+              ChatGPT entries
+            </Button>
           </Link>
         </div>
-      </div>
+      </header>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricsCard
-          title="This Month"
-          value="$2,525.90"
-          change={12.5}
-          changeLabel="from last month"
-          icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
-        />
-        <MetricsCard
-          title="Yesterday"
-          value="$87.34"
-          change={-5.2}
-          changeLabel="from previous day"
-          icon={<Calendar className="h-4 w-4 text-muted-foreground" />}
-        />
-        <MetricsCard
-          title="30-Day Forecast"
-          value="$3,124.50"
-          change={8.3}
-          changeLabel="projected growth"
-          icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
-        />
-        <MetricsCard
-          title="Top Model"
-          value="GPT-4"
-          icon={<Sparkles className="h-4 w-4 text-muted-foreground" />}
-        />
-      </div>
+      {/* Main */}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {error && (
+          <div className="mb-6 rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>
+        )}
 
-      {/* Charts Grid */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <CostTimeSeriesChart data={timeSeriesData} />
-        <ProviderBreakdownChart data={mockProviderData} />
-      </div>
+        {!hasData ? (
+          <Card className="border-border/50 bg-card/50 backdrop-blur">
+            <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <Inbox className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground">No spend data yet</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Once the collectors run, your AI spend will appear here. You can also add a manual
+                entry below for providers without an API.
+              </p>
+              <div className="mt-4 w-full max-w-lg text-left">
+                <MonthlyEntryForm onSaveSuccess={() => loadData(selectedMonth)} />
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Tabs defaultValue="dashboard" className="space-y-6">
+            <TabsList className="grid w-full max-w-lg grid-cols-4">
+              <TabsTrigger value="dashboard" className="gap-2">
+                <LayoutDashboard className="h-4 w-4" />
+                <span className="hidden sm:inline">Dashboard</span>
+              </TabsTrigger>
+              <TabsTrigger value="trends" className="gap-2">
+                <LineChartIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Trends</span>
+              </TabsTrigger>
+              <TabsTrigger value="tools" className="gap-2">
+                <TableProperties className="h-4 w-4" />
+                <span className="hidden sm:inline">Tools</span>
+              </TabsTrigger>
+              <TabsTrigger value="entry" className="gap-2">
+                <PlusCircle className="h-4 w-4" />
+                <span className="hidden sm:inline">Entry</span>
+              </TabsTrigger>
+            </TabsList>
 
-      {/* Forecast Chart */}
-      <ForecastChart data={forecastData} />
+            {/* Dashboard */}
+            <TabsContent value="dashboard" className="space-y-6">
+              <KPICards kpis={data!.kpis} />
+              <div className="grid gap-6 lg:grid-cols-2">
+                <SpendBreakdownChart tools={data!.tools} />
+                <ModelBreakdownChart byModel={data!.byModel} />
+              </div>
+              <TrendChart trends={data!.trends} />
+            </TabsContent>
 
-      {/* Recent Activity */}
-      <RecentActivityTable activities={mockRecentActivity} />
+            {/* Trends */}
+            <TabsContent value="trends" className="space-y-6">
+              <div className="grid gap-6 lg:grid-cols-2">
+                <TrendChart trends={data!.trends} />
+                <ForecastChart forecast={data!.forecast} />
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <SpendBreakdownChart tools={data!.tools} />
+                <ModelBreakdownChart byModel={data!.byModel} />
+              </div>
+            </TabsContent>
+
+            {/* Tools */}
+            <TabsContent value="tools" className="space-y-6">
+              <KPICards kpis={data!.kpis} />
+              <ToolsTable tools={data!.tools} />
+            </TabsContent>
+
+            {/* Entry */}
+            <TabsContent value="entry" className="space-y-6">
+              <MonthlyEntryForm onSaveSuccess={() => loadData(selectedMonth)} />
+            </TabsContent>
+          </Tabs>
+        )}
+      </main>
+
+      <footer className="border-t border-border/50 py-6">
+        <div className="mx-auto max-w-7xl px-4 text-center text-sm text-muted-foreground sm:px-6 lg:px-8">
+          AI Cost Dashboard
+        </div>
+      </footer>
     </div>
   )
 }
