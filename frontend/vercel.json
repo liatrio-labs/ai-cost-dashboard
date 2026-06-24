@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/anthropic", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/claude-ai", "schedule": "10 8 * * *" },
+    { "path": "/api/cron/openai", "schedule": "30 8 * * *" },
+    { "path": "/api/cron/cursor", "schedule": "40 8 * * *" },
+    { "path": "/api/cron/vercel", "schedule": "50 8 * * *" },
+    { "path": "/api/cron/refresh-aggregates", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/forecasting", "schedule": "0 9 * * *" }
+  ]
+}
