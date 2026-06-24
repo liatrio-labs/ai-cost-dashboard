@@ -5,14 +5,30 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 
 export default async function ProfilePage() {
-  const supabase = await createClient()
+  // Skip auth check in development mode
+  const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
 
-  if (!user) {
-    redirect("/login")
+  if (skipAuth) {
+    // Mock user for development
+    user = {
+      email: 'dev@local.host',
+      id: 'dev-user-id',
+      created_at: new Date().toISOString(),
+    }
+  } else {
+    const supabase = await createClient()
+
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser()
+
+    if (!authUser) {
+      redirect("/login")
+    }
+
+    user = authUser
   }
 
   return (

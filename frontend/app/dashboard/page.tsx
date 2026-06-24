@@ -3,14 +3,19 @@ import { createClient } from "@/lib/supabase/server"
 import { DashboardClient } from "./DashboardClient"
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
+  // Skip auth check in development mode
+  const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  if (!skipAuth) {
+    const supabase = await createClient()
 
-  if (!user) {
-    redirect("/login")
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      redirect("/login")
+    }
   }
 
   return <DashboardClient />

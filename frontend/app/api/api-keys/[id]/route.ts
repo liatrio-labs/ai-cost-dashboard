@@ -6,15 +6,23 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
     const supabase = await createClient()
     const { id } = await params
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    let user
+    if (skipAuth) {
+      // Mock user for development
+      user = { id: 'dev-user-id' }
+    } else {
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser()
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      if (!authUser) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      user = authUser
     }
 
     // Delete the API key (RLS will ensure user can only delete their own keys)

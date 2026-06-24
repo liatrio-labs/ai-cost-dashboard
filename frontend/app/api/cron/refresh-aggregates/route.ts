@@ -4,7 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/db';
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers';
 
 export const runtime = 'edge';
 export const maxDuration = 60;
@@ -22,7 +23,18 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[Cron] Refreshing aggregates at:', new Date().toISOString());
 
-    const supabase = createClient();
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
+        },
+      }
+    );
 
     // Call the refresh function
     const { error } = await supabase.rpc('refresh_cost_records_daily');

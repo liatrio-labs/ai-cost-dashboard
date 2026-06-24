@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import logging
+import os
 
 from app.routers import health, collection, forecast, scheduler
 from app.utils.scheduler import start_scheduler, shutdown_scheduler
@@ -28,15 +29,28 @@ async def lifespan(app: FastAPI):
     # Initialize Sentry error tracking
     init_sentry()
 
-    # Start the scheduler
-    start_scheduler()
-    logger.info("Scheduler started")
+    # Collection is driven by Vercel Cron (-> POST /api/collection/run-all) by
+    # default. The in-process APScheduler is opt-in to avoid double-running the
+    # same collectors. Set ENABLE_INTERNAL_SCHEDULER=true to run it (e.g. for a
+    # standalone deployment without Vercel Cron).
+    internal_scheduler_enabled = os.environ.get(
+        "ENABLE_INTERNAL_SCHEDULER", "false"
+    ).lower() in ("1", "true", "yes")
+
+    if internal_scheduler_enabled:
+        start_scheduler()
+        logger.info("Internal scheduler started")
+    else:
+        logger.info(
+            "Internal scheduler disabled (ENABLE_INTERNAL_SCHEDULER not set); "
+            "collection is driven by Vercel Cron"
+        )
 
     yield
 
-    # Shutdown the scheduler
-    shutdown_scheduler()
-    logger.info("Scheduler shut down")
+    if internal_scheduler_enabled:
+        shutdown_scheduler()
+        logger.info("Internal scheduler shut down")
 
     logger.info("Shutting down AI Cost Dashboard backend service...")
 

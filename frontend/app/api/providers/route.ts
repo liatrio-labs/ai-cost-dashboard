@@ -37,6 +37,9 @@ export async function GET(request: NextRequest) {
 
     if (providersError) throw providersError
 
+    // Type assertion for Supabase query result
+    const typedProviders = (providers || []) as any[]
+
     // Get user's credentials for each provider
     const { data: credentials, error: credentialsError } = await supabase
       .from("api_credentials")
@@ -46,15 +49,18 @@ export async function GET(request: NextRequest) {
 
     if (credentialsError) throw credentialsError
 
+    // Type assertion for Supabase query result
+    const typedCredentials = (credentials || []) as any[]
+
     // Mask API keys (show only last 4 chars)
-    const maskedCredentials = (credentials || []).map((cred) => ({
+    const maskedCredentials = typedCredentials.map((cred) => ({
       ...cred,
       encrypted_api_key: "***encrypted***",
       masked_key: maskApiKey(cred.encrypted_api_key),
     }))
 
     // Combine providers with credentials
-    const providersWithCredentials = (providers || []).map((provider) => ({
+    const providersWithCredentials = typedProviders.map((provider) => ({
       ...provider,
       credentials: maskedCredentials.filter((c) => c.provider_id === provider.id),
     }))
@@ -179,6 +185,7 @@ export async function DELETE(request: NextRequest) {
     // Deactivate the credential (soft delete)
     const { error: updateError } = await supabase
       .from("api_credentials")
+      // @ts-ignore - Supabase type inference issue with RLS policies
       .update({ is_active: false })
       .eq("id", credentialId)
 

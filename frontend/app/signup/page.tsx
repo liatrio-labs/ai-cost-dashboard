@@ -23,6 +23,12 @@ export default function SignupPage() {
     e.preventDefault()
     setError(null)
 
+    // Validate email domain
+    if (!email.endsWith('@liatrio.com')) {
+      setError("Only @liatrio.com email addresses are allowed")
+      return
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match")
       return
@@ -42,6 +48,10 @@ export default function SignupPage() {
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/dashboard`,
+          // Auto-confirm for development (disable email confirmation in Supabase dashboard)
+          data: {
+            email_confirmed: true
+          }
         },
       })
 
@@ -60,7 +70,7 @@ export default function SignupPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Create an account</CardTitle>
-          <CardDescription>Sign up for AI Cost Dashboard</CardDescription>
+          <CardDescription>Sign up for AI Cost Dashboard (Liatrio employees only)</CardDescription>
         </CardHeader>
         <form onSubmit={handleSignup}>
           <CardContent className="space-y-4">
@@ -74,7 +84,7 @@ export default function SignupPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="you@liatrio.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

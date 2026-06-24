@@ -1,0 +1,11 @@
+python-service/venv
+python-service/__pycache__
+python-service/.pytest_cache
+.git
+.claude
+database
+docs
+e2e
+scripts
+*.md
+.github

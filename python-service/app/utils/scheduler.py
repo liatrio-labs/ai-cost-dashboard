@@ -11,8 +11,6 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
-from app.collectors.anthropic_collector import AnthropicCollector
-from app.collectors.openai_collector import OpenAICollector
 from app.utils.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -85,153 +83,20 @@ class CollectionScheduler:
         # Keep only last 100 entries per job
         self.job_history[job_id] = self.job_history[job_id][-100:]
 
-    async def collect_anthropic_data(self):
+    async def collect_provider(self, provider_name: str):
         """
-        Collect data from all active Anthropic API credentials.
-        Runs hourly at :05 to avoid top-of-hour traffic.
+        Collect a single provider using its env-configured org key (delegates to
+        the shared env-driven runner). Imported lazily to avoid import cycles.
         """
-        logger.info("Starting scheduled Anthropic data collection")
+        from app.collectors.runner import run_collection_for_provider
 
-        try:
-            supabase = get_supabase_client()
-
-            # Get all active Anthropic credentials
-            provider_response = supabase.from_("providers").select("id").eq("name", "anthropic").single().execute()
-
-            if not provider_response.data:
-                logger.warning("Anthropic provider not found in database")
-                return
-
-            provider_id = provider_response.data["id"]
-
-            # Get all active credentials for Anthropic
-            creds_response = (
-                supabase.from_("api_credentials")
-                .select("user_id, encrypted_api_key")
-                .eq("provider_id", provider_id)
-                .eq("is_active", True)
-                .execute()
-            )
-
-            credentials = creds_response.data or []
-            logger.info(f"Found {len(credentials)} active Anthropic credentials")
-
-            success_count = 0
-            error_count = 0
-
-            # Collect data for each user
-            for cred in credentials:
-                try:
-                    user_id = cred["user_id"]
-                    api_key = cred["encrypted_api_key"]  # TODO: Decrypt
-
-                    logger.info(f"Collecting Anthropic data for user {user_id}")
-
-                    async with AnthropicCollector(
-                        api_key=api_key,
-                        user_id=user_id,
-                        provider_id=provider_id
-                    ) as collector:
-                        result = await collector.run()
-
-                        if result["status"] == "success":
-                            success_count += 1
-                            logger.info(
-                                f"Anthropic collection succeeded for user {user_id}: "
-                                f"{result.get('records_stored', 0)} records stored"
-                            )
-                        else:
-                            error_count += 1
-                            logger.error(
-                                f"Anthropic collection failed for user {user_id}: "
-                                f"{result.get('error', 'Unknown error')}"
-                            )
-
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"Failed to collect Anthropic data for user {cred.get('user_id')}: {str(e)}")
-
-            logger.info(
-                f"Anthropic collection completed: {success_count} succeeded, {error_count} failed"
-            )
-
-        except Exception as e:
-            logger.error(f"Anthropic collection job failed: {str(e)}")
-            raise
-
-    async def collect_openai_data(self):
-        """
-        Collect data from all active OpenAI API credentials.
-        Runs every 6 hours (less frequent than Anthropic).
-        """
-        logger.info("Starting scheduled OpenAI data collection")
-
-        try:
-            supabase = get_supabase_client()
-
-            # Get OpenAI provider
-            provider_response = supabase.from_("providers").select("id").eq("name", "openai").single().execute()
-
-            if not provider_response.data:
-                logger.warning("OpenAI provider not found in database")
-                return
-
-            provider_id = provider_response.data["id"]
-
-            # Get all active credentials for OpenAI
-            creds_response = (
-                supabase.from_("api_credentials")
-                .select("user_id, encrypted_api_key")
-                .eq("provider_id", provider_id)
-                .eq("is_active", True)
-                .execute()
-            )
-
-            credentials = creds_response.data or []
-            logger.info(f"Found {len(credentials)} active OpenAI credentials")
-
-            success_count = 0
-            error_count = 0
-
-            # Collect data for each user
-            for cred in credentials:
-                try:
-                    user_id = cred["user_id"]
-                    api_key = cred["encrypted_api_key"]  # TODO: Decrypt
-
-                    logger.info(f"Collecting OpenAI data for user {user_id}")
-
-                    async with OpenAICollector(
-                        api_key=api_key,
-                        user_id=user_id,
-                        provider_id=provider_id
-                    ) as collector:
-                        result = await collector.run()
-
-                        if result["status"] == "success":
-                            success_count += 1
-                            logger.info(
-                                f"OpenAI collection succeeded for user {user_id}: "
-                                f"{result.get('records_stored', 0)} records stored"
-                            )
-                        else:
-                            error_count += 1
-                            logger.error(
-                                f"OpenAI collection failed for user {user_id}: "
-                                f"{result.get('error', 'Unknown error')}"
-                            )
-
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"Failed to collect OpenAI data for user {cred.get('user_id')}: {str(e)}")
-
-            logger.info(
-                f"OpenAI collection completed: {success_count} succeeded, {error_count} failed"
-            )
-
-        except Exception as e:
-            logger.error(f"OpenAI collection job failed: {str(e)}")
-            raise
+        logger.info(f"Starting scheduled collection for {provider_name}")
+        result = await run_collection_for_provider(provider_name)
+        logger.info(
+            f"{provider_name} collection: status={result.get('status')}, "
+            f"stored={result.get('records_stored', 0)}"
+        )
+        return result
 
     async def refresh_aggregates(self):
         """
@@ -270,35 +135,29 @@ class CollectionScheduler:
 
     def schedule_jobs(self):
         """
-        Schedule all data collection and processing jobs.
+        Schedule all data collection and processing jobs (fallback path; only
+        used when ENABLE_INTERNAL_SCHEDULER is set — Vercel Cron is primary).
 
         Jobs:
-        - Anthropic: Every hour at :05
-        - OpenAI: Every 6 hours
+        - One daily collection job per provider (env-keyed), staggered
         - Aggregates: Every 15 minutes
-        - Forecasting: Daily at midnight UTC
+        - Forecasting: Daily
         """
-        # Anthropic collection: Every hour at :05 (avoid top-of-hour traffic)
-        self.scheduler.add_job(
-            self.collect_anthropic_data,
-            trigger=CronTrigger(minute=5, timezone=timezone.utc),
-            id="anthropic_collection",
-            name="Anthropic Data Collection",
-            replace_existing=True,
-            max_instances=1  # Prevent overlapping runs
-        )
-        logger.info("Scheduled Anthropic collection: Every hour at :05")
+        from app.collectors.runner import COLLECTORS
 
-        # OpenAI collection: Every 6 hours (at 0, 6, 12, 18)
-        self.scheduler.add_job(
-            self.collect_openai_data,
-            trigger=CronTrigger(hour="0,6,12,18", minute=10, timezone=timezone.utc),
-            id="openai_collection",
-            name="OpenAI Data Collection",
-            replace_existing=True,
-            max_instances=1
-        )
-        logger.info("Scheduled OpenAI collection: Every 6 hours at :10")
+        # One daily collection job per provider, staggered through the 08:00 hour.
+        for index, provider_name in enumerate(COLLECTORS):
+            minute = (index * 10) % 60
+            self.scheduler.add_job(
+                self.collect_provider,
+                trigger=CronTrigger(hour=8, minute=minute, timezone=timezone.utc),
+                id=f"{provider_name}_collection",
+                name=f"{provider_name} Data Collection",
+                kwargs={"provider_name": provider_name},
+                replace_existing=True,
+                max_instances=1,  # Prevent overlapping runs
+            )
+            logger.info(f"Scheduled {provider_name} collection: daily at 08:{minute:02d} UTC")
 
         # Aggregate refresh: Every 15 minutes
         self.scheduler.add_job(
@@ -385,14 +244,13 @@ class CollectionScheduler:
 
         try:
             # Execute the job function directly
-            if job_id == "anthropic_collection":
-                await self.collect_anthropic_data()
-            elif job_id == "openai_collection":
-                await self.collect_openai_data()
-            elif job_id == "aggregate_refresh":
+            if job_id == "aggregate_refresh":
                 await self.refresh_aggregates()
             elif job_id == "forecasting":
                 await self.run_forecasting()
+            elif job_id.endswith("_collection"):
+                provider_name = job_id[: -len("_collection")]
+                await self.collect_provider(provider_name)
             else:
                 raise ValueError(f"Unknown job: {job_id}")
 

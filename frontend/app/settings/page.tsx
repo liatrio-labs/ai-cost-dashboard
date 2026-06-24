@@ -29,6 +29,19 @@ export default function SettingsPage() {
   }, [])
 
   const checkAuth = async () => {
+    // Skip auth check in development mode
+    const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
+
+    if (skipAuth) {
+      // Mock user for development
+      setUser({
+        email: 'dev@local.host',
+        id: 'dev-user-id',
+        created_at: new Date().toISOString(),
+      })
+      return
+    }
+
     const supabase = createClient()
     const {
       data: { user },

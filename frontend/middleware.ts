@@ -2,6 +2,14 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function middleware(request: NextRequest) {
+  // Skip authentication in local development mode
+  const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
+
+  if (skipAuth) {
+    console.log('[Dev Mode] Authentication bypassed')
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })

@@ -21,7 +21,7 @@ interface ToastContextValue {
 
 const ToastContext = React.createContext<ToastContextValue | undefined>(undefined)
 
-export function ToastProvider({ children }: { children: React.Node }) {
+export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<Toast[]>([])
 
   const showToast = React.useCallback(

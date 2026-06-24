@@ -1,46 +1,19 @@
 /**
- * Vercel Cron endpoint for Anthropic data collection
- * Triggered hourly at :05 by Vercel Cron Jobs
+ * Vercel Cron endpoint for Anthropic data collection.
+ *
+ * Calls the Python backend to collect cost/usage data for every active
+ * Anthropic credential. Scheduled daily in vercel.json.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from "next/server"
+import { triggerProviderCollection } from "@/lib/collection"
 
-export const runtime = 'edge';
-export const maxDuration = 300; // 5 minutes max
+// Node runtime: this route makes an authenticated server-to-server fetch and
+// reads server-only secrets, which the edge runtime is not suited for.
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 minutes max
 
 export async function GET(request: NextRequest) {
-  // Verify cron secret for security
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
-  try {
-    // TODO: Call Python backend or implement collection logic here
-    // For now, this is a placeholder that Vercel Cron will call
-
-    console.log('[Cron] Anthropic collection triggered at:', new Date().toISOString());
-
-    // In production, this would call your data collection logic
-    // Either by:
-    // 1. Calling a separate Python service API
-    // 2. Implementing collection directly in TypeScript
-    // 3. Using a serverless function deployment
-
-    return NextResponse.json({
-      success: true,
-      provider: 'anthropic',
-      message: 'Collection triggered successfully',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('[Cron] Anthropic collection failed:', error);
-    return NextResponse.json(
-      { error: 'Collection failed', details: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
+  return triggerProviderCollection(request, "anthropic")
 }

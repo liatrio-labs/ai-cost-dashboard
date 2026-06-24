@@ -5,8 +5,6 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
 
-from app.utils.supabase_client import get_supabase_client
-
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +24,11 @@ class BaseCollector(ABC):
             api_key: API key for the provider (encrypted)
             user_id: User ID who owns this API key
         """
+        # Imported lazily to avoid a circular import at module load
+        # (app.utils package __init__ imports the scheduler, which imports the
+        # collectors, which import this base module).
+        from app.utils.supabase_client import get_supabase_client
+
         self.api_key = api_key
         self.user_id = user_id
         self.supabase = get_supabase_client()
@@ -68,15 +71,15 @@ class BaseCollector(ABC):
             return 0
 
         try:
-            # Add user_id to each record
+            # Collectors emit records already shaped for the cost_records schema
+            # (provider_id, timestamp, model_name, cost_usd, collection_method,
+            # metadata, ...). Ensure user_id is present as a safety net, but do
+            # NOT inject columns that don't exist on the table.
             for record in records:
-                record["user_id"] = self.user_id
-                record["provider"] = self.provider_name
-                if "collected_at" not in record:
-                    record["collected_at"] = datetime.utcnow().isoformat()
+                record.setdefault("user_id", self.user_id)
 
-            # Insert records into costs table
-            response = self.supabase.from_("costs").insert(records).execute()
+            # Insert into the partitioned cost_records table.
+            response = self.supabase.from_("cost_records").insert(records).execute()
 
             stored_count = len(response.data) if response.data else 0
             self.logger.info(

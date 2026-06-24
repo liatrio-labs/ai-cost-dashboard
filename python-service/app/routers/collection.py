@@ -1,233 +1,115 @@
-"""Data collection endpoints for manual triggering."""
+"""
+Data collection endpoints.
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import Optional
-from datetime import datetime, timedelta
+Collection uses org-level API keys from environment secrets and attributes all
+records to a single owner user (see app.collectors.runner). There is no
+per-user credential storage or decryption in this path.
+"""
+
+import os
 import logging
 
-from app.collectors.anthropic_collector import AnthropicCollector
-from app.collectors.openai_collector import OpenAICollector
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
+
+from app.collectors.runner import COLLECTORS, run_collection_for_provider
 from app.utils.supabase_client import get_supabase_client
 
 router = APIRouter(prefix="/api/collection", tags=["collection"])
 logger = logging.getLogger(__name__)
 
 
-class CollectionRequest(BaseModel):
-    """Request model for manual collection trigger."""
-    provider: str = Field(..., description="Provider name (anthropic, openai)")
-    user_id: str = Field(..., description="User ID who owns the API key")
+def verify_trigger_secret(authorization: str = Header(default="")) -> None:
+    """
+    Authenticate scheduler/cron callers (e.g. Vercel Cron) via a shared secret.
+
+    Expects ``Authorization: Bearer <secret>`` matching COLLECTION_TRIGGER_SECRET
+    (falls back to CRON_SECRET so the same value can be shared with the Vercel
+    cron routes).
+    """
+    secret = os.environ.get("COLLECTION_TRIGGER_SECRET") or os.environ.get("CRON_SECRET")
+    if not secret:
+        raise HTTPException(
+            status_code=500,
+            detail="Collection trigger secret is not configured on the server",
+        )
+    if authorization != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+class RunAllRequest(BaseModel):
+    """Request model for triggering collection of a provider."""
+    provider: str = Field(..., description=f"Provider name (one of: {', '.join(COLLECTORS)})")
     backfill: bool = Field(default=False, description="Whether to backfill historical data")
     backfill_days: int = Field(default=90, description="Number of days to backfill (if backfill=True)")
 
 
-class CollectionResponse(BaseModel):
-    """Response model for collection operations."""
-    status: str
-    provider: str
-    records_collected: int
-    records_stored: int
-    timestamp: str
-    error: Optional[str] = None
-
-
-async def get_provider_credentials(user_id: str, provider_name: str) -> tuple[str, str]:
+@router.post("/run-all", dependencies=[Depends(verify_trigger_secret)])
+async def run_all_collection(request: RunAllRequest):
     """
-    Retrieve API credentials for a user and provider.
+    Trigger collection for a provider using its env-configured org key.
 
-    Args:
-        user_id: User ID
-        provider_name: Provider name (anthropic, openai)
-
-    Returns:
-        Tuple of (api_key, provider_id)
-
-    Raises:
-        HTTPException: If credentials not found or invalid
-    """
-    try:
-        supabase = get_supabase_client()
-
-        # Get provider ID
-        provider_response = supabase.from_("providers").select("id").eq("name", provider_name).single().execute()
-
-        if not provider_response.data:
-            raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' not found")
-
-        provider_id = provider_response.data["id"]
-
-        # Get user's API credentials for this provider
-        creds_response = (
-            supabase.from_("api_credentials")
-            .select("encrypted_api_key")
-            .eq("user_id", user_id)
-            .eq("provider_id", provider_id)
-            .eq("is_active", True)
-            .single()
-            .execute()
-        )
-
-        if not creds_response.data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No active API credentials found for user {user_id} and provider {provider_name}"
-            )
-
-        # TODO: Decrypt the API key using encryption utility
-        # For now, assume keys are stored in plain text (development only)
-        api_key = creds_response.data["encrypted_api_key"]
-
-        return api_key, provider_id
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to retrieve credentials: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve credentials: {str(e)}")
-
-
-@router.post("/trigger", response_model=CollectionResponse)
-async def trigger_collection(request: CollectionRequest):
-    """
-    Manually trigger data collection for a specific provider and user.
-
-    This endpoint allows manual triggering of data collection, useful for:
-    - Testing collector implementation
-    - On-demand data refresh
-    - Backfilling historical data
-
-    Args:
-        request: Collection request with provider and user info
-
-    Returns:
-        CollectionResponse with operation results
+    Authenticated via the COLLECTION_TRIGGER_SECRET / CRON_SECRET bearer token.
+    This is the endpoint invoked by the Vercel Cron routes for daily collection.
+    Returns a structured summary (status may be success / skipped / error).
     """
     logger.info(
-        f"Manual collection triggered for provider={request.provider}, "
-        f"user={request.user_id}, backfill={request.backfill}"
+        f"Scheduled collection triggered for provider={request.provider}, "
+        f"backfill={request.backfill}"
     )
-
-    try:
-        # Get user's API credentials
-        api_key, provider_id = await get_provider_credentials(request.user_id, request.provider)
-
-        # Route to appropriate collector
-        if request.provider == "anthropic":
-            async with AnthropicCollector(
-                api_key=api_key,
-                user_id=request.user_id,
-                provider_id=provider_id
-            ) as collector:
-                if request.backfill:
-                    result = await collector.backfill_historical_data(days=request.backfill_days)
-                else:
-                    result = await collector.run()
-
-                return CollectionResponse(
-                    status=result["status"],
-                    provider=result["provider"],
-                    records_collected=result.get("records_collected", 0),
-                    records_stored=result.get("records_stored", 0),
-                    timestamp=result.get("timestamp", datetime.utcnow().isoformat()),
-                    error=result.get("error")
-                )
-
-        elif request.provider == "openai":
-            async with OpenAICollector(
-                api_key=api_key,
-                user_id=request.user_id,
-                provider_id=provider_id
-            ) as collector:
-                if request.backfill:
-                    result = await collector.backfill_historical_data(days=request.backfill_days)
-                else:
-                    result = await collector.run()
-
-                return CollectionResponse(
-                    status=result["status"],
-                    provider=result["provider"],
-                    records_collected=result.get("records_collected", 0),
-                    records_stored=result.get("records_stored", 0),
-                    timestamp=result.get("timestamp", datetime.utcnow().isoformat()),
-                    error=result.get("error")
-                )
-
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Provider '{request.provider}' not supported. Supported: anthropic, openai"
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Collection failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Collection failed: {str(e)}")
+    return await run_collection_for_provider(
+        provider_name=request.provider,
+        backfill=request.backfill,
+        backfill_days=request.backfill_days,
+    )
 
 
 @router.get("/status/{provider}")
-async def get_collection_status(provider: str, user_id: str):
+async def get_collection_status(provider: str):
     """
-    Get the last collection status for a provider and user.
-
-    Args:
-        provider: Provider name
-        user_id: User ID
-
-    Returns:
-        Last collection timestamp and record counts
+    Return the latest collection status for a provider (shared/owner data).
     """
+    if provider not in COLLECTORS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported provider. Supported: {', '.join(COLLECTORS)}",
+        )
+
     try:
         supabase = get_supabase_client()
-
-        # Get provider ID
-        provider_response = supabase.from_("providers").select("id").eq("name", provider).single().execute()
-
+        provider_response = (
+            supabase.from_("providers").select("id").eq("name", provider).single().execute()
+        )
         if not provider_response.data:
             raise HTTPException(status_code=404, detail=f"Provider '{provider}' not found")
-
         provider_id = provider_response.data["id"]
 
-        # Get latest record for this user and provider
-        latest_record = (
+        latest = (
             supabase.from_("cost_records")
             .select("timestamp, created_at, model_name, cost_usd")
-            .eq("user_id", user_id)
             .eq("provider_id", provider_id)
             .order("timestamp", desc=True)
             .limit(1)
             .execute()
         )
+        if not latest.data:
+            return {"provider": provider, "status": "no_data", "message": "No data collected yet"}
 
-        if not latest_record.data:
-            return {
-                "provider": provider,
-                "user_id": user_id,
-                "status": "no_data",
-                "message": "No data collected yet"
-            }
-
-        record = latest_record.data[0]
-
-        # Count total records
+        record = latest.data[0]
         count_response = (
             supabase.from_("cost_records")
             .select("count", count="exact")
-            .eq("user_id", user_id)
             .eq("provider_id", provider_id)
             .execute()
         )
-
         return {
             "provider": provider,
-            "user_id": user_id,
             "status": "active",
             "last_collection_timestamp": record["timestamp"],
             "last_collection_created_at": record["created_at"],
             "total_records": count_response.count,
             "latest_model": record["model_name"],
-            "latest_cost": float(record["cost_usd"])
+            "latest_cost": float(record["cost_usd"]),
         }
 
     except HTTPException:
@@ -235,46 +117,3 @@ async def get_collection_status(provider: str, user_id: str):
     except Exception as e:
         logger.error(f"Failed to get collection status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
-
-
-@router.get("/subscription/{provider}")
-async def get_subscription_info(provider: str, user_id: str):
-    """
-    Get subscription information for OpenAI provider.
-
-    Args:
-        provider: Provider name (currently only 'openai' supported)
-        user_id: User ID
-
-    Returns:
-        Subscription limits and billing info
-    """
-    if provider != "openai":
-        raise HTTPException(
-            status_code=400,
-            detail="Subscription info only available for OpenAI provider"
-        )
-
-    try:
-        # Get user's API credentials
-        api_key, provider_id = await get_provider_credentials(user_id, provider)
-
-        # Fetch subscription info
-        async with OpenAICollector(
-            api_key=api_key,
-            user_id=user_id,
-            provider_id=provider_id
-        ) as collector:
-            subscription = await collector.get_subscription_limits()
-
-            return {
-                "provider": provider,
-                "user_id": user_id,
-                **subscription
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get subscription info: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get subscription info: {str(e)}")

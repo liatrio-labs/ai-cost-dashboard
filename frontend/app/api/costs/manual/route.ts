@@ -101,7 +101,7 @@ async function handleSingleEntry(
       request_count: entry.request_count,
       collection_method: "manual_entry",
       metadata: entry.metadata,
-    })
+    } as any)
     .select()
     .single()
 
@@ -163,7 +163,7 @@ async function handleBulkEntry(
   // Bulk insert (Supabase supports up to 1000 rows per insert)
   const { data, error, count } = await supabase
     .from("cost_records")
-    .insert(records)
+    .insert(records as any)
     .select()
 
   if (error) {

@@ -24,9 +24,10 @@ export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
+    // Authenticate user. Data is shared org-wide (single owner attribution), so
+    // we gate on being logged in but do NOT filter rows by the current user.
     const cookieStore = await cookies()
-    const userId = await requireAuth(cookieStore)
+    await requireAuth(cookieStore)
 
     // Parse and validate query parameters
     const query = parseSearchParams(request.nextUrl, SummaryQuerySchema)
@@ -52,7 +53,6 @@ export async function GET(request: NextRequest) {
         total_requests
       `
       )
-      .eq("user_id", userId)
       .gte("date", start.toISOString().split("T")[0])
       .lte("date", end.toISOString().split("T")[0])
 
@@ -65,7 +65,10 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error
 
-    if (!records || records.length === 0) {
+    // Type assertion for Supabase query result
+    const typedRecords = records as any[]
+
+    if (!typedRecords || typedRecords.length === 0) {
       return successResponse({
         total_cost: 0,
         total_requests: 0,
@@ -89,7 +92,7 @@ export async function GET(request: NextRequest) {
     const byModel = new Map<string, { cost: number; requests: number }>()
     const byDay = new Map<string, number>()
 
-    for (const record of records) {
+    for (const record of typedRecords) {
       totalCost += record.total_cost_usd
       totalRequests += record.total_requests
       totalTokens += record.total_tokens
@@ -129,8 +132,9 @@ export async function GET(request: NextRequest) {
       .in("id", providerIds)
 
     const providerMap = new Map<string, string>()
-    if (providers) {
-      for (const provider of providers) {
+    const typedProviders = providers as any[]
+    if (typedProviders) {
+      for (const provider of typedProviders) {
         providerMap.set(provider.id, provider.display_name)
       }
     }

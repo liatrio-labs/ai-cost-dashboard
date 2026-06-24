@@ -23,9 +23,10 @@ export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
+    // Authenticate user. Data is shared org-wide (single owner attribution), so
+    // we gate on being logged in but do NOT filter rows by the current user.
     const cookieStore = await cookies()
-    const userId = await requireAuth(cookieStore)
+    await requireAuth(cookieStore)
 
     // Parse and validate query parameters
     const query = parseSearchParams(request.nextUrl, CostQuerySchema)
@@ -57,7 +58,6 @@ export async function GET(request: NextRequest) {
           record_count
         `
         )
-        .eq("user_id", userId)
         .gte("date", start.toISOString().split("T")[0])
         .lte("date", end.toISOString().split("T")[0])
         .order("date", { ascending: false })
@@ -98,7 +98,6 @@ export async function GET(request: NextRequest) {
           created_at
         `
         )
-        .eq("user_id", userId)
         .gte("timestamp", start.toISOString())
         .lte("timestamp", end.toISOString())
         .order("timestamp", { ascending: false })
