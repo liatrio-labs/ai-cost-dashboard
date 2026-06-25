@@ -1,7 +1,10 @@
 /**
- * Pure transform tests for the Cursor collector (mirrors the Python
- * test_cursor_collector.py suite). No network — `transform` is called directly
- * with sample arrays.
+ * Pure transform tests for the Cursor collector. No network — `transform` is
+ * called directly with sample usage-event arrays.
+ *
+ * The collector builds one record per (UTC day x member email x model) from
+ * /teams/filtered-usage-events, carrying real chargedCents -> dollars and
+ * token counts.
  */
 
 import { transform } from "./cursor"
@@ -13,164 +16,157 @@ const ctx = {
   teamId: "team-42",
 }
 
-const period = {
-  start: "2026-06-01T00:00:00.000Z",
-  end: "2026-06-24T00:00:00.000Z",
-}
+// 2026-06-22 12:00 UTC and 2026-06-23 09:00 UTC in epoch ms.
+const TS_JUN22 = Date.UTC(2026, 5, 22, 12, 0, 0)
+const TS_JUN23 = Date.UTC(2026, 5, 23, 9, 0, 0)
+const DAY_JUN22 = new Date(Date.UTC(2026, 5, 22)).toISOString()
+const DAY_JUN23 = new Date(Date.UTC(2026, 5, 23)).toISOString()
 
-function sampleUsage() {
+function sampleEvents() {
   return [
     {
-      userId: 1,
-      day: "2026-06-22",
-      date: 1750550400000,
-      email: "alice@example.com",
-      isActive: true,
-      chatRequests: 5,
-      composerRequests: 2,
-      agentRequests: 1,
-      cmdkUsages: 1,
-      mostUsedModel: "claude-4-sonnet",
+      timestamp: String(TS_JUN22),
+      userEmail: "alice@example.com",
+      model: "claude-4-sonnet",
+      kind: "agent",
+      isChargeable: true,
+      chargedCents: 1500, // $15.00
+      isTokenBasedCall: true,
+      tokenUsage: {
+        inputTokens: 1000,
+        outputTokens: 200,
+        cacheWriteTokens: 50,
+        cacheReadTokens: 80,
+        totalCents: 1500,
+      },
     },
     {
-      userId: 1,
-      day: "2026-06-23",
-      date: 1750636800000,
-      email: "alice@example.com",
-      isActive: true,
-      chatRequests: 3,
-      composerRequests: 0,
-      agentRequests: 0,
-      cmdkUsages: 0,
-      mostUsedModel: "claude-4-sonnet",
+      // same day + member + model -> aggregates with the first event
+      timestamp: String(TS_JUN22 + 60_000),
+      userEmail: "alice@example.com",
+      model: "claude-4-sonnet",
+      kind: "chat",
+      isChargeable: true,
+      chargedCents: 500, // $5.00
+      isTokenBasedCall: true,
+      tokenUsage: {
+        inputTokens: 300,
+        outputTokens: 100,
+        cacheWriteTokens: 0,
+        cacheReadTokens: 0,
+        totalCents: 500,
+      },
+    },
+    {
+      // alice, different day -> separate record
+      timestamp: String(TS_JUN23),
+      userEmail: "alice@example.com",
+      model: "claude-4-sonnet",
+      kind: "agent",
+      isChargeable: true,
+      chargedCents: 250, // $2.50
+      isTokenBasedCall: true,
+      tokenUsage: { inputTokens: 100, outputTokens: 20 },
+    },
+    {
+      // bob, non-token, non-chargeable event (subscription-included)
+      timestamp: String(TS_JUN22),
+      userEmail: "bob@example.com",
+      model: "gpt-5",
+      kind: "chat",
+      isChargeable: false,
+      chargedCents: 0,
+      isTokenBasedCall: false,
     },
   ]
 }
 
-function sampleSpend() {
-  return [
-    {
-      userId: 1,
-      name: "Alice",
-      email: "alice@example.com",
-      role: "member",
-      spendCents: 4250, // -> $42.50
-      overallSpendCents: 4250,
-      fastPremiumRequests: 100,
-    },
-    {
-      userId: 2,
-      name: "Bob",
-      email: "bob@example.com",
-      role: "member",
-      spendCents: 0, // -> $0.00, no usage rows
-      overallSpendCents: 0,
-      fastPremiumRequests: 7,
-    },
-  ]
-}
-
-function byEmail(records: CostRecord[]): Record<string, CostRecord> {
+function byKey(records: CostRecord[]): Record<string, CostRecord> {
   const out: Record<string, CostRecord> = {}
   for (const r of records) {
-    out[r.metadata.member_email as string] = r
+    out[`${r.timestamp}|${r.metadata.member_email}|${r.model_name}`] = r
   }
   return out
 }
 
 describe("cursor transform", () => {
-  test("cents to dollars", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
-    const m = byEmail(records)
-    expect(m["alice@example.com"].cost_usd).toBeCloseTo(42.5)
-    expect(m["bob@example.com"].cost_usd).toBeCloseTo(0.0)
+  test("aggregates by day x member x model; cents -> dollars", () => {
+    const records = transform(sampleEvents(), ctx)
+    const m = byKey(records)
+    const aliceJun22 = m[`${DAY_JUN22}|alice@example.com|claude-4-sonnet`]
+    const aliceJun23 = m[`${DAY_JUN23}|alice@example.com|claude-4-sonnet`]
+    expect(aliceJun22.cost_usd).toBeCloseTo(20.0) // 1500 + 500 cents
+    expect(aliceJun23.cost_usd).toBeCloseTo(2.5)
   })
 
-  test("model_name never null", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
-    const m = byEmail(records)
-    // Alice has a model from usage rows.
-    expect(m["alice@example.com"].model_name).toBe("claude-4-sonnet")
-    // Bob has no usage rows -> falls back to "cursor", never null.
-    expect(m["bob@example.com"].model_name).toBe("cursor")
-    for (const r of records) {
-      expect(r.model_name).not.toBeNull()
-    }
+  test("token counts summed; tokens_used = input + output", () => {
+    const records = transform(sampleEvents(), ctx)
+    const a = byKey(records)[`${DAY_JUN22}|alice@example.com|claude-4-sonnet`]
+    expect(a.input_tokens).toBe(1300) // 1000 + 300
+    expect(a.output_tokens).toBe(300) // 200 + 100
+    expect(a.tokens_used).toBe(1600)
+    expect(a.metadata.cache_write_tokens).toBe(50)
+    expect(a.metadata.cache_read_tokens).toBe(80)
   })
 
-  test("member_email in metadata", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
-    const emails = new Set(records.map((r) => r.metadata.member_email))
-    expect(emails).toEqual(
-      new Set(["alice@example.com", "bob@example.com"])
+  test("request_count = number of events in the group", () => {
+    const records = transform(sampleEvents(), ctx)
+    const a = byKey(records)[`${DAY_JUN22}|alice@example.com|claude-4-sonnet`]
+    expect(a.request_count).toBe(2)
+    expect(a.metadata.chargeable_event_count).toBe(2)
+  })
+
+  test("model_name never null; non-token zero-cost event kept", () => {
+    const records = transform(sampleEvents(), ctx)
+    const bob = byKey(records)[`${DAY_JUN22}|bob@example.com|gpt-5`]
+    expect(bob).toBeDefined()
+    expect(bob.model_name).toBe("gpt-5")
+    expect(bob.cost_usd).toBeCloseTo(0)
+    expect(bob.request_count).toBe(1)
+    for (const r of records) expect(r.model_name).not.toBeNull()
+  })
+
+  test("missing model falls back to 'cursor'", () => {
+    const records = transform(
+      [{ timestamp: String(TS_JUN22), userEmail: "x@example.com", chargedCents: 100 }],
+      ctx
     )
+    expect(records[0].model_name).toBe("cursor")
   })
 
-  test("collection_method, team_id, provider, ids", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
+  test("skips events with unparseable timestamp", () => {
+    const records = transform(
+      [
+        { timestamp: "not-a-number", userEmail: "x@example.com", chargedCents: 100 },
+        { timestamp: String(TS_JUN22), userEmail: "y@example.com", chargedCents: 100 },
+      ],
+      ctx
+    )
+    const emails = new Set(records.map((r) => r.metadata.member_email))
+    expect(emails).toEqual(new Set(["y@example.com"]))
+  })
+
+  test("collection_method, team_id, provider, ids, timestamp", () => {
+    const records = transform(sampleEvents(), ctx)
     for (const r of records) {
       expect(r.collection_method).toBe("api_automated")
       expect(r.metadata.team_id).toBe("team-42")
       expect(r.metadata.provider).toBe("cursor")
       expect(r.provider_id).toBe("provider-cursor")
       expect(r.user_id).toBe("user-123")
-    }
-  })
-
-  test("request_count aggregated from usage", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
-    const m = byEmail(records)
-    // Alice: day1 (5+2+1+1=9) + day2 (3) = 12
-    expect(m["alice@example.com"].request_count).toBe(12)
-    // Bob: no usage -> falls back to fastPremiumRequests (7)
-    expect(m["bob@example.com"].request_count).toBe(7)
-  })
-
-  test("token fields are null", () => {
-    const records = transform(sampleSpend(), sampleUsage(), ctx, period)
-    for (const r of records) {
-      expect(r.tokens_used).toBeNull()
-      expect(r.input_tokens).toBeNull()
-      expect(r.output_tokens).toBeNull()
-    }
-  })
-
-  test("timestamp is ISO and period metadata recorded", () => {
-    const records = transform(sampleSpend(), [], ctx, period)
-    for (const r of records) {
-      // Parses back as a valid date.
       expect(Number.isNaN(Date.parse(r.timestamp))).toBe(false)
-      expect(r.metadata.period_start).toBe(period.start)
-      expect(r.metadata.period_end).toBe(period.end)
+      // timestamp is UTC-midnight
+      expect(r.timestamp.endsWith("T00:00:00.000Z")).toBe(true)
     }
   })
 
-  test("falls back to overallSpendCents", () => {
-    const spend = [
-      {
-        email: "carol@example.com",
-        overallSpendCents: 999, // spendCents missing
-        fastPremiumRequests: 1,
-      },
-    ]
-    const records = transform(spend, [], ctx, period)
-    expect(records[0].cost_usd).toBeCloseTo(9.99)
-  })
-
-  test("skips unparseable spend row", () => {
-    const spend = [
-      { email: "bad@example.com", spendCents: "not-a-number" },
-      { email: "good@example.com", spendCents: 100 },
-    ]
-    const records = transform(spend, [], ctx, period)
-    const emails = new Set(records.map((r) => r.metadata.member_email))
-    expect(emails).toEqual(new Set(["good@example.com"]))
-    expect(records[0].cost_usd).toBeCloseTo(1.0)
-  })
-
-  test("missing request count defaults to one", () => {
-    const spend = [{ email: "dave@example.com", spendCents: 500 }] // no fastPremiumRequests
-    const records = transform(spend, [], ctx, period)
-    expect(records[0].request_count).toBe(1)
+  test("reconciliation: member_cycle_spend_cents annotated from spend map", () => {
+    const records = transform(sampleEvents(), ctx, {
+      "alice@example.com": 2250,
+    })
+    const a = byKey(records)[`${DAY_JUN22}|alice@example.com|claude-4-sonnet`]
+    const bob = byKey(records)[`${DAY_JUN22}|bob@example.com|gpt-5`]
+    expect(a.metadata.member_cycle_spend_cents).toBe(2250)
+    expect(bob.metadata.member_cycle_spend_cents).toBeNull()
   })
 })
