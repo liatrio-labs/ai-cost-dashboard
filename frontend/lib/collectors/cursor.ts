@@ -222,8 +222,15 @@ async function collect(
     fetchSpend(ctx.apiKey),
   ])
 
+  // /teams/spend is CUMULATIVE current-cycle spend (not per-day history), so
+  // stamp every run at the same stable daily timestamp (today, UTC midnight).
+  // Re-pulls then idempotently replace today's snapshot instead of piling up
+  // duplicates at shifting period-starts.
+  const stampDay = new Date(
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate())
+  ).toISOString()
   return transform(spendRows, usageRows, ctx, {
-    start: start.toISOString(),
+    start: stampDay,
     end: end.toISOString(),
   })
 }
