@@ -2,13 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus, RefreshCw } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus, RefreshCw, LogOut } from "lucide-react"
 
+import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { MonthlyEntryForm } from "@/components/monthly-entry-form"
+import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
+import { ManageEntries } from "@/components/admin/manage-entries"
 
 // Providers that have an automated collector (the "Pull" list). Manual/seat
 // tools added via the admin form below are NOT pullable and don't appear here.
@@ -36,22 +40,24 @@ interface PullResult {
 }
 
 export function AdminClient() {
+  const router = useRouter()
   const [backfill, setBackfill] = useState(false)
   const [results, setResults] = useState<Record<string, PullResult>>({})
 
-  // Providers for the manual-entry dropdown; refreshed after adding a tool.
+  // Providers: id+name for the entry dropdown, plus raw rows for "Manage tools".
   const [providers, setProviders] = useState<ProviderOption[]>([])
+  const [toolRows, setToolRows] = useState<ToolRow[]>([])
+  // Bumped to make the entries list reload after a new entry/tool change.
+  const [entriesReloadKey, setEntriesReloadKey] = useState(0)
 
   const loadProviders = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/providers")
       if (!res.ok) return
       const data = await res.json()
-      const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: any) => ({
-        id: p.id,
-        name: p.display_name || p.name,
-      }))
-      setProviders(list)
+      const rows: ToolRow[] = Array.isArray(data) ? data : []
+      setToolRows(rows)
+      setProviders(rows.map((p) => ({ id: p.id, name: p.display_name || p.name })))
     } catch {
       /* non-fatal: the entry form falls back to fetching /api/providers itself */
     }
@@ -60,6 +66,13 @@ export function AdminClient() {
   useEffect(() => {
     loadProviders()
   }, [loadProviders])
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push("/login")
+    router.refresh()
+  }
 
   // Add-a-tool form state.
   const [toolName, setToolName] = useState("")
@@ -172,6 +185,10 @@ export function AdminClient() {
                 Back to dashboard
               </Button>
             </Link>
+            <Button variant="ghost" size="sm" className="gap-2" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" />
+              Log out
+            </Button>
           </div>
         </div>
       </header>
@@ -311,6 +328,20 @@ export function AdminClient() {
           </CardContent>
         </Card>
 
+        {/* Manage tools */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Manage tools</CardTitle>
+            <CardDescription>
+              Add a description and the platform&apos;s admin URL (where to pull more data) for each
+              tool, or delete a tool and its cost records.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManageTools tools={toolRows} onChanged={loadProviders} />
+          </CardContent>
+        </Card>
+
         {/* Manual entry */}
         <Card>
           <CardHeader>
@@ -323,7 +354,7 @@ export function AdminClient() {
           <CardContent className="space-y-4">
             <MonthlyEntryForm
               providers={providers.length ? providers : undefined}
-              onSaveSuccess={() => { /* admin stays on page */ }}
+              onSaveSuccess={() => setEntriesReloadKey((k) => k + 1)}
             />
             <Separator />
             <Link href="/dashboard/chatgpt">
@@ -332,6 +363,20 @@ export function AdminClient() {
                 ChatGPT CSV import
               </Button>
             </Link>
+          </CardContent>
+        </Card>
+
+        {/* Manage entries */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Manage entries</CardTitle>
+            <CardDescription>
+              Edit or delete previously recorded manual entries. Changes update the dashboard
+              immediately.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManageEntries reloadKey={entriesReloadKey} />
           </CardContent>
         </Card>
       </main>

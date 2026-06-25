@@ -13,6 +13,8 @@ export interface DashboardTool {
   changeDirection: "up" | "down" | "stable"
   subscriptionType: string
   color: string
+  description?: string
+  adminUrl?: string
 }
 
 export interface DashboardTrend {

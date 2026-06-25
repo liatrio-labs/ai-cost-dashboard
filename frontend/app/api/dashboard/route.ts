@@ -56,11 +56,14 @@ export async function GET(request: NextRequest) {
     // Providers: id -> display name / slug / order
     const { data: providersRaw, error: provErr } = await supabase
       .from("providers")
-      .select("id, name, display_name, metadata")
+      .select("id, name, display_name, documentation_url, metadata")
       .order("display_name")
     if (provErr) throw provErr
     const providers = (providersRaw || []) as any[]
-    const providerById = new Map<string, { name: string; slug: string; color: string; subscriptionType: string }>()
+    const providerById = new Map<
+      string,
+      { name: string; slug: string; color: string; subscriptionType: string; description: string; adminUrl: string }
+    >()
     providers.forEach((p, i) => {
       const method = (p.metadata?.collection_method as string) || "api"
       providerById.set(p.id, {
@@ -68,6 +71,8 @@ export async function GET(request: NextRequest) {
         slug: p.name,
         color: colorFor(i),
         subscriptionType: method === "manual" ? "Manual / CSV" : "Usage (API)",
+        description: (p.metadata?.description as string) || "",
+        adminUrl: (p.documentation_url as string) || "",
       })
     })
 
@@ -186,7 +191,7 @@ export async function GET(request: NextRequest) {
     // tools: per provider for the active period
     const tools = Array.from(cur.prov.entries())
       .map(([pid, agg]) => {
-        const meta = providerById.get(pid) || { name: "Unknown", slug: pid, color: "#6B7280", subscriptionType: "" }
+        const meta = providerById.get(pid) || { name: "Unknown", slug: pid, color: "#6B7280", subscriptionType: "", description: "", adminUrl: "" }
         const prevCost = prev.prov.get(pid)?.cost || 0
         let changePercent = 0
         let changeDirection: "up" | "down" | "stable" = "stable"
@@ -205,6 +210,8 @@ export async function GET(request: NextRequest) {
           changeDirection,
           subscriptionType: meta.subscriptionType,
           color: meta.color,
+          description: meta.description,
+          adminUrl: meta.adminUrl,
         }
       })
       .sort((a, b) => b.monthlySpend - a.monthlySpend)

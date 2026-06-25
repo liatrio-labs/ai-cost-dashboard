@@ -10,7 +10,9 @@ import {
   CalendarDays,
   Inbox,
   Settings,
+  LogOut,
 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Spinner } from "@/components/ui/spinner"
@@ -186,14 +188,30 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               )}
             </div>
           </div>
-          {isAdmin && (
-            <Link href="/admin">
-              <Button variant="ghost" size="sm" className="gap-2">
-                <Settings className="h-4 w-4" />
-                Admin
-              </Button>
-            </Link>
-          )}
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <Link href="/admin">
+                <Button variant="ghost" size="sm" className="gap-2">
+                  <Settings className="h-4 w-4" />
+                  Admin
+                </Button>
+              </Link>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              onClick={async () => {
+                const supabase = createClient()
+                await supabase.auth.signOut()
+                router.push("/login")
+                router.refresh()
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+              Log out
+            </Button>
+          </div>
         </div>
       </header>
 

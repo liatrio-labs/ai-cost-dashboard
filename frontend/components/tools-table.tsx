@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { TrendingUp, TrendingDown, Minus, Search } from "lucide-react"
+import { TrendingUp, TrendingDown, Minus, Search, ExternalLink } from "lucide-react"
 import { formatCurrency, type DashboardTool } from "@/lib/dashboard-types"
 
 interface ToolsTableProps {
@@ -81,10 +81,30 @@ export function ToolsTable({ tools }: ToolsTableProps) {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div
-                          className="h-2 w-2 rounded-full"
+                          className="h-2 w-2 shrink-0 rounded-full"
                           style={{ backgroundColor: tool.color }}
                         />
-                        <span className="font-medium">{tool.name}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium">{tool.name}</span>
+                            {tool.adminUrl ? (
+                              <a
+                                href={tool.adminUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open platform admin"
+                                className="text-muted-foreground hover:text-primary"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : null}
+                          </div>
+                          {tool.description ? (
+                            <p className="max-w-[28ch] truncate text-xs text-muted-foreground">
+                              {tool.description}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">

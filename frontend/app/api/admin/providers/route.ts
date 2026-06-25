@@ -13,7 +13,7 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { requireAdmin, errorResponse, successResponse } from "@/lib/db"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient, refreshDailyAggregates } from "@/lib/supabase/admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -35,7 +35,7 @@ export async function GET() {
     const admin = createAdminClient()
     const { data, error } = await admin
       .from("providers")
-      .select("id, name, display_name, metadata, is_active")
+      .select("id, name, display_name, documentation_url, metadata, is_active")
       .eq("is_active", true)
       .order("display_name")
     if (error) throw error
@@ -92,5 +92,92 @@ export async function POST(request: NextRequest) {
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
     return errorResponse(e?.message || "Failed to create tool", 500)
+  }
+}
+
+/**
+ * PATCH — update a tool's display name, description, and platform admin URL.
+ * Body: { id, display_name?, description?, admin_url? }
+ * description is stored in metadata.description; admin_url in documentation_url.
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const cookieStore = await cookies()
+    await requireAdmin(cookieStore)
+
+    const body = await request.json().catch(() => ({}))
+    const id = String(body.id || "")
+    if (!id) return errorResponse("id is required", 400)
+
+    const admin = createAdminClient()
+    const { data: existing, error: getErr } = await admin
+      .from("providers")
+      .select("id, metadata")
+      .eq("id", id)
+      .single()
+    if (getErr || !existing) return errorResponse("Tool not found", 404)
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (typeof body.display_name === "string" && body.display_name.trim()) {
+      patch.display_name = body.display_name.trim()
+    }
+    if (typeof body.admin_url === "string") {
+      patch.documentation_url = body.admin_url.trim() || null
+    }
+    if (typeof body.description === "string") {
+      patch.metadata = {
+        ...((existing as any).metadata || {}),
+        description: body.description.trim() || undefined,
+      }
+    }
+
+    const { data, error } = await admin
+      .from("providers")
+      .update(patch as any)
+      .eq("id", id)
+      .select("id, name, display_name, documentation_url, metadata")
+      .single()
+    if (error) throw error
+
+    return successResponse({ message: "Tool updated", provider: data })
+  } catch (e: any) {
+    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
+    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
+    return errorResponse(e?.message || "Failed to update tool", 500)
+  }
+}
+
+/**
+ * DELETE — remove a tool and ALL of its cost records. Owner-gated; the client
+ * confirms first. ?id=<provider id>. Refreshes the dashboard rollup after.
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const cookieStore = await cookies()
+    await requireAdmin(cookieStore)
+
+    const id = request.nextUrl.searchParams.get("id")
+    if (!id) return errorResponse("id query parameter is required", 400)
+
+    const admin = createAdminClient()
+    const { data: prov, error: getErr } = await admin
+      .from("providers")
+      .select("id, name")
+      .eq("id", id)
+      .single()
+    if (getErr || !prov) return errorResponse("Tool not found", 404)
+
+    // Remove dependent cost records first (no cascade guaranteed), then the row.
+    const { error: crErr } = await admin.from("cost_records").delete().eq("provider_id", id)
+    if (crErr) throw new Error(`Failed to delete cost records: ${crErr.message}`)
+    const { error: delErr } = await admin.from("providers").delete().eq("id", id)
+    if (delErr) throw new Error(`Failed to delete tool: ${delErr.message}`)
+
+    await refreshDailyAggregates()
+    return successResponse({ message: `Deleted "${(prov as any).name}" and its cost records` })
+  } catch (e: any) {
+    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
+    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
+    return errorResponse(e?.message || "Failed to delete tool", 500)
   }
 }
