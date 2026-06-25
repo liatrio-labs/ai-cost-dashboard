@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
 import { ManageEntries } from "@/components/admin/manage-entries"
+import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
 
 // Providers that have an automated collector (the "Pull" list). Manual/seat
 // tools added via the admin form below are NOT pullable and don't appear here.
@@ -325,6 +326,20 @@ export function AdminClient() {
                 </p>
               )}
             </form>
+          </CardContent>
+        </Card>
+
+        {/* Forecast settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Forecast</CardTitle>
+            <CardDescription>
+              The spend forecast plateaus based on total employee count. Update headcount to scale
+              the projection.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ForecastSettingsCard />
           </CardContent>
         </Card>
 

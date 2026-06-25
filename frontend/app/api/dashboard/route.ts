@@ -17,6 +17,7 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
+import { getForecastSettings, plateauForEmployees } from "@/lib/forecast-settings"
 
 export const dynamic = "force-dynamic"
 
@@ -250,8 +251,13 @@ export async function GET(request: NextRequest) {
     // forecast: real history + a SATURATING projection through end of the
     // current year. Spend has been ramping fast, but is expected to plateau, so
     // instead of a runaway linear trend we close a fixed fraction of the gap to
-    // a ceiling each month — the curve levels out near FORECAST_CEILING by Dec.
-    const FORECAST_CEILING = 58000 // expected steady-state monthly run-rate (USD)
+    // a ceiling each month — the curve levels out near the ceiling by Dec.
+    //
+    // The ceiling is HEADCOUNT-DRIVEN: at the baseline employee count the
+    // plateau is the baseline USD, and each employee above/below scales it by
+    // per_person_pct (default 2%). Editable from the admin page (app_settings).
+    const forecastSettings = await getForecastSettings()
+    const FORECAST_CEILING = plateauForEmployees(forecastSettings)
     const FORECAST_APPROACH = 0.45 // fraction of the remaining gap closed per month
     const history = Array.from(monthTotals.keys()).sort().map((m) => ({
       month: m,
@@ -293,6 +299,12 @@ export async function GET(request: NextRequest) {
       byModel,
       kpis,
       forecast,
+      forecastMeta: {
+        employees: forecastSettings.employees,
+        plateau: Math.round(FORECAST_CEILING * 100) / 100,
+        perPersonPct: forecastSettings.perPersonPct,
+        baselineEmployees: forecastSettings.baselineEmployees,
+      },
     })
   } catch (error: any) {
     if (error?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
