@@ -71,13 +71,22 @@ export async function GET(request: NextRequest) {
       })
     })
 
-    // Pull the daily rollup (real automated data).
-    const { data: dailyRaw, error: dailyErr } = await supabase
-      .from("cost_records_daily")
-      .select("date, provider_id, model_name, total_cost_usd, total_tokens, total_requests")
-      .order("date", { ascending: true })
-    if (dailyErr) throw dailyErr
-    const daily = (dailyRaw || []) as DailyRow[]
+    // Pull the daily rollup (real automated data). PostgREST caps each request
+    // at ~1000 rows, so page through with .range() until we've fetched all of
+    // them (the view can have thousands of rows across providers/models/days).
+    const daily: DailyRow[] = []
+    const PAGE = 1000
+    for (let from = 0; ; from += PAGE) {
+      const { data: chunk, error: dailyErr } = await supabase
+        .from("cost_records_daily")
+        .select("date, provider_id, model_name, total_cost_usd, total_tokens, total_requests")
+        .order("date", { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (dailyErr) throw dailyErr
+      const rows = (chunk || []) as DailyRow[]
+      daily.push(...rows)
+      if (rows.length < PAGE) break
+    }
 
     const monthOf = (d: string) => d.slice(0, 7) // YYYY-MM
 
