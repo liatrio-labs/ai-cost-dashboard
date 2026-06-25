@@ -15,6 +15,7 @@ export interface DashboardTool {
   color: string
   description?: string
   adminUrl?: string
+  lastUpdated?: string | null
 }
 
 export interface DashboardTrend {

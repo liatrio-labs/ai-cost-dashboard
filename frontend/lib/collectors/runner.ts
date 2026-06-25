@@ -8,7 +8,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { createAdminClient } from "@/lib/supabase/admin"
+import { createAdminClient, touchProvidersCollected } from "@/lib/supabase/admin"
 import type { Collector, CostRecord, CollectionSummary, CollectOptions } from "./types"
 
 import { collector as anthropic } from "./anthropic"
@@ -156,6 +156,9 @@ export async function runCollectionForProvider(
       opts
     )
     const stored = await storeRecords(admin, records)
+
+    // Stamp the tool's "Last updated" time on every successful pull.
+    await touchProvidersCollected([(prov as { id: string }).id])
 
     return {
       status: "success",

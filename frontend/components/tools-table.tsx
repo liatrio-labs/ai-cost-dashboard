@@ -28,6 +28,20 @@ export function ToolsTable({ tools }: ToolsTableProps) {
       tool.subscriptionType.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  const formatLastUpdated = (iso?: string | null): { label: string; title: string } => {
+    if (!iso) return { label: "—", title: "Never collected" }
+    const then = Date.parse(iso)
+    if (Number.isNaN(then)) return { label: "—", title: "" }
+    const title = new Date(then).toLocaleString()
+    const mins = Math.floor((Date.now() - then) / 60000)
+    let label: string
+    if (mins < 1) label = "just now"
+    else if (mins < 60) label = `${mins}m ago`
+    else if (mins < 1440) label = `${Math.floor(mins / 60)}h ago`
+    else label = `${Math.floor(mins / 1440)}d ago`
+    return { label, title }
+  }
+
   const getTrendIcon = (direction: string) => {
     switch (direction) {
       case "up":
@@ -66,12 +80,13 @@ export function ToolsTable({ tools }: ToolsTableProps) {
                 <TableHead>Monthly Spend</TableHead>
                 <TableHead className="hidden md:table-cell">Usage</TableHead>
                 <TableHead>Change</TableHead>
+                <TableHead className="hidden sm:table-cell">Last updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredTools.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                     No providers with spend for this month.
                   </TableCell>
                 </TableRow>
@@ -129,6 +144,16 @@ export function ToolsTable({ tools }: ToolsTableProps) {
                           {tool.changeDirection === "stable" ? "—" : `${tool.changePercent}%`}
                         </span>
                       </div>
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground sm:table-cell">
+                      {(() => {
+                        const { label, title } = formatLastUpdated(tool.lastUpdated)
+                        return (
+                          <span title={title} className="text-xs">
+                            {label}
+                          </span>
+                        )
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))
