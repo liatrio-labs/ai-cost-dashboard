@@ -66,3 +66,10 @@ export function rfc3339(d: Date): string {
 export function unixSeconds(d: Date): number {
   return Math.floor(d.getTime() / 1000)
 }
+
+/** Start of the given date's UTC day (00:00:00Z). */
+export function startOfUTCDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+export const DAY_MS = 24 * 60 * 60 * 1000

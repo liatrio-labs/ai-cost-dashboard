@@ -19,7 +19,7 @@ import type {
   CollectorContext,
   CollectOptions,
 } from "./types"
-import { fetchWithRetry, toFloat, toInt, rfc3339 } from "./http"
+import { fetchWithRetry, toFloat, toInt, rfc3339, startOfUTCDay, DAY_MS } from "./http"
 
 const ANALYTICS_API_BASE_URL =
   "https://api.anthropic.com/v1/organizations/analytics"
@@ -262,14 +262,12 @@ async function collect(
   ctx: CollectorContext,
   opts: CollectOptions = {}
 ): Promise<CostRecord[]> {
-  const end = new Date()
-  let start: Date
-  if (opts.backfill) {
-    const days = opts.backfillDays ?? 90
-    start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
-  } else {
-    start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
-  }
+  // bucket_width=1d needs UTC-midnight-aligned boundaries; cover from `days` ago
+  // through the start of tomorrow (includes today's partial bucket).
+  const today = startOfUTCDay(new Date())
+  const end = new Date(today.getTime() + DAY_MS)
+  const days = opts.backfill ? opts.backfillDays ?? 90 : 1
+  const start = new Date(today.getTime() - days * DAY_MS)
 
   const bucketWidth = "1d"
   const groupBy = ["model"]

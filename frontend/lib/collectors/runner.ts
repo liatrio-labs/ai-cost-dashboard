@@ -63,6 +63,26 @@ export async function getOwnerUserId(admin: SupabaseClient): Promise<string> {
 
 async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
   if (!records.length) return 0
+
+  // Idempotency: a re-run of the same window must not double-count. Delete the
+  // existing automated rows for this provider/owner at the exact bucket
+  // timestamps we're about to insert, then insert fresh. Manual/CSV rows
+  // (other collection_methods) are left untouched.
+  const providerId = records[0].provider_id
+  const userId = records[0].user_id
+  const timestamps = Array.from(new Set(records.map((r) => r.timestamp)))
+  for (let i = 0; i < timestamps.length; i += 100) {
+    const chunk = timestamps.slice(i, i + 100)
+    const { error: delErr } = await admin
+      .from("cost_records")
+      .delete()
+      .eq("provider_id", providerId)
+      .eq("user_id", userId)
+      .eq("collection_method", "api_automated")
+      .in("timestamp", chunk)
+    if (delErr) throw new Error(`Failed to clear prior cost_records: ${delErr.message}`)
+  }
+
   const { data, error } = await admin.from("cost_records").insert(records).select("id")
   if (error) throw new Error(`Failed to insert cost_records: ${error.message}`)
   return data?.length ?? 0
