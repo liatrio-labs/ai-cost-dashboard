@@ -267,7 +267,10 @@ async function collect(
   const today = startOfUTCDay(new Date())
   const end = new Date(today.getTime() + DAY_MS)
   const days = opts.backfill ? opts.backfillDays ?? 90 : 1
-  const start = new Date(today.getTime() - days * DAY_MS)
+  let start = new Date(today.getTime() - days * DAY_MS)
+  // The Enterprise Analytics API has no data before 2026-01-01 (returns 400).
+  const MIN_DATA = Date.UTC(2026, 0, 1)
+  if (start.getTime() < MIN_DATA) start = new Date(MIN_DATA)
 
   const bucketWidth = "1d"
   const groupBy = ["model"]

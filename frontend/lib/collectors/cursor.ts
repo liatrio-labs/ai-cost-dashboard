@@ -207,15 +207,18 @@ async function collect(
   ctx: CollectorContext,
   opts: CollectOptions = {}
 ): Promise<CostRecord[]> {
+  const DAY = 24 * 60 * 60 * 1000
   const end = new Date()
   const days = opts.backfill ? opts.backfillDays ?? 90 : 1
-  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
+  const start = new Date(end.getTime() - days * DAY)
 
-  const startMs = start.getTime()
-  const endMs = end.getTime()
+  // Cursor's daily-usage-data endpoint rejects ranges > 30 days. Spend comes
+  // from /teams/spend (cumulative, not date-ranged), so only the usage window
+  // (request-count metadata) needs capping.
+  const usageStartMs = Math.max(start.getTime(), end.getTime() - 30 * DAY)
 
   const [usageRows, spendRows] = await Promise.all([
-    fetchDailyUsage(ctx.apiKey, startMs, endMs),
+    fetchDailyUsage(ctx.apiKey, usageStartMs, end.getTime()),
     fetchSpend(ctx.apiKey),
   ])
 
