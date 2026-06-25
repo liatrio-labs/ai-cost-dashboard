@@ -338,7 +338,13 @@ export function AdminClient() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ManageTools tools={toolRows} onChanged={loadProviders} />
+            <ManageTools
+              tools={toolRows}
+              onChanged={() => {
+                loadProviders()
+                setEntriesReloadKey((k) => k + 1)
+              }}
+            />
           </CardContent>
         </Card>
 
