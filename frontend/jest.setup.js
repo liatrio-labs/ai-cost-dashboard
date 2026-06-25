@@ -1,5 +1,12 @@
 import '@testing-library/jest-dom'
 
+// jsdom doesn't implement ResizeObserver, which Recharts/Tremor rely on.
+global.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 // Mock Next.js router
 jest.mock('next/navigation', () => ({
   useRouter() {

@@ -43,7 +43,7 @@ export async function middleware(request: NextRequest) {
 
   // Protected routes (the home "/" is gated at the page level so we don't
   // accidentally match every path here)
-  const protectedRoutes = ["/dashboard", "/admin", "/settings", "/profile"]
+  const protectedRoutes = ["/dashboard", "/admin"]
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   )

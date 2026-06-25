@@ -7,10 +7,8 @@
  * endpoints driven by query params, and requires an API key with the
  * `read:analytics` scope.
  *
- * Ported from python-service/app/collectors/claude_ai_analytics_collector.py —
- * the transform replicates the Python behavior exactly, including treating the
- * cost `amount` / `list_amount` fields as FRACTIONAL CENTS (divided by
- * CENTS_PER_USD = 100 to produce USD).
+ * The transform treats the cost `amount` / `list_amount` fields as FRACTIONAL
+ * CENTS (divided by CENTS_PER_USD = 100 to produce USD).
  */
 
 import type {
