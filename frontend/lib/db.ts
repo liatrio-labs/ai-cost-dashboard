@@ -261,9 +261,29 @@ export function getAdminEmails(): string[] {
     .filter(Boolean)
 }
 
+/**
+ * Email domain(s) granted admin access. Any authenticated user whose email is
+ * under one of these domains can reach the ingest/admin area. Sourced from the
+ * ADMIN_DOMAINS env var (comma-separated), defaulting to liatrio.com — so every
+ * authenticated @liatrio.com Google account is an admin. Case-insensitive; a
+ * leading "@" is tolerated.
+ */
+export function getAdminDomains(): string[] {
+  const raw = process.env.ADMIN_DOMAINS || "liatrio.com"
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean)
+}
+
 export function isAdminEmail(email?: string | null): boolean {
   if (!email) return false
-  return getAdminEmails().includes(email.toLowerCase())
+  const lower = email.toLowerCase()
+  // Explicit per-user allowlist (ADMIN_EMAILS / DASHBOARD_OWNER_EMAIL)…
+  if (getAdminEmails().includes(lower)) return true
+  // …or anyone under an approved domain (defaults to liatrio.com).
+  const domain = lower.split("@")[1]
+  return !!domain && getAdminDomains().includes(domain)
 }
 
 /**
