@@ -11,6 +11,7 @@ import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { requireAdmin, errorResponse, successResponse } from "@/lib/db"
 import { runCollectionForProvider, COLLECTORS } from "@/lib/collectors/runner"
+import { refreshDailyAggregates } from "@/lib/supabase/admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
       backfill: !!body.backfill,
       backfillDays: body.backfill_days ?? 90,
     })
+    // Refresh the dashboard rollup so pulled data shows immediately.
+    if (result.status === "success") await refreshDailyAggregates()
     return successResponse(result)
   } catch (e: any) {
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)

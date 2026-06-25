@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus } from "lucide-react"
+import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -66,6 +66,23 @@ export function AdminClient() {
   const [toolSeatBased, setToolSeatBased] = useState(true)
   const [addingTool, setAddingTool] = useState(false)
   const [addToolMsg, setAddToolMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Explicit "update the dashboard" control (auto-refresh covers the common case).
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
+
+  async function refreshDashboard() {
+    setRefreshing(true)
+    setRefreshMsg(null)
+    try {
+      const res = await fetch("/api/admin/refresh", { method: "POST" })
+      setRefreshMsg(res.ok ? "Dashboard refreshed." : "Refresh failed.")
+    } catch {
+      setRefreshMsg("Refresh failed.")
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   async function addTool(e: React.FormEvent) {
     e.preventDefault()
@@ -137,12 +154,25 @@ export function AdminClient() {
       <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <h1 className="text-lg font-semibold">Admin · Data ingest</h1>
-          <Link href="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
+          <div className="flex items-center gap-2">
+            {refreshMsg && <span className="text-xs text-muted-foreground">{refreshMsg}</span>}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={refreshDashboard}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              Refresh dashboard
             </Button>
-          </Link>
+            <Link href="/">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to dashboard
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 

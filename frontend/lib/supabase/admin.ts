@@ -19,3 +19,19 @@ export function createAdminClient(): SupabaseClient {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 }
+
+/**
+ * Refresh the cost_records_daily materialized view (the rollup the dashboard
+ * reads). Call after writing cost_records so new data shows immediately instead
+ * of waiting for the every-15-minutes refresh-aggregates cron. Best-effort: logs
+ * and swallows errors so a refresh failure never fails the write that triggered it.
+ */
+export async function refreshDailyAggregates(): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { error } = await admin.rpc("refresh_cost_records_daily")
+    if (error) console.error("refreshDailyAggregates failed:", error.message)
+  } catch (e) {
+    console.error("refreshDailyAggregates threw:", e instanceof Error ? e.message : e)
+  }
+}

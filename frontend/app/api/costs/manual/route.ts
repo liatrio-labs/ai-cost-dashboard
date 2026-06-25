@@ -25,6 +25,7 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
+import { refreshDailyAggregates } from "@/lib/supabase/admin"
 import {
   ManualCostEntrySchema,
   BulkCostEntrySchema,
@@ -110,6 +111,9 @@ async function handleSingleEntry(
     throw new Error("Failed to insert cost record")
   }
 
+  // Refresh the dashboard rollup so the new entry shows immediately.
+  await refreshDailyAggregates()
+
   return successResponse(
     {
       message: "Manual cost entry created successfully",
@@ -170,6 +174,9 @@ async function handleBulkEntry(
     console.error("Bulk insert error:", error)
     throw new Error(`Failed to insert cost records: ${error.message}`)
   }
+
+  // Refresh the dashboard rollup so the imported rows show immediately.
+  await refreshDailyAggregates()
 
   return successResponse(
     {
