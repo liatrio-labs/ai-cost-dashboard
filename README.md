@@ -110,8 +110,8 @@ Useful env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 Set `NEXT_PUBLIC_SKIP_AUTH=true` to bypass auth in local dev.
 
 ```bash
-npm test            # unit tests (collectors, components)
-npm run test:e2e    # Playwright end-to-end tests
+npm test            # unit tests (provider collectors)
+npm run test:e2e    # Playwright auth/routing tests
 npm run build       # production build
 ```
 
@@ -124,4 +124,4 @@ keys and `CRON_SECRET` live as environment variables on the Vercel project.
 
 ## License
 
-MIT License — see [LICENSE](./LICENSE).
+Internal Liatrio project — not licensed for external use.

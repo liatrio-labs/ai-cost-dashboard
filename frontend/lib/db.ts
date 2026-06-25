@@ -27,24 +27,6 @@ export type Database = {
         Insert: Omit<Database["public"]["Tables"]["providers"]["Row"], "id" | "created_at" | "updated_at">
         Update: Partial<Database["public"]["Tables"]["providers"]["Insert"]>
       }
-      api_credentials: {
-        Row: {
-          id: string
-          user_id: string
-          provider_id: string
-          credential_name: string
-          encrypted_api_key: string
-          encryption_key_id: string
-          is_active: boolean
-          last_validated_at: string | null
-          validation_status: string | null
-          metadata: Record<string, any>
-          created_at: string
-          updated_at: string
-        }
-        Insert: Omit<Database["public"]["Tables"]["api_credentials"]["Row"], "id" | "created_at" | "updated_at">
-        Update: Partial<Database["public"]["Tables"]["api_credentials"]["Insert"]>
-      }
       cost_records: {
         Row: {
           id: string
