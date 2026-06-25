@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
 import { KPICards } from "@/components/kpi-cards"
 import { SpendBreakdownChart } from "@/components/spend-breakdown-chart"
@@ -30,20 +31,30 @@ import { TrendChart } from "@/components/trend-chart"
 import { ForecastChart } from "@/components/forecast-chart"
 import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
 import { ToolsTable } from "@/components/tools-table"
-import { formatMonthLong, type DashboardData } from "@/lib/dashboard-types"
+import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
+
+type PeriodQuery =
+  | { mode: "month"; month: string }
+  | { mode: "range"; start: string; end: string }
+  | null // null = default (current month)
 
 export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const [query, setQuery] = useState<PeriodQuery>(null) // null = current month
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [rangeOpen, setRangeOpen] = useState(false)
+  const [draftFrom, setDraftFrom] = useState("")
+  const [draftTo, setDraftTo] = useState("")
 
   const loadData = useCallback(
-    async (month: string | null) => {
+    async (q: PeriodQuery) => {
       setError(null)
       try {
-        const qs = month ? `?month=${encodeURIComponent(month)}` : ""
+        let qs = ""
+        if (q?.mode === "month") qs = `?month=${encodeURIComponent(q.month)}`
+        else if (q?.mode === "range") qs = `?start=${q.start}&end=${q.end}`
         const res = await fetch(`/api/dashboard${qs}`)
 
         if (res.status === 401) {
@@ -58,8 +69,6 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
         // GET /api/dashboard returns the contract object directly (successResponse).
         const json: DashboardData = await res.json()
         setData(json)
-        // Sync the selected month to whatever the API resolved.
-        setSelectedMonth((prev) => prev ?? json.selectedMonth ?? null)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data")
       } finally {
@@ -69,18 +78,10 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
     [router]
   )
 
-  // Initial load.
+  // Load on mount and whenever the selected period changes.
   useEffect(() => {
-    loadData(null)
-  }, [loadData])
-
-  // Re-fetch when the user picks a different month.
-  useEffect(() => {
-    if (selectedMonth) {
-      loadData(selectedMonth)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMonth])
+    loadData(query)
+  }, [query, loadData])
 
   if (loading && !data) {
     return (
@@ -93,7 +94,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
     )
   }
 
-  const hasData = !!data && data.months.length > 0 && data.tools.length > 0
+  const hasAnyData = !!data && data.months.length > 0
+  const hasPeriodData = !!data && data.tools.length > 0
 
   return (
     <div className="min-h-screen bg-background">
@@ -106,12 +108,13 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               {data && data.months.length > 0 && (
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-3 w-3 text-muted-foreground" />
+                  {/* Month dropdown (defaults to the current month) */}
                   <Select
-                    value={selectedMonth || data.selectedMonth}
-                    onValueChange={(value) => setSelectedMonth(value)}
+                    value={data.period.mode === "month" ? data.selectedMonth ?? "" : ""}
+                    onValueChange={(value) => setQuery({ mode: "month", month: value })}
                   >
                     <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground focus:ring-0">
-                      <SelectValue placeholder="Select month" />
+                      <SelectValue placeholder="Custom range" />
                     </SelectTrigger>
                     <SelectContent>
                       {data.months.map((month) => (
@@ -121,6 +124,64 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                       ))}
                     </SelectContent>
                   </Select>
+
+                  {/* Custom date range */}
+                  <Popover open={rangeOpen} onOpenChange={setRangeOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {data.period.mode === "range"
+                          ? formatRangeLabel(data.period.start, data.period.end)
+                          : "Custom range"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto space-y-3 p-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-muted-foreground">From</label>
+                        <input
+                          type="date"
+                          value={draftFrom || data.dataStart || ""}
+                          min={data.dataStart || undefined}
+                          max={data.dataEnd || undefined}
+                          onChange={(e) => setDraftFrom(e.target.value)}
+                          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-muted-foreground">To</label>
+                        <input
+                          type="date"
+                          value={draftTo || data.dataEnd || ""}
+                          min={data.dataStart || undefined}
+                          max={data.dataEnd || undefined}
+                          onChange={(e) => setDraftTo(e.target.value)}
+                          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          const start = draftFrom || data.dataStart || ""
+                          const end = draftTo || data.dataEnd || ""
+                          if (start && end) {
+                            setQuery({ mode: "range", start, end })
+                            setRangeOpen(false)
+                          }
+                        }}
+                      >
+                        Apply range
+                      </Button>
+                      {data.dataStart && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Data available from {data.dataStart}
+                        </p>
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
             </div>
@@ -142,7 +203,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
           <div className="mb-6 rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>
         )}
 
-        {!hasData ? (
+        {!hasAnyData ? (
           <Card className="border-border/50 bg-card/50 backdrop-blur">
             <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <div className="rounded-full bg-muted p-4">
@@ -163,6 +224,19 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                   </Button>
                 </Link>
               )}
+            </CardContent>
+          </Card>
+        ) : !hasPeriodData ? (
+          <Card className="border-border/50 bg-card/50 backdrop-blur">
+            <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <Inbox className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold text-foreground">No spend in this period</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                There&apos;s no recorded spend for the selected period. Pick another
+                month or range above.
+              </p>
             </CardContent>
           </Card>
         ) : (

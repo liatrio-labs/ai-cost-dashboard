@@ -108,28 +108,81 @@ export async function GET(request: NextRequest) {
     }
 
     const months = Array.from(monthTotals.keys()).sort().reverse() // newest first
-    const requested = request.nextUrl.searchParams.get("month")
-    const selectedMonth = (requested && months.includes(requested) ? requested : months[0]) || monthOf(new Date().toISOString())
 
-    // Previous month string for MoM change
-    const prevOf = (ym: string) => {
-      const [y, mo] = ym.split("-").map(Number)
-      const d = new Date(y, mo - 2, 1)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    // Date coverage (so the range picker knows how far back data goes)
+    const sortedDates = daily.map((r) => r.date).sort()
+    const dataStart = sortedDates[0] || null
+    const dataEnd = sortedDates[sortedDates.length - 1] || null
+
+    // Active period: custom range (start+end) | a month | default current month.
+    const sp = request.nextUrl.searchParams
+    const startParam = sp.get("start")
+    const endParam = sp.get("end")
+    const monthParam = sp.get("month")
+
+    const monthBounds = (ym: string) => {
+      const [y, m] = ym.split("-").map(Number)
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+      return { start: `${ym}-01`, end: `${ym}-${String(lastDay).padStart(2, "0")}` }
     }
-    const prevMonth = prevOf(selectedMonth)
+    const addDays = (iso: string, n: number) =>
+      new Date(Date.parse(iso) + n * 86400000).toISOString().slice(0, 10)
 
-    // tools: per provider for the selected month
-    const curPM = byMonthProvider.get(selectedMonth) || new Map()
-    const prevPM = byMonthProvider.get(prevMonth) || new Map()
-    const tools = Array.from(curPM.entries())
+    let periodStart: string
+    let periodEnd: string
+    let mode: "month" | "range"
+    let selectedMonth: string | null = null
+    if (startParam && endParam) {
+      periodStart = startParam < endParam ? startParam : endParam
+      periodEnd = startParam < endParam ? endParam : startParam
+      mode = "range"
+    } else {
+      const ym = monthParam || monthOf(new Date().toISOString()) // default: current month
+      const b = monthBounds(ym)
+      periodStart = b.start
+      periodEnd = b.end
+      mode = "month"
+      selectedMonth = ym
+    }
+
+    // Aggregate the daily rows within an inclusive [start, end] date window.
+    const aggregate = (start: string, end: string) => {
+      const prov = new Map<string, { cost: number; tokens: number }>()
+      const model = new Map<string, number>()
+      let total = 0
+      let tokens = 0
+      for (const r of daily) {
+        if (r.date < start || r.date > end) continue
+        const cost = Number(r.total_cost_usd) || 0
+        const tok = Number(r.total_tokens) || 0
+        const p = prov.get(r.provider_id) || { cost: 0, tokens: 0 }
+        p.cost += cost
+        p.tokens += tok
+        prov.set(r.provider_id, p)
+        model.set(r.model_name, (model.get(r.model_name) || 0) + cost)
+        total += cost
+        tokens += tok
+      }
+      return { prov, model, total, tokens }
+    }
+
+    const cur = aggregate(periodStart, periodEnd)
+    // Previous equal-length window, for the change %.
+    const periodLen = Math.max(
+      1,
+      Math.round((Date.parse(periodEnd) - Date.parse(periodStart)) / 86400000) + 1
+    )
+    const prev = aggregate(addDays(periodStart, -periodLen), addDays(periodStart, -1))
+
+    // tools: per provider for the active period
+    const tools = Array.from(cur.prov.entries())
       .map(([pid, agg]) => {
         const meta = providerById.get(pid) || { name: "Unknown", slug: pid, color: "#6B7280", subscriptionType: "" }
-        const prev = prevPM.get(pid)?.cost || 0
+        const prevCost = prev.prov.get(pid)?.cost || 0
         let changePercent = 0
         let changeDirection: "up" | "down" | "stable" = "stable"
-        if (prev > 0 && agg.cost > 0) {
-          changePercent = Math.round(((agg.cost - prev) / prev) * 100)
+        if (prevCost > 0 && agg.cost > 0) {
+          changePercent = Math.round(((agg.cost - prevCost) / prevCost) * 100)
           if (changePercent > 5) changeDirection = "up"
           else if (changePercent < -5) changeDirection = "down"
         }
@@ -160,25 +213,21 @@ export async function GET(request: NextRequest) {
         return row
       })
 
-    // byModel: top models for the selected month
-    const modelMap = byMonthModel.get(selectedMonth) || new Map()
-    const byModel = Array.from(modelMap.entries())
+    // byModel: top models for the active period
+    const byModel = Array.from(cur.model.entries())
       .map(([model, cost]) => ({ model, total: Math.round(cost * 100) / 100 }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8)
       .map((row, i) => ({ ...row, color: colorFor(i) }))
 
-    // KPIs
-    const totalSpend = monthTotals.get(selectedMonth) || 0
-    const prevSpend = monthTotals.get(prevMonth) || 0
-    const totalTokens = Array.from(curPM.values()).reduce((s, a) => s + a.tokens, 0)
-    const changePercent = prevSpend > 0 ? Math.round(((totalSpend - prevSpend) / prevSpend) * 100) : 0
+    // KPIs (active period vs the preceding equal-length window)
+    const changePercent = prev.total > 0 ? Math.round(((cur.total - prev.total) / prev.total) * 100) : 0
     const kpis = {
-      totalSpend: Math.round(totalSpend * 100) / 100,
-      prevSpend: Math.round(prevSpend * 100) / 100,
+      totalSpend: Math.round(cur.total * 100) / 100,
+      prevSpend: Math.round(prev.total * 100) / 100,
       changePercent,
-      totalTokens,
-      activeProviders: curPM.size,
+      totalTokens: cur.tokens,
+      activeProviders: cur.prov.size,
       topProvider: tools[0]?.name || "—",
     }
 
@@ -212,6 +261,9 @@ export async function GET(request: NextRequest) {
     return successResponse({
       months,
       selectedMonth,
+      dataStart,
+      dataEnd,
+      period: { start: periodStart, end: periodEnd, mode },
       tools,
       trends,
       byModel,

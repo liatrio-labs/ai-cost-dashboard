@@ -42,14 +42,34 @@ export interface DashboardForecast {
   projected: boolean
 }
 
+export interface DashboardPeriod {
+  start: string // YYYY-MM-DD inclusive
+  end: string // YYYY-MM-DD inclusive
+  mode: "month" | "range"
+}
+
 export interface DashboardData {
   months: string[]
-  selectedMonth: string
+  selectedMonth: string | null // set in month mode, null for a custom range
+  dataStart: string | null // earliest date with data (YYYY-MM-DD)
+  dataEnd: string | null
+  period: DashboardPeriod
   tools: DashboardTool[]
   trends: DashboardTrend[]
   byModel: DashboardByModel[]
   kpis: DashboardKpis
   forecast: DashboardForecast[]
+}
+
+/** Format a "YYYY-MM-DD" date range into a short label like "Jan 5 – Mar 20, 2026". */
+export function formatRangeLabel(start: string, end: string): string {
+  const s = new Date(start + "T00:00:00")
+  const e = new Date(end + "T00:00:00")
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+  const sameYear = s.getFullYear() === e.getFullYear()
+  const sLabel = s.toLocaleDateString("en-US", opts)
+  const eLabel = e.toLocaleDateString("en-US", { ...opts, year: "numeric" })
+  return sameYear ? `${sLabel} – ${eLabel}` : `${s.toLocaleDateString("en-US", { ...opts, year: "numeric" })} – ${eLabel}`
 }
 
 /** Format a "YYYY-MM" string into a short label like "Jun 2026". */
