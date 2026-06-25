@@ -91,10 +91,7 @@ ai-cost-dashboard/
 │   │   ├── collection.ts     # Cron auth + collector dispatch
 │   │   └── supabase/         # Browser/server/admin Supabase clients
 │   └── vercel.json           # Cron schedule
-├── database/migrations/      # SQL migrations
-├── docs/                     # Additional documentation
-└── python-service/           # ⚠️ Legacy/unused — collectors were ported to TypeScript;
-                              #     not deployed. Candidate for removal.
+└── database/                 # SQL migrations + schema notes (see database/README.md)
 ```
 
 ## Getting started (local)

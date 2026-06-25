@@ -347,6 +347,5 @@ describe("ChatGPT Manual Entry", () => {
 ---
 
 For questions or issues, see:
-- API Routes: `/app/api/README.md`
 - Database Schema: `/database/README.md`
 - Component Library: Shadcn UI docs
