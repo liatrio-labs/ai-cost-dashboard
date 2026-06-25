@@ -18,6 +18,7 @@ import { collector as cursor } from "./cursor"
 import { collector as vercel } from "./vercel"
 import { collector as apify } from "./apify"
 import { collector as windsurf } from "./windsurf"
+import { collector as vercelAiGateway } from "./vercel-ai-gateway"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -27,6 +28,7 @@ export const COLLECTORS: Record<string, Collector> = {
   vercel,
   apify,
   windsurf,
+  "vercel-ai-gateway": vercelAiGateway,
 }
 
 /** provider -> { apiKey env, optional org/team env } */
@@ -41,6 +43,7 @@ export const PROVIDER_ENV: Record<
   vercel: { apiKey: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
   apify: { apiKey: "APIFY_TOKEN" },
   windsurf: { apiKey: "WINDSURF_SERVICE_KEY", teamId: "WINDSURF_TEAM_ID" },
+  "vercel-ai-gateway": { apiKey: "AI_GATEWAY_API_KEY", teamId: "VERCEL_TEAM_ID" },
 }
 
 const DEFAULT_OWNER_EMAIL = "robert@liatrio.com"

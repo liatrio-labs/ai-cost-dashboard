@@ -8,6 +8,7 @@
     { "path": "/api/cron/vercel", "schedule": "50 8 * * *" },
     { "path": "/api/cron/apify", "schedule": "20 8 * * *" },
     { "path": "/api/cron/windsurf", "schedule": "25 8 * * *" },
+    { "path": "/api/cron/vercel-ai-gateway", "schedule": "55 8 * * *" },
     { "path": "/api/cron/refresh-aggregates", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/forecasting", "schedule": "0 9 * * *" }
   ]
