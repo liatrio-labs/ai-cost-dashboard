@@ -8,7 +8,7 @@ services:
     runtime: python
     region: oregon
     plan: starter
-    buildCommand: pip install -r python-service/requirements.txt
+    buildCommand: pip install -r python-service/requirements-full.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     rootDir: python-service
     healthCheckPath: /health

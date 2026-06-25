@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.routers import health, collection, forecast
+from app.routers import health, collection
 from app.utils.logging_config import setup_logging
 from app.utils.sentry_config import init_sentry
 from app.middleware import RequestLoggingMiddleware, CacheControlMiddleware, SecurityHeadersMiddleware
@@ -67,9 +67,8 @@ app.add_middleware(CacheControlMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # Register routers
-app.include_router(health.router, prefix="/health", tags=["health"])
-app.include_router(collection.router, prefix="/api/collection", tags=["collection"])
-app.include_router(forecast.router, prefix="/api/forecast", tags=["forecast"])
+app.include_router(health.router, tags=["health"])
+app.include_router(collection.router)
 
 # Note: Scheduler router not included in serverless mode
 # Vercel Cron Jobs will call collection endpoints directly

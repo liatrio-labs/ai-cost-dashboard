@@ -61,6 +61,16 @@ def setup_logging(
 
     level = getattr(logging, log_level, logging.INFO)
 
+    # Serverless platforms (Vercel, AWS Lambda) have a read-only filesystem
+    # except /tmp, so writing rotating log files crashes the app at startup.
+    # Log to stdout only in those environments (the platform captures stdout).
+    if (
+        os.environ.get("VERCEL")
+        or os.environ.get("SERVERLESS")
+        or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+    ):
+        enable_file_logging = False
+
     # Determine if we should use JSON logging (production vs development)
     if enable_json_logging is None:
         environment = os.getenv('ENVIRONMENT', 'development')
