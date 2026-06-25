@@ -247,30 +247,38 @@ export async function GET(request: NextRequest) {
       topProvider: tools[0]?.name || "—",
     }
 
-    // forecast: real history + a simple 3-month linear projection from the last
-    // up-to-6 months of real totals (flagged projected). Prefer stored
-    // forecast_results if present.
+    // forecast: real history + a SATURATING projection through end of the
+    // current year. Spend has been ramping fast, but is expected to plateau, so
+    // instead of a runaway linear trend we close a fixed fraction of the gap to
+    // a ceiling each month — the curve levels out near FORECAST_CEILING by Dec.
+    const FORECAST_CEILING = 58000 // expected steady-state monthly run-rate (USD)
+    const FORECAST_APPROACH = 0.45 // fraction of the remaining gap closed per month
     const history = Array.from(monthTotals.keys()).sort().map((m) => ({
       month: m,
       total: Math.round((monthTotals.get(m) || 0) * 100) / 100,
       projected: false,
     }))
     const forecast = [...history]
-    const tail = history.slice(-6)
-    if (tail.length >= 2) {
-      // average month-over-month delta
-      let deltas = 0
-      for (let i = 1; i < tail.length; i++) deltas += tail[i].total - tail[i - 1].total
-      const avgDelta = deltas / (tail.length - 1)
-      let last = tail[tail.length - 1]
-      let cursor = last.month
-      let value = last.total
-      for (let i = 0; i < 3; i++) {
+    if (history.length >= 1) {
+      const lastMonth = history[history.length - 1].month
+      // Anchor on the recent run-rate. The current calendar month is usually
+      // incomplete, so its total understates the run-rate — use the max of the
+      // last two real months so the projection starts from the true level.
+      const anchor =
+        history.length >= 2
+          ? Math.max(history[history.length - 1].total, history[history.length - 2].total)
+          : history[history.length - 1].total
+
+      const endOfYear = `${lastMonth.slice(0, 4)}-12` // December of the last data year
+      let cursor = lastMonth
+      let value = anchor
+      // Safety cap on iterations (max 12 future months).
+      for (let i = 0; i < 12 && cursor < endOfYear; i++) {
         const [y, mo] = cursor.split("-").map(Number)
-        const d = new Date(y, mo, 1) // next month
-        cursor = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-        value = Math.max(0, Math.round((value + avgDelta) * 100) / 100)
-        forecast.push({ month: cursor, total: value, projected: true })
+        const d = new Date(Date.UTC(y, mo, 1)) // first of the next month
+        cursor = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+        value = value + (FORECAST_CEILING - value) * FORECAST_APPROACH
+        forecast.push({ month: cursor, total: Math.round(value * 100) / 100, projected: true })
       }
     }
 

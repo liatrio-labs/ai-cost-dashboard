@@ -34,6 +34,7 @@ export function ManageTools({ tools, onChanged }: ManageToolsProps) {
 }
 
 function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void }) {
+  const [displayName, setDisplayName] = useState(tool.display_name || "")
   const [description, setDescription] = useState(tool.metadata?.description || "")
   const [adminUrl, setAdminUrl] = useState(tool.documentation_url || "")
   const [saving, setSaving] = useState(false)
@@ -42,16 +43,22 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const dirty =
-    description !== (tool.metadata?.description || "") || adminUrl !== (tool.documentation_url || "")
+    displayName.trim() !== (tool.display_name || "") ||
+    description !== (tool.metadata?.description || "") ||
+    adminUrl !== (tool.documentation_url || "")
 
   async function save() {
+    if (!displayName.trim()) {
+      setMsg({ ok: false, text: "Name can't be empty." })
+      return
+    }
     setSaving(true)
     setMsg(null)
     try {
       const res = await fetch("/api/admin/providers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: tool.id, description, admin_url: adminUrl }),
+        body: JSON.stringify({ id: tool.id, display_name: displayName, description, admin_url: adminUrl }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -93,13 +100,10 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
   return (
     <div className="space-y-3 py-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-medium">{tool.display_name}</p>
-          <p className="text-xs text-muted-foreground">
-            {tool.name}
-            {isApi ? " · API-collected" : " · manual"}
-          </p>
-        </div>
+        <p className="truncate text-xs text-muted-foreground">
+          {tool.name}
+          {isApi ? " · API-collected" : " · manual"}
+        </p>
         {adminUrl ? (
           <a
             href={adminUrl}
@@ -110,6 +114,18 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
             Platform admin <ExternalLink className="h-3 w-3" />
           </a>
         ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Platform name</label>
+        <Input
+          placeholder="Display name on the dashboard"
+          value={displayName}
+          onChange={(e) => {
+            setDisplayName(e.target.value)
+            setMsg(null)
+          }}
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
