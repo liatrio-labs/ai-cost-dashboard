@@ -16,6 +16,8 @@ import { collector as claudeAi } from "./claude-ai"
 import { collector as openai } from "./openai"
 import { collector as cursor } from "./cursor"
 import { collector as vercel } from "./vercel"
+import { collector as apify } from "./apify"
+import { collector as windsurf } from "./windsurf"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -23,6 +25,8 @@ export const COLLECTORS: Record<string, Collector> = {
   openai,
   cursor,
   vercel,
+  apify,
+  windsurf,
 }
 
 /** provider -> { apiKey env, optional org/team env } */
@@ -35,6 +39,8 @@ export const PROVIDER_ENV: Record<
   openai: { apiKey: "OPENAI_ADMIN_KEY", orgId: "OPENAI_ORG_ID" },
   cursor: { apiKey: "CURSOR_ADMIN_KEY", teamId: "CURSOR_TEAM_ID" },
   vercel: { apiKey: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
+  apify: { apiKey: "APIFY_TOKEN" },
+  windsurf: { apiKey: "WINDSURF_SERVICE_KEY", teamId: "WINDSURF_TEAM_ID" },
 }
 
 const DEFAULT_OWNER_EMAIL = "robert@liatrio.com"
