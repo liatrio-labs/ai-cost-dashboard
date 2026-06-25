@@ -32,10 +32,16 @@ export async function triggerProviderCollection(
   }
 
   const startedAt = new Date().toISOString()
-  console.log(`[Cron] ${provider} collection triggered at:`, startedAt)
+  // Optional manual backfill via query params: ?backfill=true&days=180
+  const backfill = request.nextUrl.searchParams.get("backfill") === "true"
+  const daysParam = parseInt(request.nextUrl.searchParams.get("days") || "", 10)
+  const opts = backfill
+    ? { backfill: true, backfillDays: Number.isFinite(daysParam) ? daysParam : 90 }
+    : {}
+  console.log(`[Cron] ${provider} collection triggered at:`, startedAt, opts)
 
   try {
-    const result = await runCollectionForProvider(provider)
+    const result = await runCollectionForProvider(provider, opts)
     console.log(`[Cron] ${provider} collection:`, {
       status: result.status,
       records_stored: result.records_stored,

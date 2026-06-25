@@ -97,6 +97,10 @@ export function transform(
     const costKnown = typeof billed === "number" && Number.isFinite(billed)
     const cost_usd = costKnown ? toFloat(billed) : 0
 
+    // Skip zero-cost usage line items (no billed cost) — they're noise on a
+    // cost dashboard. Keep nonzero charges and credits.
+    if (cost_usd === 0) continue
+
     // --- Timestamp (use the charge period start) ----------------------------
     const rawTs = charge.ChargePeriodStart ?? charge.ChargePeriodEnd
     const timestamp = parseTs(rawTs) ?? new Date().toISOString()

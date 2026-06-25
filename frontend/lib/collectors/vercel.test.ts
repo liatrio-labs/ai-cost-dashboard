@@ -117,13 +117,12 @@ describe("vercel transform", () => {
     expect(records[1].metadata.cost_known).toBe(true)
   })
 
-  it("cost_known is false and cost_usd is 0 when no numeric cost", () => {
+  it("skips charges with no billed cost (zero-cost usage line items)", () => {
     const records = transform(
       [{ ServiceName: "Blob", ChargePeriodStart: "2026-06-23T00:00:00Z" }],
       CTX
     )
-    expect(records[0].cost_usd).toBe(0)
-    expect(records[0].metadata.cost_known).toBe(false)
+    expect(records).toHaveLength(0)
   })
 
   it("token fields are null and request_count defaults to 1", () => {
