@@ -138,8 +138,8 @@ describe("anthropic transform", () => {
       {
         starting_at: "2026-06-06T00:00:00Z",
         results: [
-          { model: "claude-opus-4", amount: "1.50" },
-          { model: "claude-opus-4", amount: "2.25" },
+          { model: "claude-opus-4", amount: "150" }, // cents
+          { model: "claude-opus-4", amount: "225" }, // cents -> sum $3.75
         ],
       },
     ]
