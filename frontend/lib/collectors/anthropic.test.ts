@@ -33,7 +33,7 @@ describe("anthropic transform", () => {
       {
         starting_at: "2026-06-01T00:00:00Z",
         results: [
-          { model: "claude-sonnet-4-5", amount: "12.34", currency: "USD" },
+          { model: "claude-sonnet-4-5", amount: "1234", currency: "USD" }, // cents -> $12.34
         ],
       },
     ]
@@ -62,7 +62,7 @@ describe("anthropic transform", () => {
     const cost = [
       {
         starting_at: "2026-06-02T00:00:00Z",
-        results: [{ model: "claude-opus-4", amount: "3.00" }],
+        results: [{ model: "claude-opus-4", amount: "300" }], // cents -> $3.00
       },
     ]
     const records = transform([], cost, CTX)
