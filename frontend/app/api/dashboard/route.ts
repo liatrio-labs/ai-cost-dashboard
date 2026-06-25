@@ -21,10 +21,17 @@ import { getForecastSettings, plateauForEmployees } from "@/lib/forecast-setting
 
 export const dynamic = "force-dynamic"
 
-// Liatrio brand palette (matches the v0 design).
+// Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
-  "#00A94F", "#3B82F6", "#06B6D4", "#8B5CF6",
-  "#14B8A6", "#F97316", "#F59E0B", "#DC2626", "#6B7280",
+  "#24AE1D", // Primary Green
+  "#00C1DB", // Lagoon
+  "#C068F9", // Violet
+  "#F77F00", // Flame Orange
+  "#89DF00", // Bright Green
+  "#006989", // Deep Sea
+  "#E63946", // Hot Red
+  "#C6F135", // Lime
+  "#666666", // Grey 500
 ]
 
 function colorFor(index: number): string {

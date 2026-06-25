@@ -33,6 +33,8 @@ import { TrendChart } from "@/components/trend-chart"
 import { ForecastChart } from "@/components/forecast-chart"
 import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
 import { ToolsTable } from "@/components/tools-table"
+import { LiatrioMark } from "@/components/liatrio-logo"
+import { ModeToggle } from "@/components/mode-toggle"
 import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
 
 type PeriodQuery =
@@ -104,7 +106,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <LiatrioMark className="h-8" />
             <div>
               <h1 className="text-lg font-semibold text-foreground">AI Spend Dashboard</h1>
               {data && data.months.length > 0 && (
@@ -189,6 +192,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <ModeToggle />
             {isAdmin && (
               <Link href="/admin">
                 <Button variant="ghost" size="sm" className="gap-2">
@@ -306,8 +310,9 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
       </main>
 
       <footer className="border-t border-border/50 py-6">
-        <div className="mx-auto max-w-7xl px-4 text-center text-sm text-muted-foreground sm:px-6 lg:px-8">
-          AI Cost Dashboard
+        <div className="mx-auto flex max-w-7xl items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground sm:px-6 lg:px-8">
+          <LiatrioMark className="h-4 opacity-70" />
+          <span>AI Cost Dashboard · Liatrio</span>
         </div>
       </footer>
     </div>

@@ -14,6 +14,8 @@ import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
+import { LiatrioMark } from "@/components/liatrio-logo"
+import { ModeToggle } from "@/components/mode-toggle"
 
 // Providers that have an automated collector (the "Pull" list). Manual/seat
 // tools added via the admin form below are NOT pullable and don't appear here.
@@ -167,9 +169,13 @@ export function AdminClient() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <h1 className="text-lg font-semibold">Admin · Data ingest</h1>
+          <div className="flex items-center gap-3">
+            <LiatrioMark className="h-7" />
+            <h1 className="text-lg font-semibold">Admin · Data ingest</h1>
+          </div>
           <div className="flex items-center gap-2">
             {refreshMsg && <span className="text-xs text-muted-foreground">{refreshMsg}</span>}
+            <ModeToggle />
             <Button
               variant="outline"
               size="sm"

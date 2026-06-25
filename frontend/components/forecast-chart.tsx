@@ -17,8 +17,8 @@ interface ForecastChartProps {
   forecast: DashboardForecast[]
 }
 
-const ACTUAL_COLOR = "#00A94F"
-const PROJECTED_COLOR = "#8B5CF6"
+const ACTUAL_COLOR = "#24AE1D" // Liatrio Primary Green
+const PROJECTED_COLOR = "#C068F9" // Liatrio Violet
 
 export function ForecastChart({ forecast }: ForecastChartProps) {
   const rows = forecast || []

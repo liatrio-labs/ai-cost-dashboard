@@ -16,7 +16,7 @@ interface TrendChartProps {
   trends: DashboardTrend[]
 }
 
-const LINE_COLOR = "#00A94F"
+const LINE_COLOR = "#24AE1D" // Liatrio Primary Green
 
 export function TrendChart({ trends }: TrendChartProps) {
   const chartData = (trends || []).map((t) => ({

@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { LiatrioMark } from "@/components/liatrio-logo"
+import { ModeToggle } from "@/components/mode-toggle"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -66,9 +68,13 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50">
+    <div className="relative min-h-screen flex items-center justify-center bg-muted/50">
+      <div className="absolute right-4 top-4">
+        <ModeToggle />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader>
+          <LiatrioMark className="mb-2 h-10" />
           <CardTitle>Create an account</CardTitle>
           <CardDescription>Sign up for AI Cost Dashboard (Liatrio employees only)</CardDescription>
         </CardHeader>
