@@ -1,22 +1,31 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet } from "lucide-react"
+import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 
+// Providers that have an automated collector (the "Pull" list). Manual/seat
+// tools added via the admin form below are NOT pullable and don't appear here.
 const PROVIDERS: { id: string; name: string }[] = [
   { id: "anthropic", name: "Anthropic API (platform.claude.com)" },
   { id: "claude-ai", name: "Claude.ai (Enterprise Analytics)" },
   { id: "openai", name: "OpenAI API (platform.openai.com)" },
   { id: "cursor", name: "Cursor (Admin API)" },
   { id: "vercel", name: "Vercel (Usage API)" },
+  { id: "apify", name: "Apify (Usage API)" },
+  { id: "windsurf", name: "Windsurf (CascadeAnalytics + seats)" },
 ]
+
+interface ProviderOption {
+  id: string
+  name: string
+}
 
 interface PullResult {
   loading?: boolean
@@ -29,6 +38,64 @@ interface PullResult {
 export function AdminClient() {
   const [backfill, setBackfill] = useState(false)
   const [results, setResults] = useState<Record<string, PullResult>>({})
+
+  // Providers for the manual-entry dropdown; refreshed after adding a tool.
+  const [providers, setProviders] = useState<ProviderOption[]>([])
+
+  const loadProviders = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/providers")
+      if (!res.ok) return
+      const data = await res.json()
+      const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: any) => ({
+        id: p.id,
+        name: p.display_name || p.name,
+      }))
+      setProviders(list)
+    } catch {
+      /* non-fatal: the entry form falls back to fetching /api/providers itself */
+    }
+  }, [])
+
+  useEffect(() => {
+    loadProviders()
+  }, [loadProviders])
+
+  // Add-a-tool form state.
+  const [toolName, setToolName] = useState("")
+  const [toolSeatBased, setToolSeatBased] = useState(true)
+  const [addingTool, setAddingTool] = useState(false)
+  const [addToolMsg, setAddToolMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function addTool(e: React.FormEvent) {
+    e.preventDefault()
+    setAddToolMsg(null)
+    const name = toolName.trim()
+    if (!name) {
+      setAddToolMsg({ ok: false, text: "Enter a tool name." })
+      return
+    }
+    setAddingTool(true)
+    try {
+      const res = await fetch("/api/admin/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: name, seat_based: toolSeatBased }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAddToolMsg({ ok: false, text: body.error || `HTTP ${res.status}` })
+        return
+      }
+      setAddToolMsg({ ok: true, text: `Added "${name}". It's now in the entry dropdown below.` })
+      setToolName("")
+      await loadProviders()
+    } catch (err: any) {
+      setAddToolMsg({ ok: false, text: err?.message || "Request failed" })
+    } finally {
+      setAddingTool(false)
+    }
+  }
 
   async function pull(provider: string) {
     setResults((r) => ({ ...r, [provider]: { loading: true } }))
@@ -156,16 +223,78 @@ export function AdminClient() {
           </CardContent>
         </Card>
 
+        {/* Add a new tool */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Add a new tool</CardTitle>
+            <CardDescription>
+              Register a tool that has no collection API (e.g. a seat-based SaaS subscription). Once
+              added, record its monthly spend below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={addTool} className="space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-1.5">
+                  <label htmlFor="toolName" className="text-sm font-medium">
+                    Tool name
+                  </label>
+                  <Input
+                    id="toolName"
+                    placeholder="e.g. Lovable, GitHub Copilot"
+                    value={toolName}
+                    onChange={(e) => {
+                      setToolName(e.target.value)
+                      setAddToolMsg(null)
+                    }}
+                  />
+                </div>
+                <Button type="submit" disabled={addingTool} className="gap-2">
+                  {addingTool ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add tool
+                </Button>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={toolSeatBased}
+                  onChange={(e) => setToolSeatBased(e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                Seat-based subscription
+              </label>
+              {addToolMsg && (
+                <p
+                  className={`flex items-center gap-1 text-xs ${
+                    addToolMsg.ok ? "text-primary" : "text-destructive"
+                  }`}
+                >
+                  {addToolMsg.ok ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : (
+                    <AlertCircle className="h-3 w-3" />
+                  )}
+                  {addToolMsg.text}
+                </p>
+              )}
+            </form>
+          </CardContent>
+        </Card>
+
         {/* Manual entry */}
         <Card>
           <CardHeader>
-            <CardTitle>Manual entry</CardTitle>
+            <CardTitle>Monthly entry</CardTitle>
             <CardDescription>
-              Add a cost entry for a provider without an API (e.g. ChatGPT), or correct a figure.
+              Record monthly spend for a tool without an API (e.g. ChatGPT, or a seat-based tool you
+              added above). Toggle seat-based pricing to enter seats × price per seat.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <MonthlyEntryForm onSaveSuccess={() => { /* admin stays on page */ }} />
+            <MonthlyEntryForm
+              providers={providers.length ? providers : undefined}
+              onSaveSuccess={() => { /* admin stays on page */ }}
+            />
             <Separator />
             <Link href="/dashboard/chatgpt">
               <Button variant="ghost" size="sm" className="gap-2">

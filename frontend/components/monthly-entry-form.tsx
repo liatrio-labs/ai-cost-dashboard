@@ -41,6 +41,16 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
   const [cost, setCost] = useState("")
   const [note, setNote] = useState("")
 
+  // Seat-based pricing mode: cost = seats × pricePerSeat.
+  const [seatBased, setSeatBased] = useState(false)
+  const [seats, setSeats] = useState("")
+  const [pricePerSeat, setPricePerSeat] = useState("")
+
+  const seatsNum = parseFloat(seats)
+  const priceNum = parseFloat(pricePerSeat)
+  const seatComputedCost =
+    Number.isFinite(seatsNum) && Number.isFinite(priceNum) ? seatsNum * priceNum : 0
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -89,9 +99,13 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
     setError(null)
     setSaved(false)
 
-    const costNum = parseFloat(cost)
+    const costNum = seatBased ? seatComputedCost : parseFloat(cost)
     if (!providerId) {
       setError("Please select a provider.")
+      return
+    }
+    if (seatBased && (!Number.isFinite(seatsNum) || seatsNum <= 0 || !Number.isFinite(priceNum) || priceNum <= 0)) {
+      setError("Enter a seat count and price per seat greater than 0.")
       return
     }
     if (!Number.isFinite(costNum) || costNum <= 0) {
@@ -102,6 +116,17 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
     // First day of the chosen month as the timestamp.
     const timestamp = new Date(`${month}-01T12:00:00Z`).toISOString()
 
+    const metadata = seatBased
+      ? {
+          notes: note || "",
+          entry_type: "monthly_seats",
+          month,
+          seats: seatsNum,
+          price_per_seat: priceNum,
+          cost_basis: "seat_subscription",
+        }
+      : { notes: note || "", entry_type: "monthly_manual", month }
+
     setSaving(true)
     try {
       const res = await fetch("/api/costs/manual", {
@@ -110,13 +135,10 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
         body: JSON.stringify({
           provider_id: providerId,
           timestamp,
-          model_name: "manual",
+          model_name: seatBased ? "seats" : "manual",
           cost_usd: costNum,
-          metadata: {
-            notes: note || "",
-            entry_type: "monthly_manual",
-            month,
-          },
+          request_count: seatBased && Number.isFinite(seatsNum) ? Math.round(seatsNum) : 1,
+          metadata,
         }),
       })
 
@@ -127,6 +149,8 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
 
       setSaved(true)
       setCost("")
+      setSeats("")
+      setPricePerSeat("")
       setNote("")
       onSaveSuccess?.()
     } catch (err) {
@@ -184,21 +208,78 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
               </Field>
             </div>
 
-            <Field>
-              <FieldLabel htmlFor="cost">Cost (USD)</FieldLabel>
-              <Input
-                id="cost"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={cost}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={seatBased}
                 onChange={(e) => {
-                  setCost(e.target.value)
+                  setSeatBased(e.target.checked)
                   setSaved(false)
                 }}
+                className="h-4 w-4 accent-primary"
               />
-            </Field>
+              Seat-based pricing (seats × price per seat)
+            </label>
+
+            {seatBased ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="seats">Seats</FieldLabel>
+                  <Input
+                    id="seats"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g. 18"
+                    value={seats}
+                    onChange={(e) => {
+                      setSeats(e.target.value)
+                      setSaved(false)
+                    }}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="pricePerSeat">Price per seat (USD/mo)</FieldLabel>
+                  <Input
+                    id="pricePerSeat"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 40.00"
+                    value={pricePerSeat}
+                    onChange={(e) => {
+                      setPricePerSeat(e.target.value)
+                      setSaved(false)
+                    }}
+                  />
+                </Field>
+                <p className="text-sm text-muted-foreground sm:col-span-2">
+                  Monthly cost:{" "}
+                  <span className="font-medium text-foreground">
+                    ${seatComputedCost.toFixed(2)}
+                  </span>
+                  {Number.isFinite(seatsNum) && Number.isFinite(priceNum) && seatComputedCost > 0
+                    ? ` (${seatsNum} × $${priceNum.toFixed(2)})`
+                    : ""}
+                </p>
+              </div>
+            ) : (
+              <Field>
+                <FieldLabel htmlFor="cost">Cost (USD)</FieldLabel>
+                <Input
+                  id="cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={cost}
+                  onChange={(e) => {
+                    setCost(e.target.value)
+                    setSaved(false)
+                  }}
+                />
+              </Field>
+            )}
 
             <Field>
               <FieldLabel htmlFor="note">Note (optional)</FieldLabel>
