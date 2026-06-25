@@ -1,8 +1,7 @@
 /**
  * Unit tests for the Anthropic collector transform (pure, no network).
  *
- * Mirrors python-service/tests/test_anthropic_collector_transform.py — validates
- * the merge of Admin API usage + cost buckets into cost_records rows.
+ * Validates the merge of Admin API usage + cost buckets into cost_records rows.
  */
 
 import { transform } from "./anthropic"

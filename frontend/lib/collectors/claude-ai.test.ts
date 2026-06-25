@@ -1,8 +1,7 @@
 /**
  * Unit tests for the Claude Enterprise Analytics transform.
  *
- * Mirror of python-service/tests/test_claude_ai_analytics_collector.py. These
- * exercise the pure `transform` function only — no network. Confirms the
+ * These exercise the pure `transform` function only — no network. Confirms the
  * cents->USD division (by 100), model_name never null, token aggregation, null
  * tokens when usage is absent, and that bad buckets/results are skipped.
  */

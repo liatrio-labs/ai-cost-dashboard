@@ -19,8 +19,6 @@
  * - Response: ``application/jsonl`` (one JSON object per line); parsed
  *   defensively line-by-line.
  *
- * Ported from python-service/app/collectors/vercel_collector.py — the
- * transform() logic mirrors transform_to_cost_records exactly.
  */
 
 import type {
