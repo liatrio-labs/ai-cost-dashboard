@@ -79,10 +79,10 @@ Main time-series table storing individual cost entries.
 - timestamp (TIMESTAMPTZ) - Time of usage
 - model_name (VARCHAR) - e.g., 'gpt-4', 'claude-3-opus'
 - cost_usd (NUMERIC(12,6)) - Cost in USD
-- tokens_used (INTEGER)
-- input_tokens (INTEGER)
-- output_tokens (INTEGER)
-- request_count (INTEGER)
+- tokens_used (BIGINT)
+- input_tokens (BIGINT)
+- output_tokens (BIGINT)
+- request_count (BIGINT)
 - collection_method (VARCHAR) - 'api_automated', 'manual_entry', 'csv_import'
 - metadata (JSONB)
 - PK: (id, timestamp)
