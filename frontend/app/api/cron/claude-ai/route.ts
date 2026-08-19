@@ -1,8 +1,8 @@
 /**
  * Vercel Cron endpoint for Claude.ai (Enterprise Analytics API) collection.
  *
- * Calls the Python backend to collect per-user cost/usage for every active
- * claude-ai credential. Scheduled daily in vercel.json.
+ * Collects org-wide cost/usage (last 31 UTC days, so late revisions match
+ * the Claude.ai Usage admin page). Scheduled daily in vercel.json.
  */
 
 import { NextRequest } from "next/server"

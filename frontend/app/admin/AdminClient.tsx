@@ -207,7 +207,8 @@ export function AdminClient() {
             <CardTitle>Pull data from providers</CardTitle>
             <CardDescription>
               Trigger collection on demand. Daily collection also runs automatically.
-              Enable backfill to pull the last 90 days.
+              Claude.ai re-pulls the last 31 days so totals can catch up with the
+              Usage admin page. Enable backfill to pull the last 90 days.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
