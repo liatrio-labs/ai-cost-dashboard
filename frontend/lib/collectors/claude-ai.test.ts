@@ -53,7 +53,12 @@ function usageBuckets() {
           product: "claude_code",
           uncached_input_tokens: 1000,
           cache_read_input_tokens: 200,
+          cache_creation: {
+            ephemeral_5m_input_tokens: 80,
+            ephemeral_1h_input_tokens: 20,
+          },
           output_tokens: 500,
+          requests: 12,
         },
         // No usage for the chat result -> tokens stay null.
       ],
@@ -71,7 +76,7 @@ describe("transform", () => {
     expect(sonnet.cost_usd).toBeCloseTo(15.0)
     expect(sonnet.metadata.list_amount_usd).toBeCloseTo(30.0)
     expect(sonnet.collection_method).toBe("api_automated")
-    expect(sonnet.request_count).toBe(1)
+    expect(sonnet.request_count).toBe(12)
     expect(sonnet.user_id).toBe("user-123")
     expect(sonnet.provider_id).toBe("provider-abc")
     expect(sonnet.metadata.provider).toBe("claude-ai")
@@ -92,10 +97,69 @@ describe("transform", () => {
   test("token aggregation sums input flavours plus output", () => {
     const records = transform(costBuckets(), usageBuckets(), CTX)
     const sonnet = records.find((r) => r.model_name === "claude-sonnet-4-5")!
-    // uncached (1000) + cache_read (200) = 1200 input
-    expect(sonnet.input_tokens).toBe(1200)
+    // uncached (1000) + cache_read (200) + nested cache_creation (80+20) = 1300 input
+    expect(sonnet.input_tokens).toBe(1300)
     expect(sonnet.output_tokens).toBe(500)
-    expect(sonnet.tokens_used).toBe(1700)
+    expect(sonnet.tokens_used).toBe(1800)
+  })
+
+  test("nested cache_creation tokens are counted (Analytics API shape)", () => {
+    const cost: any[] = [
+      {
+        starting_at: "2026-08-01T00:00:00Z",
+        results: [{ model: "claude-opus-4-6", amount: 100, requests: 3 }],
+      },
+    ]
+    const usage: any[] = [
+      {
+        starting_at: "2026-08-01T00:00:00Z",
+        results: [
+          {
+            model: "claude-opus-4-6",
+            uncached_input_tokens: 10,
+            cache_read_input_tokens: 5,
+            cache_creation: {
+              ephemeral_5m_input_tokens: 1000,
+              ephemeral_1h_input_tokens: 500,
+            },
+            output_tokens: 7,
+            requests: 3,
+          },
+        ],
+      },
+    ]
+    const records = transform(cost, usage, CTX)
+    expect(records).toHaveLength(1)
+    expect(records[0].input_tokens).toBe(1515)
+    expect(records[0].output_tokens).toBe(7)
+    expect(records[0].tokens_used).toBe(1522)
+    expect(records[0].request_count).toBe(3)
+  })
+
+  test("dotted cache_creation keys still count when nested object is absent", () => {
+    const cost: any[] = [
+      {
+        starting_at: "2026-08-01T00:00:00Z",
+        results: [{ model: "claude-haiku", amount: 50 }],
+      },
+    ]
+    const usage: any[] = [
+      {
+        starting_at: "2026-08-01T00:00:00Z",
+        results: [
+          {
+            model: "claude-haiku",
+            uncached_input_tokens: 1,
+            "cache_creation.ephemeral_5m_input_tokens": 40,
+            "cache_creation.ephemeral_1h_input_tokens": 9,
+            output_tokens: 2,
+          },
+        ],
+      },
+    ]
+    const records = transform(cost, usage, CTX)
+    expect(records[0].input_tokens).toBe(50)
+    expect(records[0].request_count).toBe(1) // no requests field -> default
   })
 
   test("missing usage yields null tokens", () => {

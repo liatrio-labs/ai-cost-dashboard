@@ -9,6 +9,11 @@
  *
  * The transform treats the cost `amount` / `list_amount` fields as FRACTIONAL
  * CENTS (divided by CENTS_PER_USD = 100 to produce USD).
+ *
+ * Daily pulls re-fetch the last 31 UTC days (the API's per-request max and the
+ * documented revision window). Claude.ai Usage/Analytics totals stay revisable
+ * for ~30 days; a 1-day window would freeze undercounts that no longer match
+ * the admin site.
  */
 
 import type {
@@ -26,6 +31,12 @@ const ANTHROPIC_VERSION = "2023-06-01"
 const MAX_SPAN_DAYS = 31
 // `amount` / `list_amount` are returned in fractional cents.
 const CENTS_PER_USD = 100.0
+// 1d pages default to 7 buckets if `limit` is omitted — far short of a month.
+const PAGE_LIMIT_1D = 31
+// Restart pagination this many times if a cursor expires (HTTP 410).
+const MAX_PAGINATION_RESTARTS = 3
+// Non-backfill lookback: today plus this many prior UTC days (= 31 buckets).
+const DEFAULT_LOOKBACK_DAYS = 30
 
 /** Build a join key matching cost and usage results within a bucket. */
 function resultKey(startingAt: string | null | undefined, result: any): string {
@@ -36,40 +47,71 @@ function resultKey(startingAt: string | null | undefined, result: any): string {
   ])
 }
 
-/**
- * Sum all input-token flavours present in a usage result. Covers
- * `input_tokens`, `uncached_input_tokens`, `cache_read_input_tokens` and the
- * dotted cache-creation fields. Returns null if no input-token field is present.
- */
-function sumInputTokens(result: any): number | null {
-  const inputFieldNames = [
-    "input_tokens",
-    "uncached_input_tokens",
-    "cache_read_input_tokens",
-    "cache_creation.ephemeral_5m_input_tokens",
-    "cache_creation.ephemeral_1h_input_tokens",
-  ]
-  let total = 0
-  let found = false
-  for (const name of inputFieldNames) {
-    const value = result?.[name]
-    if (value !== null && value !== undefined) {
-      // Python uses int(value); coerce and skip non-numeric values.
-      const n = typeof value === "number" ? value : parseInt(String(value), 10)
-      if (Number.isFinite(n)) {
-        total += toInt(Math.trunc(n))
-        found = true
-      }
-    }
-  }
-  return found ? total : null
-}
-
 /** Coerce to int, returning null on failure or missing value. */
 function safeInt(value: any): number | null {
   if (value === null || value === undefined) return null
   const n = typeof value === "number" ? value : parseInt(String(value), 10)
   return Number.isFinite(n) ? Math.trunc(n) : null
+}
+
+/**
+ * Cache-creation tokens. The live Analytics API returns a nested object:
+ *   cache_creation: { ephemeral_5m_input_tokens, ephemeral_1h_input_tokens }
+ * Dotted keys appear only when grouping by token_type (cost report) or in
+ * older assumed schemas.
+ */
+function cacheCreationTokens(result: any): { total: number; found: boolean } {
+  const nested = result?.cache_creation
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    let total = 0
+    let found = false
+    for (const key of ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]) {
+      const n = safeInt(nested[key])
+      if (n !== null) {
+        total += n
+        found = true
+      }
+    }
+    return { total, found }
+  }
+
+  let total = 0
+  let found = false
+  for (const key of [
+    "cache_creation.ephemeral_5m_input_tokens",
+    "cache_creation.ephemeral_1h_input_tokens",
+  ]) {
+    const n = safeInt(result?.[key])
+    if (n !== null) {
+      total += n
+      found = true
+    }
+  }
+  return { total, found }
+}
+
+/**
+ * Sum all input-token flavours present in a usage result. Prefers the real
+ * Analytics API fields (uncached + cache read + nested cache creation) and
+ * falls back to a combined `input_tokens` field if none of those exist.
+ * Returns null if no input-token field is present.
+ */
+function sumInputTokens(result: any): number | null {
+  const cache = cacheCreationTokens(result)
+  const flavors = [
+    safeInt(result?.uncached_input_tokens),
+    safeInt(result?.cache_read_input_tokens),
+  ]
+  let total = cache.found ? cache.total : 0
+  let found = cache.found
+  for (const n of flavors) {
+    if (n !== null) {
+      total += n
+      found = true
+    }
+  }
+  if (found) return total
+  return safeInt(result?.input_tokens)
 }
 
 /**
@@ -160,6 +202,9 @@ export function transform(
         tokensUsed = (inputTokens || 0) + (outputTokens || 0)
       }
 
+      const requestCount =
+        safeInt(usage.requests) ?? safeInt(result.requests) ?? 1
+
       records.push({
         user_id: ctx.userId,
         provider_id: ctx.providerId,
@@ -169,7 +214,7 @@ export function transform(
         tokens_used: tokensUsed,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
-        request_count: 1,
+        request_count: requestCount,
         collection_method: "api_automated",
         metadata: {
           provider: "claude-ai",
@@ -204,6 +249,12 @@ function* iterChunks(
   }
 }
 
+function pageLimit(bucketWidth: string): number {
+  if (bucketWidth === "1h") return 168
+  if (bucketWidth === "1m") return 256
+  return PAGE_LIMIT_1D
+}
+
 /** Fetch all paginated buckets for a single report endpoint. */
 async function fetchReport(
   apiKey: string,
@@ -213,58 +264,74 @@ async function fetchReport(
   bucketWidth: string,
   groupBy: string[]
 ): Promise<any[]> {
-  const allBuckets: any[] = []
-  let nextPage: string | null = null
-
   const headers = {
     "anthropic-version": ANTHROPIC_VERSION,
     "x-api-key": apiKey,
   }
+  const limit = pageLimit(bucketWidth)
 
+  let restartAttempts = 0
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const params = new URLSearchParams()
-    params.set("starting_at", rfc3339(start))
-    params.set("ending_at", rfc3339(end))
-    params.set("bucket_width", bucketWidth)
-    for (const g of groupBy) params.append("group_by[]", g)
-    if (nextPage) params.set("page", nextPage)
+    const allBuckets: any[] = []
+    let nextPage: string | null = null
+    let restart = false
 
-    const url = `${ANALYTICS_API_BASE_URL}${endpoint}?${params.toString()}`
-    const res = await fetchWithRetry(url, { method: "GET", headers })
-    if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      throw new Error(
-        `Claude Analytics ${endpoint} request failed: ${res.status} ${body}`
-      )
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const params = new URLSearchParams()
+      params.set("starting_at", rfc3339(start))
+      params.set("ending_at", rfc3339(end))
+      params.set("bucket_width", bucketWidth)
+      params.set("limit", String(limit))
+      for (const g of groupBy) params.append("group_by[]", g)
+      if (nextPage) params.set("page", nextPage)
+
+      const url = `${ANALYTICS_API_BASE_URL}${endpoint}?${params.toString()}`
+      const res = await fetchWithRetry(url, { method: "GET", headers })
+      if (!res.ok) {
+        // Cursors expire after a data refresh; restart from page 1.
+        if (res.status === 410 && nextPage && restartAttempts < MAX_PAGINATION_RESTARTS) {
+          restartAttempts++
+          restart = true
+          break
+        }
+        const body = await res.text().catch(() => "")
+        throw new Error(
+          `Claude Analytics ${endpoint} request failed: ${res.status} ${body}`
+        )
+      }
+      const json: any = await res.json()
+
+      const pageBuckets = json?.data || []
+      for (const b of pageBuckets) allBuckets.push(b)
+
+      if (!json?.has_more) return allBuckets
+      nextPage = json?.next_page ?? null
+      if (!nextPage) return allBuckets
     }
-    const json: any = await res.json()
 
-    const pageBuckets = json?.data || []
-    for (const b of pageBuckets) allBuckets.push(b)
-
-    if (!json?.has_more) break
-    nextPage = json?.next_page ?? null
-    if (!nextPage) break
+    if (!restart) return allBuckets
   }
-
-  return allBuckets
 }
 
 /**
- * Collect cost + usage data from the Claude Enterprise Analytics API. Defaults
- * to the last 24h; with backfill, the last `backfillDays` (default 90) days.
- * Requests are chunked into <=31-day spans (the API's per-request max).
+ * Collect cost + usage data from the Claude Enterprise Analytics API.
+ *
+ * Default window is today plus the prior 30 UTC days (31 daily buckets) so a
+ * manual Pull without backfill matches the Claude.ai Usage month-to-date view
+ * and picks up late-arriving revisions. With backfill, the last
+ * `backfillDays` (default 90) days. Requests are chunked into <=31-day spans.
  */
 async function collect(
   ctx: CollectorContext,
   opts: CollectOptions = {}
 ): Promise<CostRecord[]> {
-  // bucket_width=1d needs UTC-midnight-aligned boundaries; cover from `days` ago
-  // through the start of tomorrow (includes today's partial bucket).
+  // bucket_width=1d needs UTC-midnight-aligned boundaries; cover through the
+  // start of tomorrow (includes today's partial bucket).
   const today = startOfUTCDay(new Date())
   const end = new Date(today.getTime() + DAY_MS)
-  const days = opts.backfill ? opts.backfillDays ?? 90 : 1
+  const days = opts.backfill ? opts.backfillDays ?? 90 : DEFAULT_LOOKBACK_DAYS
   let start = new Date(today.getTime() - days * DAY_MS)
   // The Enterprise Analytics API has no data before 2026-01-01 (returns 400).
   const MIN_DATA = Date.UTC(2026, 0, 1)
