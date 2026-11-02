@@ -15,6 +15,7 @@ import { formatCurrency } from "@/lib/dashboard-types"
 import {
   drillInto,
   FILTER_KEYS,
+  UNASSIGNED_FILTER,
   type DashboardFilters,
   type DrillLevel,
 } from "@/lib/dashboard-filters"
@@ -349,12 +350,29 @@ export function OrgFilterBar({
   onFiltersChange: OnFilters
 }) {
   const o = data?.options
-  const teams = o?.teams.filter((t) => !filters.department || t.departmentId === filters.department) ?? []
-  const people = o?.people.filter((p) => !filters.team || p.teamId === filters.team) ?? []
+  // Does a filter value accept an entity id? "unassigned" accepts null.
+  const accepts = (want: string | undefined, have: string | null) =>
+    !want || (want === UNASSIGNED_FILTER ? have === null : have === want)
+  const deptOfTeam = (teamId: string | null) =>
+    teamId ? (o?.teams.find((t) => t.id === teamId)?.departmentId ?? null) : null
+  const teamFits = (teamId: string, f: DashboardFilters) =>
+    accepts(f.department, teamId === UNASSIGNED_FILTER ? null : deptOfTeam(teamId))
+  const personFits = (p: { teamId: string | null }, f: DashboardFilters) =>
+    accepts(f.team, p.teamId) && accepts(f.department, deptOfTeam(p.teamId))
+
+  const teams = o?.teams.filter((t) => accepts(filters.department, t.departmentId)) ?? []
+  const people = o?.people.filter((p) => personFits(p, filters)) ?? []
   const set = (k: keyof DashboardFilters, v: string) => {
     const next = { ...filters }
     if (v) next[k] = v
     else delete next[k]
+    // Filters AND together, so drop child filters the new parent excludes
+    // instead of leaving a combination that matches nothing.
+    if (k === "department" || k === "team") {
+      if (next.team && !teamFits(next.team, next)) delete next.team
+      const person = next.person && next.person !== UNASSIGNED_FILTER ? o?.people.find((p) => p.id === next.person) : undefined
+      if (person && !personFits(person, next)) delete next.person
+    }
     onFiltersChange(next)
   }
   const field = (k: keyof DashboardFilters, label: string, opts: { value: string; label: string }[], unassigned = true) => (

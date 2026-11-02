@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event"
 import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable } from "./org-breakdown"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { EMPTY_ORG, PROVIDERS, attributedRows } from "@/lib/org/dashboard-fixtures"
-import { D, T, orgData } from "@/lib/org/test-fixtures"
+import { D, PE, T, orgData } from "@/lib/org/test-fixtures"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
 
 const NOW = new Date("2026-11-15T00:00:00Z")
@@ -136,5 +136,34 @@ describe("OrgFilterBar", () => {
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }))
     expect(onChange).toHaveBeenLastCalledWith({})
+  })
+})
+
+describe("OrgFilterBar child filters", () => {
+  const options = (label: string) => within(screen.getByLabelText(label)).getAllByRole("option").map((o) => o.textContent)
+
+  it("drops a team and person that the new department excludes", async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+    render(<OrgFilterBar data={breakdown()} filters={{ department: D.eng, team: T.data, person: PE.dave }} onFiltersChange={onChange} />)
+    await user.selectOptions(screen.getByLabelText("Department"), D.sales)
+    expect(onChange).toHaveBeenLastCalledWith({ department: D.sales })
+  })
+
+  it("keeps children that still fit the new parent", async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+    render(<OrgFilterBar data={breakdown()} filters={{ team: T.data, person: PE.dave }} onFiltersChange={onChange} />)
+    await user.selectOptions(screen.getByLabelText("Department"), D.eng)
+    expect(onChange).toHaveBeenLastCalledWith({ team: T.data, person: PE.dave, department: D.eng })
+    await user.selectOptions(screen.getByLabelText("Team"), T.platform)
+    expect(onChange).toHaveBeenLastCalledWith({ team: T.platform })
+  })
+
+  it("scopes people to the department and lists department-less teams under Unassigned", () => {
+    const { rerender } = render(<OrgFilterBar data={breakdown()} filters={{ department: D.eng }} onFiltersChange={() => {}} />)
+    expect(options("Person")).toEqual(["All", "Alice", "Dave", "Unassigned"])
+    rerender(<OrgFilterBar data={breakdown()} filters={{ department: "unassigned" }} onFiltersChange={() => {}} />)
+    expect(options("Team")).toEqual(["All", "Orphan", "Unassigned"])
   })
 })
