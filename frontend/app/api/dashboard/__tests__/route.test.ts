@@ -6,6 +6,9 @@
  */
 
 import { NextRequest } from "next/server"
+// Response of the ORIGINAL route (origin/main before #8) for ?month=2026-11 on
+// these fixtures. Committed as JSON because the repo gitignores .snap files.
+import golden from "./dashboard-golden.json"
 import { orgData, PE, T } from "@/lib/org/test-fixtures"
 import { attributedRows, emptyOrg, mockSupabase, plainDailyRows, providerRows, PROV } from "@/lib/dashboard/test-fixtures"
 
@@ -50,7 +53,7 @@ describe("GET /api/dashboard without filters (regression)", () => {
   it("returns the same response fields and totals as before org filters", async () => {
     const { status, body } = await get("?month=2026-11")
     expect(status).toBe(200)
-    expect(body).toMatchSnapshot()
+    expect(body).toEqual(golden)
     expect(body.kpis.totalSpend).toBe(347)
     expect(body.kpis.prevSpend).toBe(150)
     // Never touches the attributed view or the org tables.
@@ -60,7 +63,7 @@ describe("GET /api/dashboard without filters (regression)", () => {
   it("is unaffected when no org structure exists", async () => {
     tables.cost_records_daily_attributed = attributedRows(emptyOrg())
     const { body } = await get("?month=2026-11")
-    expect(body).toMatchSnapshot()
+    expect(body).toEqual(golden)
   })
 })
 

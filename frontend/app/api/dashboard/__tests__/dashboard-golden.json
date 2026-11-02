@@ -1,0 +1,148 @@
+{
+  "months": [
+    "2026-11",
+    "2026-10"
+  ],
+  "selectedMonth": "2026-11",
+  "dataStart": "2026-10-10",
+  "dataEnd": "2026-11-07",
+  "period": {
+    "start": "2026-11-01",
+    "end": "2026-11-30",
+    "mode": "month"
+  },
+  "tools": [
+    {
+      "id": "prov-anthropic",
+      "name": "Anthropic API",
+      "monthlySpend": 150,
+      "usageVolume": "3.0K tokens",
+      "change": "up",
+      "changePercent": 200,
+      "changeDirection": "up",
+      "subscriptionType": "Usage (API)",
+      "color": "#24AE1D",
+      "description": "",
+      "adminUrl": "",
+      "lastUpdated": null
+    },
+    {
+      "id": "prov-openai",
+      "name": "OpenAI API",
+      "monthlySpend": 97,
+      "usageVolume": "4.0K tokens",
+      "change": "up",
+      "changePercent": 223,
+      "changeDirection": "up",
+      "subscriptionType": "Usage (API)",
+      "color": "#C068F9",
+      "description": "",
+      "adminUrl": "",
+      "lastUpdated": null
+    },
+    {
+      "id": "prov-cursor",
+      "name": "Cursor",
+      "monthlySpend": 50,
+      "usageVolume": "3.0K tokens",
+      "change": "up",
+      "changePercent": 150,
+      "changeDirection": "up",
+      "subscriptionType": "Usage (API)",
+      "color": "#00C1DB",
+      "description": "",
+      "adminUrl": "",
+      "lastUpdated": null
+    },
+    {
+      "id": "prov-windsurf",
+      "name": "Windsurf",
+      "monthlySpend": 50,
+      "usageVolume": "1.0K tokens",
+      "change": "stable",
+      "changePercent": 0,
+      "changeDirection": "stable",
+      "subscriptionType": "Usage (API)",
+      "color": "#F77F00",
+      "description": "",
+      "adminUrl": "",
+      "lastUpdated": null
+    }
+  ],
+  "trends": [
+    {
+      "month": "2026-10",
+      "total": 150,
+      "anthropic": 50,
+      "openai": 30,
+      "cursor": 20,
+      "windsurf": 50
+    },
+    {
+      "month": "2026-11",
+      "total": 347,
+      "anthropic": 150,
+      "openai": 97,
+      "cursor": 50,
+      "windsurf": 50
+    }
+  ],
+  "byModel": [
+    {
+      "model": "claude-opus",
+      "total": 100,
+      "color": "#24AE1D"
+    },
+    {
+      "model": "gpt-5",
+      "total": 97,
+      "color": "#00C1DB"
+    },
+    {
+      "model": "claude-sonnet",
+      "total": 50,
+      "color": "#C068F9"
+    },
+    {
+      "model": "auto",
+      "total": 50,
+      "color": "#F77F00"
+    },
+    {
+      "model": "windsurf",
+      "total": 50,
+      "color": "#89DF00"
+    }
+  ],
+  "kpis": {
+    "totalSpend": 347,
+    "prevSpend": 150,
+    "changePercent": 131,
+    "totalTokens": 11000,
+    "activeProviders": 4,
+    "topProvider": "Anthropic API"
+  },
+  "forecast": [
+    {
+      "month": "2026-10",
+      "total": 150,
+      "projected": false
+    },
+    {
+      "month": "2026-11",
+      "total": 347,
+      "projected": false
+    },
+    {
+      "month": "2026-12",
+      "total": 640.85,
+      "projected": true
+    }
+  ],
+  "forecastMeta": {
+    "employees": 100,
+    "plateau": 1000,
+    "perPersonPct": 2,
+    "baselineEmployees": 100
+  }
+}
