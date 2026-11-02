@@ -1,8 +1,9 @@
 # Cost attribution in collectors
 
 Collectors write sub-org attribution to `cost_records.metadata.attribution`,
-following the shared contract from epic #4 (defined in
-`frontend/lib/collectors/types.ts` as `Attribution`):
+following the shared contract from epic #4 (`Attribution`, defined in
+`frontend/lib/org/types.ts` and re-exported from
+`frontend/lib/collectors/types.ts`):
 
 ```ts
 interface Attribution {
