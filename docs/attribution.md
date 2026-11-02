@@ -114,7 +114,8 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 - The split is all-or-nothing: if any per-key query fails, the collector writes
   org rows only. A partial split would misattribute the remainder.
 - Report queries are billed at $5 per 1,000, so each run costs 1 + N queries
-  for N keys. The key list is capped at 200.
+  for N keys. The key list follows `pagination.next` (sent as `until`) and is
+  capped at 200; keys past the cap land in the remainder row.
 - Per-user rows would need apps to send `user` and a separate `group_by=user`
   query. That isn't done yet.
 

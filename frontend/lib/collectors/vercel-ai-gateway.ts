@@ -217,26 +217,43 @@ async function fetchReport(
 
 /**
  * List the team's AI Gateway keys (ids + names, never secrets) with a Vercel
- * token. Returns [] on any failure.
+ * token, following Vercel's `pagination.next` cursor (sent back as `until`) up
+ * to MAX_KEYS. Never throws: a failed first page yields [], a failed later
+ * page keeps the keys already listed. A partial list is still safe because
+ * unlisted keys' spend lands in the org remainder row.
  */
 export async function listGatewayKeys(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
+  const keys: GatewayKey[] = []
+  const seen = new Set<string>()
+  let until: string | null = null
   try {
-    const params = new URLSearchParams({ purpose: "ai-gateway", limit: "100" })
-    if (teamId) params.set("teamId", teamId)
-    const res = await fetchWithRetry(`${API_KEYS_URL}?${params}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${vercelToken}` },
-    })
-    if (!res.ok) return []
-    const json: any = await res.json()
-    const items: any[] = json?.apiKeys ?? json?.keys ?? json?.data ?? []
-    return items
-      .filter((k) => k && typeof k.id === "string")
-      .slice(0, MAX_KEYS)
-      .map((k) => ({ id: k.id, name: str(k.name) }))
+    while (keys.length < MAX_KEYS) {
+      const params = new URLSearchParams({ purpose: "ai-gateway", limit: "100" })
+      if (teamId) params.set("teamId", teamId)
+      if (until) params.set("until", until)
+      const res = await fetchWithRetry(`${API_KEYS_URL}?${params}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${vercelToken}` },
+      })
+      if (!res.ok) break
+      const json: any = await res.json()
+      const items: any[] = json?.apiKeys ?? json?.keys ?? json?.data ?? []
+      let added = 0
+      for (const k of items) {
+        if (!k || typeof k.id !== "string" || seen.has(k.id) || keys.length >= MAX_KEYS) continue
+        seen.add(k.id)
+        keys.push({ id: k.id, name: str(k.name) })
+        added++
+      }
+      const next = json?.pagination?.next
+      // Stop when there is no cursor, or the cursor stopped producing new keys.
+      if (next === null || next === undefined || added === 0) break
+      until = String(next)
+    }
   } catch {
-    return []
+    // keep what was listed
   }
+  return keys
 }
 
 async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {

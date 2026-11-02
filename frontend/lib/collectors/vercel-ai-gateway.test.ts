@@ -3,7 +3,7 @@
  * Pure transform tests for the Vercel AI Gateway collector. No network.
  */
 
-import { transform, collector } from "./vercel-ai-gateway"
+import { transform, collector, listGatewayKeys } from "./vercel-ai-gateway"
 import type { CostRecord } from "./types"
 
 const ctx = { userId: "user-1", providerId: "provider-aigw", teamId: "team_x" }
@@ -182,5 +182,54 @@ describe("vercel-ai-gateway collect (mocked fetch)", () => {
     const records = await collector.collect(base)
     expect(hosts).toEqual(["ai-gateway.vercel.sh"])
     expect(records[0].metadata.attribution).toEqual({ granularity: "org" })
+  })
+})
+
+describe("listGatewayKeys pagination (mocked fetch)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const page = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: `key_${from + i}`, name: `k${from + i}` }))
+
+  test("follows pagination.next as `until` across pages", async () => {
+    const untils: (string | null)[] = []
+    global.fetch = jest.fn(async (url: string) => {
+      const until = new URL(String(url)).searchParams.get("until")
+      untils.push(until)
+      if (!until) return res({ apiKeys: page(0, 100), pagination: { next: 1700000000000 } })
+      return res({ apiKeys: page(100, 30), pagination: { next: null } })
+    }) as unknown as typeof fetch
+    const keys = await listGatewayKeys("test-vercel-token", "team_x")
+    expect(untils).toEqual([null, "1700000000000"])
+    expect(keys).toHaveLength(130)
+    expect(keys[129]).toEqual({ id: "key_129", name: "k129" })
+  })
+
+  test("caps at 200 keys and keeps earlier pages if a later page fails", async () => {
+    let calls = 0
+    global.fetch = jest.fn(async () => {
+      calls++
+      if (calls <= 3) return res({ apiKeys: page((calls - 1) * 100, 100), pagination: { next: calls } })
+      return res({}, 403)
+    }) as unknown as typeof fetch
+    const keys = await listGatewayKeys("test-vercel-token")
+    expect(keys).toHaveLength(200)
+    expect(calls).toBe(2)
+
+    calls = 0
+    global.fetch = jest.fn(async () => {
+      calls++
+      return calls === 1 ? res({ apiKeys: page(0, 100), pagination: { next: 1 } }) : res({}, 403)
+    }) as unknown as typeof fetch
+    expect(await listGatewayKeys("test-vercel-token")).toHaveLength(100)
+  })
+
+  test("stops when the cursor repeats keys instead of looping", async () => {
+    global.fetch = jest.fn(async () => res({ apiKeys: page(0, 5), pagination: { next: 1 } })) as unknown as typeof fetch
+    expect(await listGatewayKeys("test-vercel-token")).toHaveLength(5)
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2)
   })
 })
