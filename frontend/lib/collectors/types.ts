@@ -7,27 +7,10 @@
 
 /**
  * Sub-org attribution for a cost row, stored at `cost_records.metadata.attribution`.
- *
- * This is the shared contract from epic #4. Every field is optional/nullable and
- * a collector sets only what the provider API really returns. `granularity` is
- * the finest dimension the row is attributed to; rows with no `attribution`
- * (pre-#6 data) count as "org" (Unassigned).
- *
- * #5 adds a shared copy under lib/org/; whichever merges second deduplicates.
+ * The contract (epic #4) lives in lib/org/types; re-exported here so collector
+ * imports stay local. See docs/attribution.md.
  */
-export type AttributionGranularity = "person" | "api_key" | "project" | "workspace" | "org"
-
-export interface Attribution {
-  person_email?: string | null // lower-cased
-  person_external_id?: string | null // provider's user / actor id
-  person_name?: string | null
-  api_key_id?: string | null // provider's stable key id (never the secret)
-  api_key_name?: string | null
-  project_id?: string | null // OpenAI project, Vercel project
-  project_name?: string | null
-  workspace_id?: string | null // Anthropic workspace
-  granularity: AttributionGranularity
-}
+export type { Attribution, AttributionGranularity } from "@/lib/org/types"
 
 export interface CostRecord {
   user_id: string

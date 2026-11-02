@@ -4,15 +4,10 @@
  */
 
 import type { Attribution, AttributionGranularity } from "./types"
+// Shared with the rollup (#5) so collectors and SQL normalize emails identically.
+export { normalizeEmail } from "@/lib/org/attribution"
 
 type Dimensions = Omit<Attribution, "granularity">
-
-/** Lower-case + trim an email; empty / non-string -> null. */
-export function normalizeEmail(value: unknown): string | null {
-  if (typeof value !== "string") return null
-  const v = value.trim().toLowerCase()
-  return v ? v : null
-}
 
 /** Trimmed non-empty string, else null. */
 export function str(value: unknown): string | null {
