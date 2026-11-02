@@ -24,7 +24,8 @@ export function OrgFilterBar({ options, filters, onChange }: OrgFilterBarProps) 
     : null
   const underTeam = (o: BreakdownOption) => {
     if (filters.team) return (o.parentId ?? UNASSIGNED_KEY) === filters.team
-    if (teamIdsInDept) return !!o.parentId && teamIdsInDept.has(o.parentId)
+    // Under the Unassigned department, unteamed people and keys belong too.
+    if (teamIdsInDept) return o.parentId ? teamIdsInDept.has(o.parentId) : filters.department === UNASSIGNED_KEY
     return true
   }
 

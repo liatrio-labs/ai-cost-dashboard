@@ -131,4 +131,14 @@ describe("OrgFilterBar", () => {
     await user.click(screen.getByRole("button", { name: /clear filters/i }))
     expect(onChange).toHaveBeenLastCalledWith({})
   })
+
+  it("lists unteamed people and keys under the Unassigned department", () => {
+    const b = build()
+    render(<OrgFilterBar options={b.options} filters={{ department: "unassigned" }} onChange={() => {}} />)
+    const opts = (label: string) => within(screen.getByLabelText(label)).getAllByRole("option").map((o) => o.textContent)
+    // Orphan team (no department) plus unteamed Carol; Erin is on Orphan.
+    expect(opts("Team")).toEqual(["All", "Orphan", "Unassigned"])
+    expect(opts("Person")).toEqual(["All", "carol@liatrio.com", "Erin", "Unassigned"])
+    expect(opts("API key")).toEqual(["All", "key_owner (OpenAI API)", "Unowned key (OpenAI API)", "Unassigned"])
+  })
 })

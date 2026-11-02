@@ -132,7 +132,10 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
     )
   }
 
-  const hasAnyData = !!data && data.months.length > 0
+  const filtered = hasFilters(filters)
+  // A filter that matches nothing empties `months` too; that's "no spend for
+  // these filters", not the first-run empty state, so the filter bar stays.
+  const hasAnyData = !!data && (data.months.length > 0 || filtered)
   const hasPeriodData = !!data && data.tools.length > 0
   // Org filters and the Org tab appear only once an org structure exists, so
   // the dashboard is unchanged until then.
@@ -148,7 +151,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
             <LiatrioMark className="h-8" />
             <div>
               <h1 className="text-lg font-semibold text-foreground">AI Spend Dashboard</h1>
-              {data && data.months.length > 0 && (
+              {data && hasAnyData && (
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-3 w-3 text-muted-foreground" />
                   {/* Month dropdown (defaults to the current month) */}
@@ -303,8 +306,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               <h2 className="text-lg font-semibold text-foreground">No spend in this period</h2>
               <p className="max-w-md text-sm text-muted-foreground">
                 There&apos;s no recorded spend for the selected period
-                {hasFilters(filters) ? " and filters" : ""}. Pick another month or range
-                above{hasFilters(filters) ? ", or clear the filters" : ""}.
+                {filtered ? " and filters" : ""}. Pick another month or range
+                above{filtered ? ", or clear the filters" : ""}.
               </p>
             </CardContent>
           </Card>
