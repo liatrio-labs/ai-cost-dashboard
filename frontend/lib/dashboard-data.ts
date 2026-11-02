@@ -12,10 +12,19 @@ import {
 } from "@/lib/dashboard-filters"
 import type { AttributedDailyRow, OrgData } from "@/lib/org/types"
 
-// Minimal structural type so tests can pass a fake client.
-type Query = any
+// Minimal structural types so tests can pass a fake client.
+interface QueryResult {
+  data: unknown[] | null
+  error: unknown
+}
+export interface Query extends PromiseLike<QueryResult> {
+  order(column: string, options?: { ascending?: boolean }): Query
+  range(from: number, to: number): Query
+  eq(column: string, value: unknown): Query
+  is(column: string, value: null): Query
+}
 export interface SupabaseLike {
-  from(table: string): Query
+  from(table: string): { select(columns: string): Query }
 }
 
 const PAGE = 1000
@@ -97,11 +106,11 @@ export async function fetchOrgData(supabase: SupabaseLike): Promise<OrgData> {
   ])
   for (const r of [departments, teams, people, apiKeys]) if (r.error) throw r.error
   return {
-    departments: departments.data || [],
-    teams: teams.data || [],
-    people: people.data || [],
+    departments: (departments.data || []) as OrgData["departments"],
+    teams: (teams.data || []) as OrgData["teams"],
+    people: (people.data || []) as OrgData["people"],
     identities: [],
-    apiKeys: apiKeys.data || [],
+    apiKeys: (apiKeys.data || []) as OrgData["apiKeys"],
   }
 }
 

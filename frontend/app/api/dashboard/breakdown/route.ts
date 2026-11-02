@@ -17,7 +17,7 @@ import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
 import { parseFilters } from "@/lib/dashboard-filters"
-import { fetchAttributedDaily, fetchOrgData, fetchProviders, providerIdForSlug } from "@/lib/dashboard-data"
+import { fetchAttributedDaily, fetchOrgData, fetchProviders, providerIdForSlug, type SupabaseLike } from "@/lib/dashboard-data"
 import { computeBreakdown } from "@/lib/org/breakdown"
 
 export const dynamic = "force-dynamic"
@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies()
     await requireAuth(cookieStore) // same gate as /api/dashboard
-    const supabase = await createClient(cookieStore)
+    // Typed client -> the minimal shape lib/dashboard-data.ts needs (see SupabaseLike).
+    const supabase = (await createClient(cookieStore)) as unknown as SupabaseLike
 
     const sp = request.nextUrl.searchParams
     const filters = parseFilters(sp)
@@ -44,9 +45,10 @@ export async function GET(request: NextRequest) {
         params: { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") },
       })
     )
-  } catch (error: any) {
-    if (error?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
+    if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
     console.error("GET /api/dashboard/breakdown error:", error)
-    return errorResponse(error?.message || "Failed to load breakdown", 500)
+    return errorResponse(message || "Failed to load breakdown", 500)
   }
 }

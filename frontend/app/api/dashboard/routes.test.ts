@@ -1,0 +1,211 @@
+/**
+ * @jest-environment node
+ *
+ * GET /api/dashboard and GET /api/dashboard/breakdown against an in-memory
+ * fake of the few Supabase query-builder calls the routes make. No network,
+ * no database.
+ */
+
+import { NextRequest } from "next/server"
+import { FORECAST_DEFAULTS } from "@/lib/forecast-settings"
+import { computeDashboard } from "@/lib/dashboard-compute"
+import {
+  EMPTY_ORG,
+  NOV_TOTAL,
+  PROVIDERS,
+  attributedRows,
+  plainDailyRows,
+} from "@/lib/org/dashboard-fixtures"
+import { D, K, PE, T, orgData } from "@/lib/org/test-fixtures"
+import type { OrgData } from "@/lib/org/types"
+import type { BreakdownData } from "@/lib/org/breakdown"
+import type { DashboardData } from "@/lib/dashboard-types"
+import type { DashboardFilters } from "@/lib/dashboard-filters"
+
+jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }))
+jest.mock("@/lib/forecast-settings", () => {
+  const actual = jest.requireActual("@/lib/forecast-settings")
+  return { ...actual, getForecastSettings: async () => actual.FORECAST_DEFAULTS }
+})
+
+type Row = Record<string, unknown>
+let tables: Record<string, Row[]> = {}
+const reads: string[] = []
+let authed = true
+
+interface FakeQuery {
+  select(): FakeQuery
+  order(): FakeQuery
+  eq(col: string, v: unknown): FakeQuery
+  is(col: string, v: unknown): FakeQuery
+  range(a: number, b: number): FakeQuery
+  then(resolve: (v: unknown) => void): void
+}
+
+/** Thenable query builder supporting select/order/range/eq/is. */
+function fakeFrom(table: string): FakeQuery {
+  reads.push(table)
+  let rows = [...(tables[table] ?? [])]
+  let range: [number, number] | null = null
+  const q: FakeQuery = {
+    select: () => q,
+    order: () => q,
+    eq: (col, v) => ((rows = rows.filter((r) => r[col] === v)), q),
+    is: (col, v) => ((rows = rows.filter((r) => (r[col] ?? null) === v)), q),
+    range: (a, b) => ((range = [a, b]), q),
+    then: (resolve) =>
+      resolve({ data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null }),
+  }
+  return q
+}
+
+jest.mock("@/lib/db", () => {
+  const actual = jest.requireActual("@/lib/db")
+  return {
+    ...actual,
+    createClient: async () => ({ from: fakeFrom }),
+    requireAuth: async () => {
+      if (!authed) throw new Error("Unauthorized")
+      return "user-1"
+    },
+  }
+})
+
+// Imported after the mocks.
+import { GET as getDashboard } from "./route"
+import { GET as getBreakdown } from "./breakdown/route"
+
+function seed(org: OrgData) {
+  tables = {
+    providers: PROVIDERS as unknown as Row[],
+    cost_records_daily: plainDailyRows(),
+    cost_records_daily_attributed: attributedRows(org) as unknown as Row[],
+    departments: org.departments as unknown as Row[],
+    teams: org.teams as unknown as Row[],
+    people: org.people as unknown as Row[],
+    org_api_keys: org.apiKeys as unknown as Row[],
+  }
+  reads.length = 0
+}
+
+const req = (path: string) => new NextRequest(new URL(path, "http://localhost"))
+type DashboardBody = DashboardData & { filters: DashboardFilters; forecastMeta: { employees: number } }
+const json = async <T,>(res: Response) => ({ status: res.status, body: (await res.json()) as T })
+const dash = async (path: string) => json<DashboardBody>(await getDashboard(req(path)))
+const brk = async (path: string) => json<BreakdownData>(await getBreakdown(req(path)))
+
+beforeEach(() => {
+  authed = true
+  seed(orgData())
+})
+
+describe("GET /api/dashboard", () => {
+  it("without filters reads cost_records_daily and returns the pinned response", async () => {
+    const { status, body } = await dash("/api/dashboard?month=2026-11")
+    expect(status).toBe(200)
+    expect(reads).toContain("cost_records_daily")
+    expect(reads).not.toContain("cost_records_daily_attributed")
+
+    // Regression: the existing response fields, pinned from fixture data.
+    expect(body.months).toEqual(["2026-11", "2026-10"])
+    expect(body.selectedMonth).toBe("2026-11")
+    expect(body.dataStart).toBe("2026-10-01")
+    expect(body.dataEnd).toBe("2026-11-02")
+    expect(body.period).toEqual({ start: "2026-11-01", end: "2026-11-30", mode: "month" })
+    // KPIs compare with the preceding equal-length window (Oct 2-31 for a
+    // 30-day November), so the Oct 1 Windsurf row is excluded: unchanged
+    // pre-#8 behavior.
+    expect(body.kpis).toEqual({
+      totalSpend: 250,
+      prevSpend: 85,
+      changePercent: 194,
+      totalTokens: 7000,
+      activeProviders: 4,
+      topProvider: "Anthropic (Claude API)",
+    })
+    expect(body.tools.map((t) => [t.name, t.monthlySpend, t.changeDirection, t.changePercent, t.color])).toEqual([
+      ["Anthropic (Claude API)", 150, "up", 173, "#24AE1D"],
+      ["OpenAI API", 50, "stable", 0, "#C068F9"],
+      ["Cursor (Admin API)", 30, "stable", 0, "#00C1DB"],
+      ["Windsurf (CascadeAnalytics)", 20, "stable", 0, "#F77F00"],
+    ])
+    expect(body.trends).toEqual([
+      { month: "2026-10", total: 105, anthropic: 55, cursor: 30, windsurf: 20 },
+      { month: "2026-11", total: 250, anthropic: 150, openai: 50, cursor: 30, windsurf: 20 },
+    ])
+    expect(body.byModel[0]).toEqual({ model: "claude-opus", total: 110, color: "#24AE1D" })
+    expect(body.forecast.filter((f) => f.projected)).toHaveLength(1) // Dec 2026
+    expect(body.forecastMeta.employees).toBe(FORECAST_DEFAULTS.employees)
+  })
+
+  it("is identical whether computed from cost_records_daily or the attributed view with no org", () => {
+    const params = { month: "2026-11" }
+    const now = new Date("2026-11-15T00:00:00Z")
+    const base = { providers: PROVIDERS, params, forecastSettings: FORECAST_DEFAULTS, now }
+    const plain = computeDashboard({ ...base, daily: plainDailyRows() })
+    expect(computeDashboard({ ...base, daily: attributedRows(EMPTY_ORG) })).toEqual(plain)
+    expect(computeDashboard({ ...base, daily: attributedRows(orgData()) })).toEqual(plain)
+  })
+
+  it("team filter narrows KPIs, tools and trend and drops the org forecast projection", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    expect(reads).toContain("cost_records_daily_attributed")
+    expect(body.filters).toEqual({ team: T.data })
+    expect(body.kpis.totalSpend).toBe(70)
+    expect(body.tools.map((t) => [t.name, t.monthlySpend])).toEqual([
+      ["OpenAI API", 40],
+      ["Cursor (Admin API)", 30],
+    ])
+    expect(body.trends.find((t) => t.month === "2026-11")?.total).toBe(70)
+    expect(body.forecast.some((f) => f.projected)).toBe(false)
+  })
+
+  it("person filter returns only that person's spend", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&person=${PE.bob}`)
+    expect(body.kpis.totalSpend).toBe(50)
+    expect(body.tools).toHaveLength(1)
+  })
+
+  it("provider filter works without org structure", async () => {
+    seed(EMPTY_ORG)
+    const { body } = await dash("/api/dashboard?month=2026-11&provider=windsurf")
+    expect(body.kpis.totalSpend).toBe(20)
+  })
+
+  it("returns 401 when not signed in", async () => {
+    authed = false
+    expect((await getDashboard(req("/api/dashboard"))).status).toBe(401)
+  })
+})
+
+describe("GET /api/dashboard/breakdown", () => {
+  it("returns every level reconciling to the org total", async () => {
+    const { status, body } = await brk("/api/dashboard/breakdown?month=2026-11")
+    expect(status).toBe(200)
+    expect(body.orgConfigured).toBe(true)
+    for (const level of ["department", "team", "person", "api_key"] as const) {
+      const s = body[level].reduce((a: number, e: { cost: number }) => a + e.cost, 0)
+      expect(Math.round(s * 100) / 100).toBe(NOV_TOTAL)
+    }
+    expect(body.department.find((e) => e.key === D.eng)).toMatchObject({ cost: 170, changePercent: 112.5 })
+  })
+
+  it("team filter excludes other teams; key list is scoped", async () => {
+    const { body } = await brk(`/api/dashboard/breakdown?month=2026-11&team=${T.data}`)
+    expect(body.total.cost).toBe(70)
+    expect(body.level).toBe("person")
+    expect(body.api_key.filter((k) => !k.unassigned).map((k) => k.key)).toEqual([K.team])
+  })
+
+  it("with no org structure, everything is Unassigned", async () => {
+    seed(EMPTY_ORG)
+    const { body } = await brk("/api/dashboard/breakdown?month=2026-11")
+    expect(body.orgConfigured).toBe(false)
+    expect(body.department).toEqual([expect.objectContaining({ unassigned: true, cost: NOV_TOTAL })])
+  })
+
+  it("returns 401 when not signed in", async () => {
+    authed = false
+    expect((await getBreakdown(req("/api/dashboard/breakdown"))).status).toBe(401)
+  })
+})

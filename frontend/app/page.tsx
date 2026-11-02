@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { getCurrentUser, isAdminEmail } from "@/lib/db"
@@ -19,5 +20,10 @@ export default async function Home() {
     isAdmin = isAdminEmail(user.email)
   }
 
-  return <DashboardClient isAdmin={isAdmin} />
+  // DashboardClient reads its filters from the URL (useSearchParams).
+  return (
+    <Suspense>
+      <DashboardClient isAdmin={isAdmin} />
+    </Suspense>
+  )
 }
