@@ -53,25 +53,46 @@ export interface ImportCandidate {
   record_count: number
 }
 
+export interface ImportConflict {
+  email: string
+  /** People the email's identity-matched records already resolve to. */
+  person_ids: string[]
+  /** Spend on records that resolve to nobody yet. */
+  unmatched_cost_usd: number
+}
+
 export interface ImportPreview {
-  /** Distinct observed emails that do not resolve to anyone yet. */
+  /** Distinct observed emails none of whose records resolve to anyone yet. */
   candidates: ImportCandidate[]
-  /** Distinct observed emails that already match a person or identity. */
+  /** Distinct observed emails whose every record already resolves to a person. */
   already_known: string[]
+  /**
+   * Emails that resolve through a person identity on some records and to
+   * nobody on others. Importing one would create a people row whose exact
+   * email match beats the identity, moving spend that already belongs to
+   * someone, so they are never imported. Fix them by adding an identity for
+   * the unmatched provider to the existing person instead.
+   */
+  conflicts: ImportConflict[]
 }
 
 /**
- * Distinct attribution.person_email values. An email whose every record
- * already resolves through people.email or a person identity is "already
- * known" and is not a candidate.
+ * Distinct attribution.person_email values, split into candidates (no record
+ * resolves to anyone), already known (every record resolves through
+ * people.email or an identity) and conflicts (some records resolve through an
+ * identity, others to nobody).
  */
 export function previewPeopleImport(records: ObservedRecord[], org: OrgSnapshot): ImportPreview {
   const peopleEmails = new Set(org.people.map((p) => normalizeEmail(p.email)).filter(Boolean))
-  const identityKeys = new Set(org.identities.map((i) => pkey(i.provider_id, i.external_id)))
-  const seen = new Map<string, ImportCandidate & { providers: Set<string>; unmatched: boolean }>()
+  const identities = new Map(org.identities.map((i) => [pkey(i.provider_id, i.external_id), i.person_id]))
+  const seen = new Map<
+    string,
+    ImportCandidate & { providers: Set<string>; identityPeople: Set<string>; unmatched: number; unmatchedCost: number }
+  >()
 
   for (const r of records) {
-    const email = attributionOf(r)?.person_email
+    const a = attributionOf(r)
+    const email = a?.person_email
     if (!email) continue
     let c = seen.get(email)
     if (!c) {
@@ -82,42 +103,54 @@ export function previewPeopleImport(records: ObservedRecord[], org: OrgSnapshot)
         providers: new Set(),
         total_cost_usd: 0,
         record_count: 0,
-        unmatched: false,
+        identityPeople: new Set(),
+        unmatched: 0,
+        unmatchedCost: 0,
       }
       seen.set(email, c)
     }
-    c.display_name ??= attributionOf(r)?.person_name ?? null
+    c.display_name ??= a?.person_name ?? null
     c.providers.add(r.provider_id)
     c.total_cost_usd += num(r.cost_usd)
     c.record_count += 1
-    // Known when the record already resolves through people.email or an
-    // identity (by email or by external id); importing the email would
-    // otherwise take over spend that already belongs to someone.
-    const extId = attributionOf(r)?.person_external_id
-    const known =
-      peopleEmails.has(email) ||
-      identityKeys.has(pkey(r.provider_id, email)) ||
-      (!!extId && identityKeys.has(pkey(r.provider_id, extId)))
-    if (!known) c.unmatched = true
+    if (peopleEmails.has(email)) continue
+    // Same identity paths as resolveAttribution: external id first, then email.
+    const viaIdentity =
+      (a?.person_external_id ? identities.get(pkey(r.provider_id, a.person_external_id)) : undefined) ??
+      identities.get(pkey(r.provider_id, email))
+    if (viaIdentity) {
+      c.identityPeople.add(viaIdentity)
+    } else {
+      c.unmatched += 1
+      c.unmatchedCost += num(r.cost_usd)
+    }
   }
 
   const candidates: ImportCandidate[] = []
   const already_known: string[] = []
+  const conflicts: ImportConflict[] = []
   for (const c of seen.values()) {
     if (!c.unmatched) {
       already_known.push(c.email)
-      continue
+    } else if (c.identityPeople.size) {
+      conflicts.push({
+        email: c.email,
+        person_ids: [...c.identityPeople].sort(),
+        unmatched_cost_usd: round6(c.unmatchedCost),
+      })
+    } else {
+      candidates.push({
+        email: c.email,
+        display_name: c.display_name,
+        provider_ids: [...c.providers].sort(),
+        total_cost_usd: round6(c.total_cost_usd),
+        record_count: c.record_count,
+      })
     }
-    candidates.push({
-      email: c.email,
-      display_name: c.display_name,
-      provider_ids: [...c.providers].sort(),
-      total_cost_usd: round6(c.total_cost_usd),
-      record_count: c.record_count,
-    })
   }
   candidates.sort((a, b) => b.total_cost_usd - a.total_cost_usd || a.email.localeCompare(b.email))
-  return { candidates, already_known: already_known.sort() }
+  conflicts.sort((a, b) => a.email.localeCompare(b.email))
+  return { candidates, already_known: already_known.sort(), conflicts }
 }
 
 // ---------------------------------------------------------------------------

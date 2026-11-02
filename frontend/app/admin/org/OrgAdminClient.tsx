@@ -645,6 +645,12 @@ function ImportTab({ org, mutate }: { org: Org; mutate: Mutate }) {
             <p className="text-sm text-muted-foreground">
               {preview.candidates.length} new email(s); {preview.already_known.length} already known.
             </p>
+            {preview.conflicts.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Not importable ({preview.conflicts.length}): {preview.conflicts.map((c) => c.email).join(", ")}. These already belong to someone through an identity on another
+                provider; add an identity for the unmatched provider to that person instead.
+              </p>
+            )}
             <div className="max-h-96 divide-y divide-border/50 overflow-auto rounded-md border border-border/50">
               {preview.candidates.map((c) => (
                 <label key={c.email} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">

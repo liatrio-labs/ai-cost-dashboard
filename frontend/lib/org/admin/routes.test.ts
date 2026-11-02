@@ -471,6 +471,26 @@ describe("people import", () => {
     expect(res.body.skipped).toEqual(["alice@liatrio.com"])
   })
 
+  it("never imports an email that already resolves through an identity on another provider", async () => {
+    // dave.alias@ is dave's cursor identity; an unmatched anthropic row must not
+    // make it importable (a people row would take over dave's cursor spend).
+    rows("cost_records").push({
+      id: "cr-conflict",
+      provider_id: P.anthropic,
+      timestamp: "2026-10-25T12:00:00.000Z",
+      cost_usd: 3,
+      metadata: { attribution: { person_email: "dave.alias@liatrio.com", granularity: "person" } },
+    })
+    const preview = await call(peopleImport.POST, "POST", "/x", {})
+    expect(preview.body.conflicts).toEqual([{ email: "dave.alias@liatrio.com", person_ids: [PE.dave], unmatched_cost_usd: 3 }])
+    expect(preview.body.candidates.map((c: { email: string }) => c.email)).not.toContain("dave.alias@liatrio.com")
+
+    const res = await call(peopleImport.POST, "POST", "/x", { confirm: true, emails: ["dave.alias@liatrio.com"] })
+    expect(res.body.created).toEqual([])
+    expect(res.body.skipped).toEqual(["dave.alias@liatrio.com"])
+    expect(rows("people").some((p) => p.email === "dave.alias@liatrio.com")).toBe(false)
+  })
+
   it("validates the request", async () => {
     const res = await call(peopleImport.POST, "POST", "/x", { confirm: true, emails: ["nope"] })
     expect(res.status).toBe(400)

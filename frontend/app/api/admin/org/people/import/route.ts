@@ -2,7 +2,9 @@
  * POST /api/admin/org/people/import — { confirm?, emails?, team_id? }
  *
  * Creates people from the distinct metadata.attribution.person_email values
- * in cost_records that don't resolve to anyone yet.
+ * in cost_records that don't resolve to anyone yet. Emails that already
+ * resolve through a person identity on some records are reported as
+ * conflicts and never imported (a new people row would take that spend over).
  *   - Without confirm: true it is a dry run. It returns the candidates and
  *     writes nothing.
  *   - With confirm: true it creates them (only `emails` if given), optionally
@@ -49,5 +51,8 @@ export const POST = adminRoute(async (request, _params, admin) => {
       ) ?? []
     await refreshRollups()
   }
-  return json({ dry_run: false, created, skipped, already_known: preview.already_known }, 201)
+  return json(
+    { dry_run: false, created, skipped, already_known: preview.already_known, conflicts: preview.conflicts },
+    201
+  )
 })
