@@ -34,7 +34,7 @@ export const COLLECTORS: Record<string, Collector> = {
 /** provider -> { apiKey env, optional org/team env } */
 export const PROVIDER_ENV: Record<
   string,
-  { apiKey: string; orgId?: string; teamId?: string }
+  { apiKey: string; orgId?: string; teamId?: string; auxApiKey?: string }
 > = {
   anthropic: { apiKey: "ANTHROPIC_ADMIN_KEY", orgId: "ANTHROPIC_ORG_ID" },
   "claude-ai": { apiKey: "CLAUDE_AI_ANALYTICS_KEY", orgId: "CLAUDE_AI_ORG_ID" },
@@ -43,7 +43,12 @@ export const PROVIDER_ENV: Record<
   vercel: { apiKey: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
   apify: { apiKey: "APIFY_TOKEN" },
   windsurf: { apiKey: "WINDSURF_SERVICE_KEY", teamId: "WINDSURF_TEAM_ID" },
-  "vercel-ai-gateway": { apiKey: "AI_GATEWAY_API_KEY", teamId: "VERCEL_TEAM_ID" },
+  "vercel-ai-gateway": {
+    apiKey: "AI_GATEWAY_API_KEY",
+    teamId: "VERCEL_TEAM_ID",
+    // Optional: lets the collector list gateway keys for per-key rows.
+    auxApiKey: "VERCEL_TOKEN",
+  },
 }
 
 const DEFAULT_OWNER_EMAIL = "robert@liatrio.com"
@@ -155,6 +160,7 @@ export async function runCollectionForProvider(
         providerId: (prov as { id: string }).id,
         organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
         teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
+        auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
       },
       opts
     )

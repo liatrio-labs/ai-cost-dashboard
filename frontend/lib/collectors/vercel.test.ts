@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
  * Unit tests for the Vercel collector transform().
  *
@@ -182,5 +183,19 @@ describe("vercel parseJsonl", () => {
     const records = parseJsonl(body)
     expect(records).toHaveLength(1)
     expect(records[0].ok).toBe(true)
+  })
+})
+
+describe("vercel attribution", () => {
+  test("FOCUS project tags -> project attribution; untagged charges -> org", () => {
+    const records = transform(
+      [
+        { BilledCost: 2, ChargePeriodStart: "2026-10-01T00:00:00Z", ServiceName: "Functions", Tags: { ProjectId: "prj_1", ProjectName: "web" } },
+        { BilledCost: 20, ChargePeriodStart: "2026-10-01T00:00:00Z", ServiceName: "Pro Plan" },
+      ],
+      { userId: "u", providerId: "p" }
+    )
+    expect(records[0].metadata.attribution).toEqual({ granularity: "project", project_id: "prj_1", project_name: "web" })
+    expect(records[1].metadata.attribution).toEqual({ granularity: "org" })
   })
 })

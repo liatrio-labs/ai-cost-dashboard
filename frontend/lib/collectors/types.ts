@@ -49,6 +49,8 @@ export interface CollectorContext {
   providerId: string // providers.id for this provider
   organizationId?: string
   teamId?: string
+  /** Optional second credential a collector may need (AI Gateway: VERCEL_TOKEN to list keys). */
+  auxApiKey?: string
 }
 
 export interface CollectOptions {

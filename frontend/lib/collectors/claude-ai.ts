@@ -1,42 +1,53 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
- * Claude Enterprise Analytics API collector (TypeScript).
+ * Claude Enterprise Analytics collector (claude.ai / Claude for Work surface).
  *
- * Collects cost + usage data from the Claude Enterprise Analytics API — the
- * claude.ai / Claude for Work surface. This is DISTINCT from the Anthropic
- * developer Admin API: it lives under `/v1/organizations/analytics`, uses GET
- * endpoints driven by query params, and requires an API key with the
- * `read:analytics` scope.
+ * PRIMARY: Usage & Cost Analytics API (beta, see ./anthropic-analytics)
+ *   GET /v1/organizations/analytics/cost and /analytics/usage
+ *   group_by[]=actor,model,product, time_bucket_width=1d, limit=1000
+ *   Returns EVERY group (the legacy cost_report caps at the top 100 per bucket),
+ *   so per-person rows sum to the org total. Actor email -> person_email.
  *
- * The transform treats the cost `amount` / `list_amount` fields as FRACTIONAL
- * CENTS (divided by CENTS_PER_USD = 100 to produce USD).
+ * FALLBACK (analytics returns 403/404): the legacy
+ *   /v1/organizations/analytics/cost_report + /usage_report grouped by model,
+ *   attributed "org" (no per-person dimension there).
  *
- * Daily pulls re-fetch the last 31 UTC days (the API's per-request max and the
- * documented revision window). Claude.ai Usage/Analytics totals stay revisable
- * for ~30 days; a 1-day window would freeze undercounts that no longer match
- * the admin site.
+ * Requires an API key with the `read:analytics` scope. Amounts are cents.
+ *
+ * Daily pulls re-fetch today plus the prior 30 UTC days: Claude.ai totals stay
+ * revisable for ~30 days, and a short window would freeze undercounts that no
+ * longer match the admin site (see PR #2).
  */
 
-import type {
-  Collector,
-  CostRecord,
-  CollectorContext,
-  CollectOptions,
-} from "./types"
-import { fetchWithRetry, toFloat, toInt, rfc3339, startOfUTCDay, DAY_MS } from "./http"
+import type { Collector, CostRecord, CollectorContext, CollectOptions } from "./types"
+import { fetchWithRetry, toFloat, rfc3339, startOfUTCDay, DAY_MS } from "./http"
+import { orgAttribution, str } from "./attribution"
+import {
+  AnalyticsUnavailableError,
+  actorMetadata,
+  bucketIso,
+  fetchAnalytics,
+  groupAttribution,
+  iterChunks,
+  rowKey,
+  safeInt,
+  sumInputTokens,
+  MAX_SPAN_DAYS,
+  MIN_DATA_MS,
+  type AnalyticsRow,
+} from "./anthropic-analytics"
 
-const ANALYTICS_API_BASE_URL =
-  "https://api.anthropic.com/v1/organizations/analytics"
+const LEGACY_BASE_URL = "https://api.anthropic.com/v1/organizations/analytics"
 const ANTHROPIC_VERSION = "2023-06-01"
-// The Analytics API allows at most a 31-day span per request.
-const MAX_SPAN_DAYS = 31
 // `amount` / `list_amount` are returned in fractional cents.
 const CENTS_PER_USD = 100.0
-// 1d pages default to 7 buckets if `limit` is omitted — far short of a month.
+// Legacy 1d pages default to 7 buckets if `limit` is omitted.
 const PAGE_LIMIT_1D = 31
 // Restart pagination this many times if a cursor expires (HTTP 410).
 const MAX_PAGINATION_RESTARTS = 3
 // Non-backfill lookback: today plus this many prior UTC days (= 31 buckets).
 const DEFAULT_LOOKBACK_DAYS = 30
+export const ANALYTICS_GROUP_BY = ["actor", "model", "product"]
 
 /** Build a join key matching cost and usage results within a bucket. */
 function resultKey(startingAt: string | null | undefined, result: any): string {
@@ -47,75 +58,8 @@ function resultKey(startingAt: string | null | undefined, result: any): string {
   ])
 }
 
-/** Coerce to int, returning null on failure or missing value. */
-function safeInt(value: any): number | null {
-  if (value === null || value === undefined) return null
-  const n = typeof value === "number" ? value : parseInt(String(value), 10)
-  return Number.isFinite(n) ? Math.trunc(n) : null
-}
-
 /**
- * Cache-creation tokens. The live Analytics API returns a nested object:
- *   cache_creation: { ephemeral_5m_input_tokens, ephemeral_1h_input_tokens }
- * Dotted keys appear only when grouping by token_type (cost report) or in
- * older assumed schemas.
- */
-function cacheCreationTokens(result: any): { total: number; found: boolean } {
-  const nested = result?.cache_creation
-  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-    let total = 0
-    let found = false
-    for (const key of ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]) {
-      const n = safeInt(nested[key])
-      if (n !== null) {
-        total += n
-        found = true
-      }
-    }
-    return { total, found }
-  }
-
-  let total = 0
-  let found = false
-  for (const key of [
-    "cache_creation.ephemeral_5m_input_tokens",
-    "cache_creation.ephemeral_1h_input_tokens",
-  ]) {
-    const n = safeInt(result?.[key])
-    if (n !== null) {
-      total += n
-      found = true
-    }
-  }
-  return { total, found }
-}
-
-/**
- * Sum all input-token flavours present in a usage result. Prefers the real
- * Analytics API fields (uncached + cache read + nested cache creation) and
- * falls back to a combined `input_tokens` field if none of those exist.
- * Returns null if no input-token field is present.
- */
-function sumInputTokens(result: any): number | null {
-  const cache = cacheCreationTokens(result)
-  const flavors = [
-    safeInt(result?.uncached_input_tokens),
-    safeInt(result?.cache_read_input_tokens),
-  ]
-  let total = cache.found ? cache.total : 0
-  let found = cache.found
-  for (const n of flavors) {
-    if (n !== null) {
-      total += n
-      found = true
-    }
-  }
-  if (found) return total
-  return safeInt(result?.input_tokens)
-}
-
-/**
- * Transform Analytics API cost + usage buckets into cost_records rows.
+ * LEGACY transform: cost_report + usage_report buckets -> cost_records rows.
  *
  * Cost is the source of truth for emitted rows (one record per cost result);
  * usage results are joined in by (bucket start, model, product) to attach token
@@ -226,27 +170,14 @@ export function transform(
             cost_type: result.cost_type ?? null,
           },
           organization_id: ctx.organizationId ?? null,
+          source: "cost_report",
+          attribution: orgAttribution(),
         },
       })
     }
   }
 
   return records
-}
-
-/** Yield [chunkStart, chunkEnd] spans no longer than `maxDays`. */
-function* iterChunks(
-  start: Date,
-  end: Date,
-  maxDays: number
-): Generator<[Date, Date]> {
-  const maxMs = maxDays * 24 * 60 * 60 * 1000
-  let chunkStart = start
-  while (chunkStart.getTime() < end.getTime()) {
-    const chunkEnd = new Date(Math.min(chunkStart.getTime() + maxMs, end.getTime()))
-    yield [chunkStart, chunkEnd]
-    chunkStart = chunkEnd
-  }
 }
 
 function pageLimit(bucketWidth: string): number {
@@ -271,13 +202,11 @@ async function fetchReport(
   const limit = pageLimit(bucketWidth)
 
   let restartAttempts = 0
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const allBuckets: any[] = []
     let nextPage: string | null = null
     let restart = false
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const params = new URLSearchParams()
       params.set("starting_at", rfc3339(start))
@@ -287,7 +216,7 @@ async function fetchReport(
       for (const g of groupBy) params.append("group_by[]", g)
       if (nextPage) params.set("page", nextPage)
 
-      const url = `${ANALYTICS_API_BASE_URL}${endpoint}?${params.toString()}`
+      const url = `${LEGACY_BASE_URL}${endpoint}?${params.toString()}`
       const res = await fetchWithRetry(url, { method: "GET", headers })
       if (!res.ok) {
         // Cursors expire after a data refresh; restart from page 1.
@@ -316,64 +245,90 @@ async function fetchReport(
 }
 
 /**
- * Collect cost + usage data from the Claude Enterprise Analytics API.
- *
- * Default window is today plus the prior 30 UTC days (31 daily buckets) so a
- * manual Pull without backfill matches the Claude.ai Usage month-to-date view
- * and picks up late-arriving revisions. With backfill, the last
- * `backfillDays` (default 90) days. Requests are chunked into <=31-day spans.
+ * ANALYTICS transform: one record per /analytics/cost row (cost is the source
+ * of truth, as in the legacy path); usage is joined by (bucket, full group).
  */
-async function collect(
-  ctx: CollectorContext,
-  opts: CollectOptions = {}
-): Promise<CostRecord[]> {
-  // bucket_width=1d needs UTC-midnight-aligned boundaries; cover through the
-  // start of tomorrow (includes today's partial bucket).
+export function transformAnalytics(
+  costRows: AnalyticsRow[],
+  usageRows: AnalyticsRow[],
+  ctx: { userId: string; providerId: string; organizationId?: string },
+  bucketWidth: string = "1d"
+): CostRecord[] {
+  const usageMap = new Map<string, Record<string, any>>()
+  for (const row of usageRows || []) {
+    if (!row || typeof row !== "object") continue
+    usageMap.set(rowKey(row), row.usage ?? {})
+  }
+
+  const records: CostRecord[] = []
+  for (const row of costRows || []) {
+    if (!row || typeof row !== "object") continue
+    const timestamp = bucketIso(row.starting_at)
+    if (timestamp === null) continue
+    const group = row.group ?? {}
+    const cost = row.cost ?? {}
+    const usage = usageMap.get(rowKey(row))
+
+    const inputTokens = sumInputTokens(usage)
+    const outputTokens = safeInt(usage?.output_tokens)
+    const tokensUsed =
+      inputTokens === null && outputTokens === null ? null : (inputTokens || 0) + (outputTokens || 0)
+
+    records.push({
+      user_id: ctx.userId,
+      provider_id: ctx.providerId,
+      timestamp,
+      model_name: str(group.model) ?? "claude-ai",
+      cost_usd: toFloat(cost.amount) / CENTS_PER_USD,
+      tokens_used: tokensUsed,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      request_count: safeInt(usage?.requests) ?? safeInt(cost.requests) ?? 1,
+      collection_method: "api_automated",
+      metadata: {
+        provider: "claude-ai",
+        list_amount_usd: cost.list_amount != null ? toFloat(cost.list_amount) / CENTS_PER_USD : null,
+        bucket_width: bucketWidth,
+        group: { model: group.model ?? null, product: group.product ?? null },
+        organization_id: ctx.organizationId ?? null,
+        source: "analytics",
+        ...actorMetadata(group),
+        attribution: groupAttribution(group),
+      },
+    })
+  }
+  return records
+}
+
+/**
+ * Collect from the Analytics API for today plus the prior 30 UTC days (or
+ * `backfillDays` with backfill), falling back to the legacy reports on 403/404.
+ */
+async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const today = startOfUTCDay(new Date())
   const end = new Date(today.getTime() + DAY_MS)
   const days = opts.backfill ? opts.backfillDays ?? 90 : DEFAULT_LOOKBACK_DAYS
   let start = new Date(today.getTime() - days * DAY_MS)
-  // The Enterprise Analytics API has no data before 2026-01-01 (returns 400).
-  const MIN_DATA = Date.UTC(2026, 0, 1)
-  if (start.getTime() < MIN_DATA) start = new Date(MIN_DATA)
-
+  if (start.getTime() < MIN_DATA_MS) start = new Date(MIN_DATA_MS)
   const bucketWidth = "1d"
-  const groupBy = ["model"]
-  const allRecords: CostRecord[] = []
+  const tctx = { userId: ctx.userId, providerId: ctx.providerId, organizationId: ctx.organizationId }
 
-  for (const [chunkStart, chunkEnd] of iterChunks(start, end, MAX_SPAN_DAYS)) {
-    const [costBuckets, usageBuckets] = await Promise.all([
-      fetchReport(
-        ctx.apiKey,
-        "/cost_report",
-        chunkStart,
-        chunkEnd,
-        bucketWidth,
-        groupBy
-      ),
-      fetchReport(
-        ctx.apiKey,
-        "/usage_report",
-        chunkStart,
-        chunkEnd,
-        bucketWidth,
-        groupBy
-      ),
-    ])
-
-    const records = transform(
-      costBuckets,
-      usageBuckets,
-      {
-        userId: ctx.userId,
-        providerId: ctx.providerId,
-        organizationId: ctx.organizationId,
-      },
-      bucketWidth
-    )
-    for (const r of records) allRecords.push(r)
+  try {
+    const { cost, usage } = await fetchAnalytics(ctx.apiKey, start, end, ANALYTICS_GROUP_BY)
+    return transformAnalytics(cost, usage, tctx, bucketWidth)
+  } catch (e) {
+    if (!(e instanceof AnalyticsUnavailableError)) throw e
+    console.warn(`[claude-ai] ${e.message}; falling back to legacy cost_report`)
   }
 
+  const allRecords: CostRecord[] = []
+  for (const [chunkStart, chunkEnd] of iterChunks(start, end, MAX_SPAN_DAYS)) {
+    const [costBuckets, usageBuckets] = await Promise.all([
+      fetchReport(ctx.apiKey, "/cost_report", chunkStart, chunkEnd, bucketWidth, ["model"]),
+      fetchReport(ctx.apiKey, "/usage_report", chunkStart, chunkEnd, bucketWidth, ["model"]),
+    ])
+    allRecords.push(...transform(costBuckets, usageBuckets, tctx, bucketWidth))
+  }
   return allRecords
 }
 

@@ -53,6 +53,7 @@ describe("apify transform", () => {
       expect(r.timestamp.endsWith("T00:00:00.000Z")).toBe(true)
       expect(r.model_name).toBe("apify")
       expect(r.collection_method).toBe("api_automated")
+      expect(r.metadata.attribution).toEqual({ granularity: "org" })
     }
   })
 

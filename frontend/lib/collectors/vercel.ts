@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
  * Vercel billing/usage data collector.
  *

@@ -47,6 +47,12 @@ org-level API token in environment variables. Missing key → that provider is s
 | **Windsurf** | Seat subscription (quota plan) | usage from CascadeAnalytics |
 | **ChatGPT / Lovable / other** | Manual entry / CSV import | no usable cost API |
 
+Rows carry `metadata.attribution` (person / API key / project / workspace, or
+`org` when the provider exposes nothing finer). See
+[docs/attribution.md](docs/attribution.md) for what each provider supports and
+which endpoints are used. The AI Gateway collector also uses `VERCEL_TOKEN`
+(optional) to list gateway keys for per-key rows.
+
 ## Tech stack
 
 - **Framework:** Next.js 16 (App Router) · React 19 · TypeScript

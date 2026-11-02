@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
  * Unit tests for the Claude Enterprise Analytics transform.
  *
@@ -6,7 +7,7 @@
  * tokens when usage is absent, and that bad buckets/results are skipped.
  */
 
-import { transform } from "./claude-ai"
+import { transform, transformAnalytics, collector } from "./claude-ai"
 
 const CTX = {
   userId: "user-123",
@@ -216,5 +217,129 @@ describe("transform", () => {
   test("empty / nullish input yields no records", () => {
     expect(transform([], [], CTX)).toEqual([])
     expect(transform(null as any, null as any, CTX)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Usage & Cost Analytics API (per actor)
+// ---------------------------------------------------------------------------
+
+describe("claude-ai transformAnalytics", () => {
+  const D = "2026-10-05T00:00:00Z"
+  const E = "2026-10-06T00:00:00Z"
+  const BOB = { type: "user_actor", user_id: "user_bob", email_address: "BOB@liatrio.example", name: "Bob", deleted: false }
+  const CAROL = { type: "user_actor", user_id: "user_carol", email_address: "carol@liatrio.example", name: null, deleted: true }
+
+  // 150 distinct people on one day: more groups than the legacy top-100 cap.
+  function manyPeople() {
+    return Array.from({ length: 150 }, (_, i) => ({
+      starting_at: D,
+      ending_at: E,
+      group: {
+        actor: { type: "user_actor", user_id: `u${i}`, email_address: `p${i}@liatrio.example`, name: null, deleted: false },
+        model: "claude-sonnet-4-5",
+        product: "claude_chat",
+      },
+      cost: { amount: "1.500000", currency: "USD", requests: 1 },
+    }))
+  }
+
+  const cost = () => [
+    { starting_at: D, ending_at: E, group: { actor: BOB, model: "claude-opus-4-6", product: "claude_code" }, cost: { amount: "2000.000000", list_amount: "2500.000000", currency: "USD", requests: 7 } },
+    { starting_at: D, ending_at: E, group: { actor: CAROL, model: null, product: "claude_chat" }, cost: { amount: "125.500000", currency: "USD", requests: 3 } },
+    { starting_at: D, ending_at: E, group: { actor: null, model: "claude-haiku-4-5", product: "api" }, cost: { amount: "10.000000", currency: "USD", requests: null } },
+    ...manyPeople(),
+  ]
+  const usage = () => [
+    {
+      starting_at: D,
+      ending_at: E,
+      group: { actor: BOB, model: "claude-opus-4-6", product: "claude_code" },
+      usage: { uncached_input_tokens: 1000, cache_read_input_tokens: 500, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 0 }, output_tokens: 300, requests: 7 },
+    },
+  ]
+  // Org total for 2026-10-05 in USD: 20.00 + 1.255 + 0.10 + 150 * 0.015
+  const ORG_TOTAL_USD = 20 + 1.255 + 0.1 + 150 * 0.015
+
+  test("actor email -> person_email (lower-cased); one row per cost group", () => {
+    const records = transformAnalytics(cost(), usage(), CTX)
+    expect(records).toHaveLength(153)
+    const bob = records.find((r) => (r.metadata.attribution as any).person_email === "bob@liatrio.example")!
+    expect(bob.metadata.attribution).toEqual({
+      granularity: "person",
+      person_email: "bob@liatrio.example",
+      person_external_id: "user_bob",
+      person_name: "Bob",
+    })
+    expect(bob.cost_usd).toBeCloseTo(20)
+    expect(bob.metadata.list_amount_usd).toBeCloseTo(25)
+    expect(bob.input_tokens).toBe(1600)
+    expect(bob.output_tokens).toBe(300)
+    expect(bob.request_count).toBe(7)
+    expect(bob.metadata.group).toEqual({ model: "claude-opus-4-6", product: "claude_code" })
+
+    const carol = records.find((r) => (r.metadata.attribution as any).person_email === "carol@liatrio.example")!
+    expect(carol.model_name).toBe("claude-ai")
+    expect(carol.tokens_used).toBeNull()
+    expect(carol.request_count).toBe(3)
+
+    const none = records.find((r) => r.metadata.actor_type === null)!
+    expect(none.metadata.attribution).toEqual({ granularity: "org" })
+  })
+
+  test("daily sum of per-person rows equals the org total (beyond the legacy top-100 cap)", () => {
+    const records = transformAnalytics(cost(), usage(), CTX)
+    const sum = records.reduce((s, r) => s + r.cost_usd, 0)
+    expect(sum).toBeCloseTo(ORG_TOTAL_USD, 6)
+    expect(records.filter((r) => (r.metadata.attribution as any).granularity === "person")).toHaveLength(152)
+  })
+
+  test("legacy transform rows are org-level", () => {
+    const records = transform(costBuckets(), usageBuckets(), CTX)
+    for (const r of records) expect(r.metadata.attribution).toEqual({ granularity: "org" })
+  })
+})
+
+describe("claude-ai collect (mocked fetch)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+    jest.restoreAllMocks()
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const ctx = { apiKey: "test-analytics-key", userId: "user-1", providerId: "prov-claude-ai" }
+
+  test("queries /analytics/cost + /usage grouped by actor,model,product over 31 days", async () => {
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any, init: any) => {
+      expect(init.headers["anthropic-beta"]).toBe("analytics-usage-cost-2026-08-24")
+      const u = new URL(String(url))
+      urls.push(u)
+      return res({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx)
+    expect(urls.map((u) => u.pathname).sort()).toEqual([
+      "/v1/organizations/analytics/cost",
+      "/v1/organizations/analytics/usage",
+    ])
+    for (const u of urls) {
+      expect(u.searchParams.getAll("group_by[]")).toEqual(["actor", "model", "product"])
+      const span = Date.parse(u.searchParams.get("ending_at")!) - Date.parse(u.searchParams.get("starting_at")!)
+      expect(span).toBeLessThanOrEqual(31 * 24 * 3600 * 1000)
+    }
+  })
+
+  test("falls back to the legacy cost_report on 403", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    global.fetch = jest.fn(async (url: any) => {
+      const p = new URL(String(url)).pathname
+      if (p.endsWith("/analytics/cost") || p.endsWith("/analytics/usage")) return res({}, 403)
+      if (p.endsWith("/cost_report")) return res({ data: costBuckets(), has_more: false })
+      return res({ data: usageBuckets(), has_more: false })
+    }) as any
+    const records = await collector.collect(ctx)
+    expect(records.length).toBeGreaterThan(0)
+    expect(records[0].metadata.source).toBe("cost_report")
   })
 })

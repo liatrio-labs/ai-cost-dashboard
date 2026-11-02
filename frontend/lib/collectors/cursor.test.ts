@@ -170,3 +170,20 @@ describe("cursor transform", () => {
     expect(bob.metadata.member_cycle_spend_cents).toBeNull()
   })
 })
+
+describe("cursor attribution", () => {
+  test("member email -> person attribution (lower-cased); missing email -> org", () => {
+    const day = Date.UTC(2026, 9, 1, 12)
+    const records = transform(
+      [
+        { timestamp: String(day), userEmail: "Dana@Liatrio.Example", model: "gpt-5", chargedCents: 120 },
+        { timestamp: String(day), model: "gpt-5", chargedCents: 30 },
+      ],
+      { userId: "u", providerId: "p" }
+    )
+    const dana = records.find((r) => r.metadata.member_email === "Dana@Liatrio.Example")!
+    expect(dana.metadata.attribution).toEqual({ granularity: "person", person_email: "dana@liatrio.example" })
+    const anon = records.find((r) => r.metadata.member_email === "unknown")!
+    expect(anon.metadata.attribution).toEqual({ granularity: "org" })
+  })
+})
