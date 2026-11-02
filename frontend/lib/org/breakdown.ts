@@ -91,7 +91,18 @@ export interface BreakdownCrumb {
 export interface BreakdownOptions {
   departments: { id: string; label: string }[]
   teams: { id: string; label: string; departmentId: string | null }[]
-  people: { id: string; label: string; teamId: string | null }[]
+  people: {
+    id: string
+    label: string
+    teamId: string | null
+    /**
+     * Teams / departments ("unassigned" for none) this person has spend in for
+     * the period, plus their home team. Spend can sit on an API key's team, so
+     * home team alone isn't enough to tell whether person + team can match.
+     */
+    teamIds: string[]
+    departmentIds: string[]
+  }[]
   apiKeys: { id: string; label: string; provider: string | null }[]
   providers: { slug: string; label: string }[]
 }
@@ -236,6 +247,16 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
   // filter): a team view must still say "Windsurf: org-level only" even though
   // Windsurf rows never carry a team.
   const providerScoped = applyFilters(rows, { provider: filters.provider }, providerIdForFilter)
+
+  // Where each person's spend actually lands this period (feeds the filter bar).
+  const spendScope = new Map<string, { teams: Set<string>; departments: Set<string> }>()
+  for (const r of providerScoped) {
+    if (!r.person_id || r.date < period.start || r.date > period.end) continue
+    const s = spendScope.get(r.person_id) ?? { teams: new Set<string>(), departments: new Set<string>() }
+    s.teams.add(r.team_id ?? UNASSIGNED_FILTER)
+    s.departments.add(r.department_id ?? UNASSIGNED_FILTER)
+    spendScope.set(r.person_id, s)
+  }
   const activeIds = new Set(providerScoped.filter(inWindow(period)).filter((r) => num(r.total_cost_usd) !== 0).map((r) => r.provider_id))
   const activeProviders: BreakdownProvider[] = providers
     .filter((p) => activeIds.has(p.id))
@@ -316,7 +337,15 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     options: {
       departments: org.departments.map((d) => ({ id: d.id, label: d.name })),
       teams: org.teams.map((t) => ({ id: t.id, label: t.name, departmentId: t.department_id })),
-      people: org.people.map((p) => ({ id: p.id, label: p.display_name || p.email, teamId: p.team_id })),
+      people: org.people.map((p) => {
+        const seen = spendScope.get(p.id)
+        const homeDept = p.team_id ? (index.teamsById.get(p.team_id)?.department_id ?? null) : null
+        const teamIds = new Set(seen?.teams ?? [])
+        const departmentIds = new Set(seen?.departments ?? [])
+        teamIds.add(p.team_id ?? UNASSIGNED_FILTER)
+        departmentIds.add(homeDept ?? UNASSIGNED_FILTER)
+        return { id: p.id, label: p.display_name || p.email, teamId: p.team_id, teamIds: [...teamIds], departmentIds: [...departmentIds] }
+      }),
       apiKeys: org.apiKeys.map((k) => ({ id: k.id, label: k.name || k.external_key_id, provider: slugOf(k.provider_id) })),
       providers: providers.map((p) => ({ slug: p.name, label: nameOf(p.id) })),
     },

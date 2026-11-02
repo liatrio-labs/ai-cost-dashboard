@@ -357,11 +357,17 @@ export function OrgFilterBar({
     teamId ? (o?.teams.find((t) => t.id === teamId)?.departmentId ?? null) : null
   const teamFits = (teamId: string, f: DashboardFilters) =>
     accepts(f.department, teamId === UNASSIGNED_FILTER ? null : deptOfTeam(teamId))
-  const personFits = (p: { teamId: string | null }, f: DashboardFilters) =>
-    accepts(f.team, p.teamId) && accepts(f.department, deptOfTeam(p.teamId))
+  // Can this person's spend appear under the team / department filters?
+  // Uses where their spend lands (API key teams included), not just home team.
+  const inScope = (want: string | undefined, ids: string[]) => !want || ids.includes(want)
+  const personFits = (p: { teamIds: string[]; departmentIds: string[] }, f: DashboardFilters) =>
+    inScope(f.team, p.teamIds) && inScope(f.department, p.departmentIds)
 
   const teams = o?.teams.filter((t) => accepts(filters.department, t.departmentId)) ?? []
-  const people = o?.people.filter((p) => personFits(p, filters)) ?? []
+  const people = o?.people.filter((p) => personFits(p, filters) || p.id === filters.person) ?? []
+  // A team-less row has no department, so "Unassigned" team only makes sense
+  // without a specific department.
+  const teamUnassignedOk = !filters.department || filters.department === UNASSIGNED_FILTER
   const set = (k: keyof DashboardFilters, v: string) => {
     const next = { ...filters }
     if (v) next[k] = v
@@ -393,7 +399,7 @@ export function OrgFilterBar({
   return (
     <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filters">
       {field("department", "Department", o?.departments.map((d) => ({ value: d.id, label: d.label })) ?? [])}
-      {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })))}
+      {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk)}
       {field("person", "Person", people.map((p) => ({ value: p.id, label: p.label })))}
       {field("key", "API key", o?.apiKeys.map((k) => ({ value: k.id, label: k.label })) ?? [])}
       {field("provider", "Provider", o?.providers.map((p) => ({ value: p.slug, label: p.label })) ?? [], false)}

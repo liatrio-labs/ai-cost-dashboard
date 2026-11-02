@@ -156,3 +156,14 @@ describe("helpers", () => {
     expect(comparisonPeriod({ start: "2026-11-10", end: "2026-11-19", mode: "range" })).toEqual({ start: "2026-10-31", end: "2026-11-09" })
   })
 })
+
+describe("filter options", () => {
+  it("lists the teams and departments each person's spend reaches, plus their home team", () => {
+    const people = run().options.people
+    const alice = people.find((p) => p.id === PE.alice)!
+    expect(alice.teamIds.sort()).toEqual([T.data, T.platform].sort())
+    expect(alice.departmentIds).toEqual([D.eng])
+    const carol = people.find((p) => p.id === PE.carol)!
+    expect(carol).toMatchObject({ teamIds: ["unassigned"], departmentIds: ["unassigned"] })
+  })
+})
