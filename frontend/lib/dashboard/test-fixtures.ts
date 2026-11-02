@@ -89,11 +89,12 @@ export function mockSupabase(tables: Record<string, unknown[]>, calls: string[] 
       const error = rows ? null : { code: "42P01", message: `relation "${table}" does not exist` }
       rows = rows ?? []
       let range: [number, number] | null = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately loose test double
       const builder: any = {
         select: () => builder,
         order: () => builder,
         eq: (col: string, val: unknown) => {
-          rows = (rows as any[]).filter((r) => r[col] === val)
+          rows = (rows as Record<string, unknown>[]).filter((r) => r[col] === val)
           return builder
         },
         range: (a: number, b: number) => {

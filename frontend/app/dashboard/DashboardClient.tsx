@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   LayoutDashboard,
@@ -11,6 +11,7 @@ import {
   Inbox,
   Settings,
   LogOut,
+  Network,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
@@ -35,30 +36,61 @@ import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
 import { ToolsTable } from "@/components/tools-table"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
+import { OrgFilterBar } from "@/components/org/org-filter-bar"
+import { OrgView } from "@/components/org/org-view"
 import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
+import type { BreakdownData } from "@/lib/dashboard/breakdown"
+import {
+  hasFilters,
+  parseFilters,
+  parsePeriod,
+  toQueryString,
+  type DashboardFilters,
+  type PeriodParams,
+} from "@/lib/dashboard/filters"
 
-type PeriodQuery =
-  | { mode: "month"; month: string }
-  | { mode: "range"; start: string; end: string }
-  | null // null = default (current month)
+const VIEWS = ["dashboard", "trends", "tools", "org"] as const
+type View = (typeof VIEWS)[number]
 
 export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter()
+  const pathname = usePathname() || "/"
+  // Period, filters and tab live in the URL (issue #8) so views are shareable.
+  const searchParams = useSearchParams()
+  const period = parsePeriod(searchParams)
+  const filters = parseFilters(searchParams)
+  const viewParam = searchParams.get("view")
+  const view: View = (VIEWS as readonly string[]).includes(viewParam ?? "") ? (viewParam as View) : "dashboard"
+
   const [data, setData] = useState<DashboardData | null>(null)
-  const [query, setQuery] = useState<PeriodQuery>(null) // null = current month
+  const [breakdown, setBreakdown] = useState<BreakdownData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rangeOpen, setRangeOpen] = useState(false)
   const [draftFrom, setDraftFrom] = useState("")
   const [draftTo, setDraftTo] = useState("")
 
+  const navigate = useCallback(
+    (next: { period?: PeriodParams; filters?: DashboardFilters; view?: View }) => {
+      const qs = new URLSearchParams(
+        toQueryString(next.period ?? parsePeriod(searchParams), next.filters ?? parseFilters(searchParams)).slice(1)
+      )
+      const v = next.view ?? view
+      if (v !== "dashboard") qs.set("view", v)
+      const s = qs.toString()
+      router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false })
+    },
+    [router, pathname, searchParams, view]
+  )
+
   const loadData = useCallback(
-    async (q: PeriodQuery) => {
+    async (qs: string) => {
       setError(null)
       try {
-        let qs = ""
-        if (q?.mode === "month") qs = `?month=${encodeURIComponent(q.month)}`
-        else if (q?.mode === "range") qs = `?start=${q.start}&end=${q.end}`
+        // Breakdown is best-effort: if it fails, the dashboard still renders as before.
+        const breakdownReq = fetch(`/api/dashboard/breakdown${qs}`)
+          .then((r) => (r.ok ? (r.json() as Promise<BreakdownData>) : null))
+          .catch(() => null)
         const res = await fetch(`/api/dashboard${qs}`)
 
         if (res.status === 401) {
@@ -73,6 +105,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
         // GET /api/dashboard returns the contract object directly (successResponse).
         const json: DashboardData = await res.json()
         setData(json)
+        setBreakdown(await breakdownReq)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load dashboard data")
       } finally {
@@ -82,10 +115,11 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
     [router]
   )
 
-  // Load on mount and whenever the selected period changes.
+  // Load on mount and whenever the period or filters in the URL change.
+  const dataQuery = toQueryString(period, filters)
   useEffect(() => {
-    loadData(query)
-  }, [query, loadData])
+    loadData(dataQuery)
+  }, [dataQuery, loadData])
 
   if (loading && !data) {
     return (
@@ -100,6 +134,10 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
 
   const hasAnyData = !!data && data.months.length > 0
   const hasPeriodData = !!data && data.tools.length > 0
+  // Org filters and the Org tab appear only once an org structure exists, so
+  // the dashboard is unchanged until then.
+  const showOrg = !!breakdown?.orgConfigured
+  const onFilters = (f: DashboardFilters) => navigate({ filters: f })
 
   return (
     <div className="min-h-screen bg-background">
@@ -116,7 +154,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                   {/* Month dropdown (defaults to the current month) */}
                   <Select
                     value={data.period.mode === "month" ? data.selectedMonth ?? "" : ""}
-                    onValueChange={(value) => setQuery({ mode: "month", month: value })}
+                    onValueChange={(value) => navigate({ period: { month: value } })}
                   >
                     <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent p-0 text-xs text-muted-foreground hover:text-foreground focus:ring-0">
                       <SelectValue placeholder="Custom range" />
@@ -173,7 +211,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                           const start = draftFrom || data.dataStart || ""
                           const end = draftTo || data.dataEnd || ""
                           if (start && end) {
-                            setQuery({ mode: "range", start, end })
+                            navigate({ period: { start, end } })
                             setRangeOpen(false)
                           }
                         }}
@@ -225,6 +263,14 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
           <div className="mb-6 rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>
         )}
 
+        {showOrg && hasAnyData && (
+          <Card className="mb-6 border-border/50 bg-card/50 backdrop-blur">
+            <CardContent className="py-4">
+              <OrgFilterBar options={breakdown!.options} filters={filters} onChange={onFilters} />
+            </CardContent>
+          </Card>
+        )}
+
         {!hasAnyData ? (
           <Card className="border-border/50 bg-card/50 backdrop-blur">
             <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
@@ -256,14 +302,19 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               </div>
               <h2 className="text-lg font-semibold text-foreground">No spend in this period</h2>
               <p className="max-w-md text-sm text-muted-foreground">
-                There&apos;s no recorded spend for the selected period. Pick another
-                month or range above.
+                There&apos;s no recorded spend for the selected period
+                {hasFilters(filters) ? " and filters" : ""}. Pick another month or range
+                above{hasFilters(filters) ? ", or clear the filters" : ""}.
               </p>
             </CardContent>
           </Card>
         ) : (
-          <Tabs defaultValue="dashboard" className="space-y-6">
-            <TabsList className="grid w-full max-w-md grid-cols-3">
+          <Tabs
+            value={view === "org" && !showOrg ? "dashboard" : view}
+            onValueChange={(v) => navigate({ view: v as View })}
+            className="space-y-6"
+          >
+            <TabsList className={`grid w-full ${showOrg ? "max-w-xl grid-cols-4" : "max-w-md grid-cols-3"}`}>
               <TabsTrigger value="dashboard" className="gap-2">
                 <LayoutDashboard className="h-4 w-4" />
                 <span className="hidden sm:inline">Dashboard</span>
@@ -276,6 +327,12 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                 <TableProperties className="h-4 w-4" />
                 <span className="hidden sm:inline">Tools</span>
               </TabsTrigger>
+              {showOrg && (
+                <TabsTrigger value="org" className="gap-2">
+                  <Network className="h-4 w-4" />
+                  <span className="hidden sm:inline">Org</span>
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* Dashboard */}
@@ -305,6 +362,14 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               <KPICards kpis={data!.kpis} />
               <ToolsTable tools={data!.tools} />
             </TabsContent>
+
+            {/* Org: department / team / person / API key drill-down */}
+            {showOrg && (
+              <TabsContent value="org" className="space-y-6">
+                <KPICards kpis={data!.kpis} />
+                <OrgView data={breakdown!} onNavigate={(f) => navigate({ filters: f, view: "org" })} />
+              </TabsContent>
+            )}
           </Tabs>
         )}
       </main>

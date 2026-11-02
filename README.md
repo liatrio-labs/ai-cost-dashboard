@@ -26,6 +26,15 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
 - 🛠️ **Admin area** — trigger a manual pull, add tools, record manual/seat-based monthly
   entries, edit the forecast headcount, and force a dashboard refresh.
 - 🗓️ **Period selection** — view any month or a custom date range.
+- 🏢 **Org drill-downs** — once departments, teams, people or API keys exist, an
+  **Org** tab drills department → team → person → provider × model (and team → API
+  keys), with People and API keys tables, an Unassigned row at every level, MoM change
+  per entity and per-provider coverage notes. Filters (department, team, person, API
+  key, provider) narrow KPIs, trends and breakdowns and live in the URL
+  (`?month=2026-11&team=<id>&view=org`; use `unassigned` for the Unassigned bucket), so
+  views are shareable. Data comes from `GET /api/dashboard/breakdown`, which reads
+  `cost_records_daily_attributed`. Until an org structure is configured the dashboard
+  is unchanged.
 - 🔐 **Google SSO** — Supabase Auth, restricted to the `@liatrio.com` domain.
 - 🌙 **Dark mode + Liatrio brand** — Space Grotesk, brand palette, logomark favicon,
   and a System / Light / Dark toggle that follows the OS by default.

@@ -48,7 +48,7 @@ export interface ProviderRow {
   display_name?: string | null
   documentation_url?: string | null
   last_collected_at?: string | null
-  metadata?: Record<string, any> | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface ProviderMeta {
@@ -185,7 +185,7 @@ export function buildDashboardData(
     .sort()
     .map((m) => {
       const pm = byMonthProvider.get(m) || new Map()
-      const row: Record<string, any> = { month: m, total: Math.round((monthTotals.get(m) || 0) * 100) / 100 }
+      const row: Record<string, number | string> = { month: m, total: Math.round((monthTotals.get(m) || 0) * 100) / 100 }
       for (const [pid, agg] of pm.entries()) {
         const meta = providerById.get(pid)
         if (meta) row[meta.slug] = Math.round(agg.cost * 100) / 100

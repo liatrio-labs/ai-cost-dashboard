@@ -37,9 +37,10 @@ export async function GET(request: NextRequest) {
     return successResponse(
       buildBreakdown(rows, org, (providersRaw || []) as ProviderRow[], parsePeriod(sp), parseFilters(sp))
     )
-  } catch (error: any) {
-    if (error?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
+    if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
     console.error("GET /api/dashboard/breakdown error:", error)
-    return errorResponse(error?.message || "Failed to load breakdown", 500)
+    return errorResponse(message || "Failed to load breakdown", 500)
   }
 }
