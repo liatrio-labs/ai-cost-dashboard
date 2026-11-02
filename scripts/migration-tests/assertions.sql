@@ -1,4 +1,4 @@
--- Assertions for issue #5 acceptance criteria 2 and 3.
+-- Assertions for issue #5 acceptance criteria 2 and 3, plus 011 (#7) projects.
 -- Run after fixtures.sql. Any failure raises and stops psql (ON_ERROR_STOP).
 
 CREATE FUNCTION pg_temp.check(label TEXT, ok BOOLEAN) RETURNS void
@@ -112,6 +112,18 @@ SELECT pg_temp.check('registered key without owner/team keeps key and project, r
 SELECT pg_temp.check('api_key_id only matches keys of the same provider',
     EXISTS (SELECT 1 FROM att WHERE model = 'key_wrong_provider'
             AND api_key IS NULL AND team IS NULL AND workspace_id = 'wrk_1'));
+SELECT pg_temp.check('011: project team applies when there is no key or person team',
+    EXISTS (SELECT 1 FROM att WHERE model = 'project_team'
+            AND person IS NULL AND api_key IS NULL AND team = 'Field'
+            AND department = 'Sales' AND project_id = 'proj_2'));
+SELECT pg_temp.check('011: person team beats project team',
+    EXISTS (SELECT 1 FROM att WHERE model = 'person_beats_project'
+            AND person = 'alice@liatrio.com' AND team = 'Platform'));
+SELECT pg_temp.check('011: person without a team falls back to the project team',
+    EXISTS (SELECT 1 FROM att WHERE model = 'project_fallback'
+            AND person = 'carol@liatrio.com' AND team = 'Field'));
+SELECT pg_temp.check('011: project ids match per provider only (proj_1 unmapped stays Unassigned)',
+    EXISTS (SELECT 1 FROM att WHERE model = 'key_bare' AND team IS NULL));
 SELECT pg_temp.check('empty strings are absent; unknown granularity falls back to org',
     EXISTS (SELECT 1 FROM att WHERE model = 'empty_strings'
             AND person IS NULL AND api_key IS NULL AND granularity = 'org'));
@@ -170,7 +182,16 @@ SET ROLE authenticated;
 SELECT pg_temp.check('authenticated can read org tables and the attributed view',
     (SELECT count(*) FROM people) = 5
     AND (SELECT count(*) FROM org_api_keys) = 3
+    AND (SELECT count(*) FROM org_projects) = 1
     AND (SELECT count(*) FROM cost_records_daily_attributed) > 0);
+DO $$
+BEGIN
+    INSERT INTO org_projects (provider_id, external_project_id)
+    SELECT id, 'sneaky' FROM providers LIMIT 1;
+    RAISE EXCEPTION 'FAIL: authenticated could insert into org_projects';
+EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: authenticated cannot write org_projects';
+END $$;
 DO $$
 BEGIN
     INSERT INTO departments (name) VALUES ('Sneaky');

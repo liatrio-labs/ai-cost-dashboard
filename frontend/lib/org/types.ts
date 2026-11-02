@@ -74,12 +74,23 @@ export interface OrgApiKey {
   team_id: string | null
 }
 
+/** Provider project metadata (migration 011) with the team that owns its spend. */
+export interface OrgProject {
+  id: string
+  provider_id: string
+  external_project_id: string
+  name?: string | null
+  team_id: string | null
+}
+
 export interface OrgData {
   departments: Department[]
   teams: Team[]
   people: Person[]
   identities: PersonIdentity[]
   apiKeys: OrgApiKey[]
+  /** org_projects (011). Optional so callers built before 011 keep working. */
+  projects?: OrgProject[]
 }
 
 /** Lookup maps built once from OrgData (see buildOrgIndex). */
@@ -93,6 +104,8 @@ export interface OrgIndex {
   /** key: providerId + "\u0000" + external_key_id */
   apiKeys: Map<string, OrgApiKey>
   apiKeysById: Map<string, OrgApiKey>
+  /** key: providerId + "\u0000" + external_project_id (011; optional for hand-built indexes) */
+  projects?: Map<string, OrgProject>
 }
 
 /** The parts of a cost_records row attribution needs. */

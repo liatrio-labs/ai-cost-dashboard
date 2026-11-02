@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Applies database/migrations/001-010 to a throwaway local PostgreSQL 15,
-# re-applies 010 to prove it is idempotent, seeds fixtures and runs the SQL
+# Applies database/migrations/001-011 to a throwaway local PostgreSQL 15,
+# re-applies 010 and 011 to prove they are idempotent, seeds fixtures and runs the SQL
 # assertions in scripts/migration-tests/. Never touches a remote database:
 # the server listens only on a unix socket in a temp directory, and is
 # stopped and deleted on exit.
@@ -106,15 +106,19 @@ log "Applying Supabase auth stub"
 run_sql "$TESTS/auth_stub.sql" >/dev/null
 
 mapfile -t FILES < <(find "$MIGRATIONS" -maxdepth 1 -name '0[0-9][0-9]_*.sql' | sort)
-[[ ${#FILES[@]} -ge 10 ]] || die "expected migrations 001-010, found ${#FILES[@]}"
+[[ ${#FILES[@]} -ge 11 ]] || die "expected migrations 001-011, found ${#FILES[@]}"
 for f in "${FILES[@]}"; do
   log "Applying $(basename "$f")"
   run_sql "$f" >/dev/null || die "$(basename "$f") failed"
 done
 
 M010="$MIGRATIONS/010_org_structure.sql"
-log "Re-applying 010_org_structure.sql (idempotency, empty tables)"
+M011="$MIGRATIONS/011_org_projects.sql"
+# 010 recreates the attributed view without the 011 project fallback, so
+# 011 is always re-applied after it.
+log "Re-applying 010 and 011 (idempotency, empty tables)"
 run_sql "$M010" >/dev/null || die "re-applying 010 failed"
+run_sql "$M011" >/dev/null || die "re-applying 011 failed"
 
 log "Seeding fixtures"
 run_sql "$TESTS/fixtures.sql" >/dev/null || die "fixtures failed"
@@ -127,16 +131,18 @@ if [[ $rc -ne 0 ]]; then
   die "assertions failed"
 fi
 
-log "Re-applying 010_org_structure.sql (idempotency, with data)"
+log "Re-applying 010 and 011 (idempotency, with data)"
 run_sql "$M010" >/dev/null || die "re-applying 010 with data failed"
+run_sql "$M011" >/dev/null || die "re-applying 011 with data failed"
+"$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT refresh_cost_records_daily()" >/dev/null
 RECON="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
   SELECT count(*) FROM (
     SELECT date, sum(total_cost_usd) c FROM cost_records_daily_attributed GROUP BY date
   ) a FULL JOIN (
     SELECT date, sum(total_cost_usd) c FROM cost_records_daily GROUP BY date
   ) d USING (date) WHERE a.c IS DISTINCT FROM d.c")"
-[[ "$RECON" == "0" ]] || die "totals do not reconcile after re-applying 010"
-echo "  PASS: 010 re-applied over existing data; totals still reconcile"
+[[ "$RECON" == "0" ]] || die "totals do not reconcile after re-applying 010 and 011"
+echo "  PASS: 010 and 011 re-applied over existing data; totals still reconcile"
 
 PASSES="$(printf '%s\n' "$OUT" | grep -c 'NOTICE:  PASS' || true)"
-log "OK: 001-010 applied, 010 idempotent, $((PASSES + 1)) assertions passed"
+log "OK: 001-011 applied, 010 and 011 idempotent, $((PASSES + 1)) assertions passed"

@@ -1,11 +1,13 @@
 /**
  * Pure attribution resolution. Mirrors cost_records_daily_attributed in
- * database/migrations/010_org_structure.sql exactly; change both together.
+ * database/migrations/011_org_projects.sql (which recreates the 010 view)
+ * exactly; change both together.
  *
  * 1. Person: person_email = people.email (case-insensitive); else
  *    (provider, person_external_id) in identities; else (provider, person_email)
  *    in identities; else the API key's owner; else none.
- * 2. Team: the API key's team; else the person's team; else none.
+ * 2. Team: the API key's team; else the person's team; else the project's
+ *    team (org_projects, migration 011); else none.
  * 3. Department: the team's department; else none.
  *
  * Empty strings count as absent. Emails are trimmed and lower-cased; external
@@ -70,6 +72,7 @@ export function buildOrgIndex(data: OrgData): OrgIndex {
     identities: new Map(),
     apiKeys: new Map(),
     apiKeysById: new Map(data.apiKeys.map((k) => [k.id, k])),
+    projects: new Map(),
   }
   for (const p of data.people) {
     const email = normalizeEmail(p.email)
@@ -80,6 +83,9 @@ export function buildOrgIndex(data: OrgData): OrgIndex {
   }
   for (const k of data.apiKeys) {
     if (k.external_key_id) index.apiKeys.set(providerKey(k.provider_id, k.external_key_id), k)
+  }
+  for (const pr of data.projects ?? []) {
+    if (pr.external_project_id) index.projects!.set(providerKey(pr.provider_id, pr.external_project_id), pr)
   }
   return index
 }
@@ -100,7 +106,9 @@ export function resolveAttribution(record: AttributableRecord, index: OrgIndex):
     null
 
   const person = personId ? index.peopleById.get(personId) : undefined
-  const teamId = apiKey?.team_id ?? person?.team_id ?? null
+  const projectId = attr?.project_id ?? null
+  const project = projectId ? index.projects?.get(providerKey(record.provider_id, projectId)) : undefined
+  const teamId = apiKey?.team_id ?? person?.team_id ?? project?.team_id ?? null
   const departmentId = teamId ? (index.teamsById.get(teamId)?.department_id ?? null) : null
 
   return {
@@ -108,7 +116,7 @@ export function resolveAttribution(record: AttributableRecord, index: OrgIndex):
     org_api_key_id: apiKey?.id ?? null,
     team_id: teamId,
     department_id: departmentId,
-    project_id: attr?.project_id ?? null,
+    project_id: projectId,
     workspace_id: attr?.workspace_id ?? null,
     granularity: attr?.granularity ?? "org",
   }
