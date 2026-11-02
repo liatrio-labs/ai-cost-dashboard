@@ -88,10 +88,12 @@ ai-cost-dashboard/
 │   ├── components/           # Dashboard, charts, admin, and UI components
 │   ├── lib/
 │   │   ├── collectors/       # Per-provider TypeScript collectors (+ tests)
+│   │   ├── org/              # Org attribution + department/team/person/key rollups (+ tests)
 │   │   ├── collection.ts     # Cron auth + collector dispatch
 │   │   └── supabase/         # Browser/server/admin Supabase clients
 │   └── vercel.json           # Cron schedule
-└── database/                 # SQL migrations + schema notes (see database/README.md)
+├── database/                 # SQL migrations + schema notes (see database/README.md)
+└── scripts/test-migrations.sh  # Applies all migrations to a throwaway Postgres 15 + SQL assertions
 ```
 
 ## Getting started (local)
@@ -114,6 +116,18 @@ npm test            # unit tests (provider collectors)
 npm run test:e2e    # Playwright auth/routing tests
 npm run build       # production build
 ```
+
+Migrations are checked against a throwaway local PostgreSQL 15 (unix socket only,
+deleted on exit; never a remote database):
+
+```bash
+scripts/test-migrations.sh             # uses PG_BIN or an installed postgresql-15
+FETCH_PG=1 scripts/test-migrations.sh  # or download PG 15 binaries from npm first
+```
+
+It applies 001-010 with a stub Supabase `auth` schema, re-applies 010 to prove it's
+idempotent, seeds fixtures and runs the attribution/rollup assertions. See
+`database/README.md`.
 
 ## Deployment
 

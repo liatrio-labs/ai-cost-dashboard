@@ -161,6 +161,61 @@ User-specific dashboard settings.
 **Auto-initialization**:
 - Automatically created when user signs up (via trigger)
 
+#### 7. Org structure (migration 010)
+Departments, teams and people that AI spend is attributed to. `people` are not
+`auth.users`: most people never sign in.
+
+```sql
+departments       (id, name UNIQUE, description, created_at, updated_at)
+teams             (id, name, department_id → departments NULL, timestamps)
+                  UNIQUE NULLS NOT DISTINCT (department_id, name)
+people            (id, email UNIQUE lower-cased, display_name, team_id → teams NULL,
+                   active, timestamps)
+person_identities (id, person_id → people, provider_id → providers, external_id,
+                   timestamps) UNIQUE (provider_id, external_id)
+org_api_keys      (id, provider_id → providers, external_key_id, name,
+                   owner_person_id → people NULL, team_id → teams NULL, timestamps)
+                  UNIQUE (provider_id, external_key_id)
+```
+
+`person_identities.external_id` is a provider user/actor id, or an email the
+provider reports that differs from the person's `people.email` (store it
+lower-cased). `org_api_keys` holds key metadata only, never secrets; it's
+separate from the legacy `api_credentials` table.
+
+**Access**: RLS on; authenticated users can `SELECT`, writes go through the
+service role (admin routes), as in migration 003.
+
+#### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010)
+`cost_records_daily` plus attribution, resolved from
+`cost_records.metadata.attribution` (contract in epic #4).
+
+```sql
+- date, provider_id, model_name
+- person_id, org_api_key_id, team_id, department_id   -- NULL = Unassigned
+- project_id, workspace_id                            -- from the attribution
+- granularity  -- 'person' | 'api_key' | 'project' | 'workspace' | 'org'
+- total_cost_usd, total_tokens, total_input_tokens, total_output_tokens,
+  total_requests, record_count
+```
+
+**Attribution precedence** (identical in `frontend/lib/org/attribution.ts`):
+
+1. Person: `person_email` = `people.email` (case-insensitive); else
+   `(provider, person_external_id)` in `person_identities`; else
+   `(provider, person_email)` in `person_identities.external_id`; else the API
+   key's `owner_person_id`; else none.
+2. Team: the API key's `team_id`; else the person's `team_id`; else Unassigned.
+3. Department: the team's `department_id`; else Unassigned.
+
+Rows without `attribution` (everything written before #6) get granularity
+`org` and land in Unassigned, so for every date the view's totals equal
+`cost_records_daily`. Membership is **current-state**: reassigning a person,
+key or team moves their historical spend on the next refresh.
+
+The unique index uses `NULLS NOT DISTINCT` (PostgreSQL 15+) so `REFRESH ...
+CONCURRENTLY` works with NULL (Unassigned) keys. `anon` has no access.
+
 ## Indexes
 
 ### Performance-Critical Indexes
@@ -217,7 +272,9 @@ USING (auth.uid() = user_id)
 ## Utility Functions
 
 ### 1. `refresh_cost_records_daily()`
-Refreshes the materialized view with latest cost data.
+Refreshes `cost_records_daily` and (since migration 010)
+`cost_records_daily_attributed`. Called every 15 minutes by the
+`/api/cron/refresh-aggregates` route.
 ```sql
 SELECT refresh_cost_records_daily();
 ```
@@ -297,6 +354,23 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   - Utility functions
   - Seed data (providers)
   - Partitions through 2027 Q2
+
+- **002-009**: providers, shared read access, signup trigger fix,
+  app_settings, `providers.last_collected_at`, BIGINT token columns
+- **010_org_structure.sql**: departments, teams, people, person_identities,
+  org_api_keys, `cost_records_daily_attributed`; refresh function covers both views
+
+### Testing migrations locally
+
+`scripts/test-migrations.sh` starts a throwaway PostgreSQL 15 on a unix socket
+in a temp dir, applies `scripts/migration-tests/auth_stub.sql` (roles `anon`,
+`authenticated`, `service_role`, `auth.users`, `auth.uid()`), then 001-010,
+re-applies 010, seeds `fixtures.sql` and runs `assertions.sql` (precedence
+rules, Unassigned, per-date reconciliation with `cost_records_daily`, both
+views refreshed by `refresh_cost_records_daily()`, RLS/grants), then re-applies
+010 over the data. Server binaries come from `PG_BIN`, an installed
+`postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
+from npm). Any recent `psql` works as the client.
 
 ### Future Migration Guidelines
 
