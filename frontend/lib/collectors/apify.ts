@@ -37,6 +37,7 @@ import type {
   CollectorContext,
   CollectOptions,
 } from "./types"
+import { orgAttribution } from "./attribution"
 import { fetchWithRetry, toFloat, startOfUTCDay, DAY_MS, isoDate, sleep } from "./http"
 
 const API_BASE_URL = "https://api.apify.com"
@@ -105,6 +106,7 @@ export function transform(
         cycle_start: cycle.start ?? null,
         cycle_end: cycle.end ?? null,
         day: day.slice(0, 10),
+        attribution: orgAttribution(),
       },
     })
   }

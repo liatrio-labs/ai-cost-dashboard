@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
  * Vercel billing/usage data collector.
  *
@@ -28,6 +29,7 @@ import type {
   CollectOptions,
 } from "./types"
 import { fetchWithRetry, toFloat, rfc3339 } from "./http"
+import { buildAttribution, str } from "./attribution"
 
 const BASE_URL = "https://api.vercel.com"
 const BILLING_CHARGES_ENDPOINT = "/v1/billing/charges"
@@ -152,6 +154,11 @@ export function transform(
         charge_period_end: charge.ChargePeriodEnd ?? null,
         project_id: tags.ProjectId ?? null,
         project_name: tags.ProjectName ?? null,
+        // FOCUS Tags carry the project; team-level charges stay "org".
+        attribution: buildAttribution({
+          project_id: str(tags.ProjectId),
+          project_name: str(tags.ProjectName),
+        }),
       },
     })
   }

@@ -34,7 +34,7 @@ export const COLLECTORS: Record<string, Collector> = {
 /** provider -> { apiKey env, optional org/team env } */
 export const PROVIDER_ENV: Record<
   string,
-  { apiKey: string; orgId?: string; teamId?: string }
+  { apiKey: string; orgId?: string; teamId?: string; auxApiKey?: string }
 > = {
   anthropic: { apiKey: "ANTHROPIC_ADMIN_KEY", orgId: "ANTHROPIC_ORG_ID" },
   "claude-ai": { apiKey: "CLAUDE_AI_ANALYTICS_KEY", orgId: "CLAUDE_AI_ORG_ID" },
@@ -43,7 +43,12 @@ export const PROVIDER_ENV: Record<
   vercel: { apiKey: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
   apify: { apiKey: "APIFY_TOKEN" },
   windsurf: { apiKey: "WINDSURF_SERVICE_KEY", teamId: "WINDSURF_TEAM_ID" },
-  "vercel-ai-gateway": { apiKey: "AI_GATEWAY_API_KEY", teamId: "VERCEL_TEAM_ID" },
+  "vercel-ai-gateway": {
+    apiKey: "AI_GATEWAY_API_KEY",
+    teamId: "VERCEL_TEAM_ID",
+    // Optional: lets the collector list gateway keys for per-key rows.
+    auxApiKey: "VERCEL_TOKEN",
+  },
 }
 
 const DEFAULT_OWNER_EMAIL = "robert@liatrio.com"
@@ -70,13 +75,16 @@ export async function getOwnerUserId(admin: SupabaseClient): Promise<string> {
   return user.id
 }
 
-async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
+export async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
   if (!records.length) return 0
 
   // Idempotency: a re-run of the same window must not double-count. Delete the
   // existing automated rows for this provider/owner at the exact bucket
   // timestamps we're about to insert, then insert fresh. Manual/CSV rows
-  // (other collection_methods) are left untouched.
+  // (other collection_methods) are left untouched. Collectors emit several
+  // attributed rows per bucket (person / key / project / remainder), so the
+  // delete is deliberately keyed on the timestamp only, never on attribution:
+  // every row of a re-pulled bucket is replaced as a set.
   const providerId = records[0].provider_id
   const userId = records[0].user_id
   const timestamps = Array.from(new Set(records.map((r) => r.timestamp)))
@@ -152,6 +160,7 @@ export async function runCollectionForProvider(
         providerId: (prov as { id: string }).id,
         organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
         teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
+        auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
       },
       opts
     )

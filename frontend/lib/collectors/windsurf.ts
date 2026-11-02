@@ -34,6 +34,7 @@ import type {
   CollectorContext,
   CollectOptions,
 } from "./types"
+import { orgAttribution } from "./attribution"
 import { fetchWithRetry, toInt, toFloat, startOfUTCDay, DAY_MS, rfc3339, sleep } from "./http"
 
 const API_URL = "https://server.codeium.com/api/v1/CascadeAnalytics"
@@ -122,6 +123,7 @@ export function buildRecords(
         messages_sent: u.messages,
         models: u.models,
         day: day.slice(0, 10),
+        attribution: orgAttribution(),
       },
     })
   }

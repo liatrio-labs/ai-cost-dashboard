@@ -59,6 +59,7 @@ import type {
   CollectOptions,
 } from "./types"
 import { fetchWithRetry, toInt, startOfUTCDay, DAY_MS, sleep } from "./http"
+import { buildAttribution, normalizeEmail, orgAttribution } from "./attribution"
 
 const ADMIN_API_BASE_URL = "https://api.cursor.com"
 
@@ -182,6 +183,8 @@ export function transform(
 
   const records: CostRecord[] = []
   for (const agg of groups.values()) {
+    // Per member; events with no userEmail ("unknown") stay org-level (Unassigned).
+    const personEmail = agg.email === "unknown" ? null : normalizeEmail(agg.email)
     const inTok = agg.inputTokens
     const outTok = agg.outputTokens
     records.push({
@@ -208,6 +211,9 @@ export function transform(
         // current billing cycle's days); cents.
         member_cycle_spend_cents: spendByEmail[agg.email] ?? null,
         day: agg.day.slice(0, 10),
+        attribution: personEmail
+          ? buildAttribution({ person_email: personEmail }, "person")
+          : orgAttribution(),
       },
     })
   }

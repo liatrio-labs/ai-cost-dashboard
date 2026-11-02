@@ -70,6 +70,11 @@ describe("windsurf buildRecords (seat subscription)", () => {
     expect(total).toBeCloseTo(18 * 40) // $720
   })
 
+  test("seat cost is org-level attribution (no per-person cost)", () => {
+    const records = buildRecords([new Date(Date.UTC(2026, 5, 1)).toISOString()], {}, ctx)
+    expect(records[0].metadata.attribution).toEqual({ granularity: "org" })
+  })
+
   test("usage attached as metadata; cost_basis is seat_subscription", () => {
     const r = byDay(buildRecords(days, usage, ctx))["2026-05-31"]
     expect(r.metadata.cost_basis).toBe("seat_subscription")

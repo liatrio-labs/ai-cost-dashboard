@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
  * Vercel AI Gateway spend collector.
  *
@@ -22,19 +23,34 @@
  * tracked under anthropic/openai), so using total_cost avoids double-counting
  * BYOK. `market_cost` (incl. BYOK at market rate) is kept in metadata.
  *
- * One record per UTC day, model_name "ai-gateway"; per-day UTC-midnight
- * timestamps keep re-pulls idempotent (runner delete-then-insert-by-timestamp).
+ * Attribution: /v1/report takes ONE group_by per request, so per-key spend is
+ * pulled by repeating the daily query with `api_key_id=<id>` for each of the
+ * team's AI Gateway keys (listed via GET api.vercel.com/v1/api-keys
+ * ?purpose=ai-gateway, which needs the VERCEL_TOKEN, passed as ctx.auxApiKey).
+ * Each day then gets one `granularity: "api_key"` row per key with spend plus
+ * one `granularity: "org"` REMAINDER row = unfiltered total - sum(per-key), so
+ * the day always sums to the unfiltered total. If keys can't be listed or any
+ * per-key query fails, the collector emits only the org rows (remainder = the
+ * whole total). Per-user attribution would need apps to send `user` and a
+ * separate group_by=user query; not done here.
+ *
+ * model_name is "ai-gateway"; per-day UTC-midnight timestamps keep re-pulls
+ * idempotent (runner delete-then-insert-by-timestamp replaces every row of a day).
  */
 
 import type {
+  Attribution,
   Collector,
   CostRecord,
   CollectorContext,
   CollectOptions,
 } from "./types"
 import { fetchWithRetry, toFloat, toInt, isoDate, startOfUTCDay, DAY_MS } from "./http"
+import { buildAttribution, orgAttribution, str } from "./attribution"
 
 const REPORT_URL = "https://ai-gateway.vercel.sh/v1/report"
+const API_KEYS_URL = "https://api.vercel.com/v1/api-keys"
+const MAX_KEYS = 200 // each key costs one report query
 
 interface ReportRow {
   day?: string
@@ -54,44 +70,120 @@ interface TransformCtx {
   teamId?: string
 }
 
+export interface GatewayKey {
+  id: string
+  name?: string | null
+}
+
+export interface KeyReport {
+  key: GatewayKey
+  rows: ReportRow[]
+}
+
+const NUM_FIELDS = [
+  "total_cost",
+  "market_cost",
+  "input_tokens",
+  "output_tokens",
+  "cached_input_tokens",
+  "cache_creation_input_tokens",
+  "reasoning_tokens",
+  "request_count",
+] as const
+type NumField = (typeof NUM_FIELDS)[number]
+type Totals = Record<NumField, number>
+
+function totalsOf(row: ReportRow): Totals {
+  const t = {} as Totals
+  for (const f of NUM_FIELDS) {
+    t[f] = f === "total_cost" || f === "market_cost" ? toFloat(row?.[f]) : toInt(row?.[f] ?? 0)
+  }
+  return t
+}
+
+function dayIso(day: unknown): string | null {
+  if (!day || typeof day !== "string") return null
+  const ms = Date.parse(`${day}T00:00:00Z`)
+  return Number.isNaN(ms) ? null : startOfUTCDay(new Date(ms)).toISOString()
+}
+
+function toRecord(
+  timestamp: string,
+  t: Totals,
+  ctx: TransformCtx,
+  attribution: Attribution,
+  extra: Record<string, unknown> = {}
+): CostRecord {
+  return {
+    user_id: ctx.userId,
+    provider_id: ctx.providerId,
+    timestamp,
+    model_name: "ai-gateway",
+    cost_usd: t.total_cost,
+    tokens_used: t.input_tokens + t.output_tokens,
+    input_tokens: t.input_tokens,
+    output_tokens: t.output_tokens,
+    request_count: t.request_count || 1,
+    collection_method: "api_automated",
+    metadata: {
+      provider: "vercel-ai-gateway",
+      team_id: ctx.teamId ?? null,
+      market_cost: t.market_cost,
+      cached_input_tokens: t.cached_input_tokens,
+      cache_creation_input_tokens: t.cache_creation_input_tokens,
+      reasoning_tokens: t.reasoning_tokens,
+      day: timestamp.slice(0, 10),
+      ...extra,
+      attribution,
+    },
+  }
+}
+
 /**
- * Transform AI Gateway daily report rows into cost_records, one per UTC day.
- * Pure: no network. Skips rows with an unparseable day.
+ * Transform AI Gateway daily report rows into cost_records (pure, no network).
+ *
+ * `rows` is the unfiltered (whole-team) daily report. With no `keyReports`
+ * the result is one org row per day. With key reports, each day gets one
+ * api_key row per key that had activity, plus an org remainder row (total
+ * minus the per-key sum) whenever anything is left, so every day sums back to
+ * the unfiltered total. Skips rows with an unparseable day.
  */
-export function transform(rows: ReportRow[], ctx: TransformCtx): CostRecord[] {
+export function transform(
+  rows: ReportRow[],
+  ctx: TransformCtx,
+  keyReports: KeyReport[] = []
+): CostRecord[] {
   const records: CostRecord[] = []
+  const keyed = new Map<string, Totals>() // day -> sum over keys
+
+  for (const { key, rows: kRows } of keyReports) {
+    for (const row of kRows ?? []) {
+      const ts = dayIso(row?.day)
+      if (!ts) continue
+      const t = totalsOf(row)
+      if (NUM_FIELDS.every((f) => t[f] === 0)) continue
+      const sum = keyed.get(ts) ?? totalsOf({})
+      for (const f of NUM_FIELDS) sum[f] += t[f]
+      keyed.set(ts, sum)
+      records.push(
+        toRecord(ts, t, ctx, buildAttribution({ api_key_id: key.id, api_key_name: str(key.name) }, "api_key"))
+      )
+    }
+  }
 
   for (const row of rows ?? []) {
-    const day = row?.day
-    if (!day) continue
-    const ms = Date.parse(`${day}T00:00:00Z`)
-    if (Number.isNaN(ms)) continue
-    const timestamp = startOfUTCDay(new Date(ms)).toISOString()
-
-    const inTok = toInt(row?.input_tokens ?? 0)
-    const outTok = toInt(row?.output_tokens ?? 0)
-
-    records.push({
-      user_id: ctx.userId,
-      provider_id: ctx.providerId,
-      timestamp,
-      model_name: "ai-gateway",
-      cost_usd: toFloat(row?.total_cost),
-      tokens_used: inTok + outTok,
-      input_tokens: inTok,
-      output_tokens: outTok,
-      request_count: toInt(row?.request_count ?? 0) || 1,
-      collection_method: "api_automated",
-      metadata: {
-        provider: "vercel-ai-gateway",
-        team_id: ctx.teamId ?? null,
-        market_cost: toFloat(row?.market_cost),
-        cached_input_tokens: toInt(row?.cached_input_tokens ?? 0),
-        cache_creation_input_tokens: toInt(row?.cache_creation_input_tokens ?? 0),
-        reasoning_tokens: toInt(row?.reasoning_tokens ?? 0),
-        day,
-      },
-    })
+    const ts = dayIso(row?.day)
+    if (!ts) continue
+    const total = totalsOf(row)
+    const sum = keyed.get(ts)
+    if (!sum) {
+      records.push(toRecord(ts, total, ctx, orgAttribution()))
+      continue
+    }
+    const rem = {} as Totals
+    for (const f of NUM_FIELDS) rem[f] = total[f] - sum[f]
+    if (NUM_FIELDS.every((f) => Math.abs(rem[f]) < 1e-9)) continue
+    records.push(toRecord(ts, rem, ctx, orgAttribution(), { remainder: true }))
   }
 
   return records
@@ -100,7 +192,8 @@ export function transform(rows: ReportRow[], ctx: TransformCtx): CostRecord[] {
 async function fetchReport(
   apiKey: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  apiKeyId?: string
 ): Promise<ReportRow[]> {
   const params = new URLSearchParams({
     start_date: startDate,
@@ -108,6 +201,7 @@ async function fetchReport(
     group_by: "day",
     date_part: "day",
   })
+  if (apiKeyId) params.set("api_key_id", apiKeyId)
   const res = await fetchWithRetry(`${REPORT_URL}?${params.toString()}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -121,23 +215,70 @@ async function fetchReport(
   return json?.results ?? []
 }
 
-async function collect(
-  ctx: CollectorContext,
-  opts: CollectOptions = {}
-): Promise<CostRecord[]> {
+/**
+ * List the team's AI Gateway keys (ids + names, never secrets) with a Vercel
+ * token, following Vercel's `pagination.next` cursor (sent back as `until`) up
+ * to MAX_KEYS. Never throws: a failed first page yields [], a failed later
+ * page keeps the keys already listed. A partial list is still safe because
+ * unlisted keys' spend lands in the org remainder row.
+ */
+export async function listGatewayKeys(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
+  const keys: GatewayKey[] = []
+  const seen = new Set<string>()
+  let until: string | null = null
+  try {
+    while (keys.length < MAX_KEYS) {
+      const params = new URLSearchParams({ purpose: "ai-gateway", limit: "100" })
+      if (teamId) params.set("teamId", teamId)
+      if (until) params.set("until", until)
+      const res = await fetchWithRetry(`${API_KEYS_URL}?${params}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${vercelToken}` },
+      })
+      if (!res.ok) break
+      const json: any = await res.json()
+      const items: any[] = json?.apiKeys ?? json?.keys ?? json?.data ?? []
+      let added = 0
+      for (const k of items) {
+        if (!k || typeof k.id !== "string" || seen.has(k.id) || keys.length >= MAX_KEYS) continue
+        seen.add(k.id)
+        keys.push({ id: k.id, name: str(k.name) })
+        added++
+      }
+      const next = json?.pagination?.next
+      // Stop when there is no cursor, or the cursor stopped producing new keys.
+      if (next === null || next === undefined || added === 0) break
+      until = String(next)
+    }
+  } catch {
+    // keep what was listed
+  }
+  return keys
+}
+
+async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const today = startOfUTCDay(new Date())
-  // Daily run: cover yesterday+today (results can lag a few minutes); backfill:
-  // the requested window. Dates are inclusive YYYY-MM-DD in UTC.
+  // Daily run: cover the prior 2 days + today (results can lag a few minutes);
+  // backfill: the requested window. Dates are inclusive YYYY-MM-DD in UTC.
   const days = opts.backfill ? opts.backfillDays ?? 90 : 2
   const startDate = isoDate(new Date(today.getTime() - days * DAY_MS))
   const endDate = isoDate(today)
+  const tctx = { userId: ctx.userId, providerId: ctx.providerId, teamId: ctx.teamId }
 
   const rows = await fetchReport(ctx.apiKey, startDate, endDate)
-  return transform(rows, {
-    userId: ctx.userId,
-    providerId: ctx.providerId,
-    teamId: ctx.teamId,
-  })
+
+  const keys = ctx.auxApiKey ? await listGatewayKeys(ctx.auxApiKey, ctx.teamId) : []
+  let keyReports: KeyReport[] = []
+  try {
+    keyReports = await Promise.all(
+      keys.map(async (key) => ({ key, rows: await fetchReport(ctx.apiKey, startDate, endDate, key.id) }))
+    )
+  } catch (e) {
+    // All-or-nothing: a partial per-key split would misattribute the remainder.
+    console.warn(`[vercel-ai-gateway] per-key report failed, emitting org totals only: ${e instanceof Error ? e.message : e}`)
+    keyReports = []
+  }
+  return transform(rows, tctx, keyReports)
 }
 
 export const collector: Collector = {
