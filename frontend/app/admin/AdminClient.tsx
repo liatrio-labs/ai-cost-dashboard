@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus, RefreshCw, LogOut } from "lucide-react"
+import { ArrowLeft, Download, Loader2, CheckCircle2, AlertCircle, FileSpreadsheet, Plus, RefreshCw, LogOut, Users } from "lucide-react"
 
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -123,8 +123,8 @@ export function AdminClient() {
       setAddToolMsg({ ok: true, text: `Added "${name}". It's now in the entry dropdown below.` })
       setToolName("")
       await loadProviders()
-    } catch (err: any) {
-      setAddToolMsg({ ok: false, text: err?.message || "Request failed" })
+    } catch (err) {
+      setAddToolMsg({ ok: false, text: (err instanceof Error && err.message) || "Request failed" })
     } finally {
       setAddingTool(false)
     }
@@ -152,15 +152,14 @@ export function AdminClient() {
           error: body.error,
         },
       }))
-    } catch (e: any) {
-      setResults((r) => ({ ...r, [provider]: { error: e?.message || "Request failed" } }))
+    } catch (e) {
+      setResults((r) => ({ ...r, [provider]: { error: (e instanceof Error && e.message) || "Request failed" } }))
     }
   }
 
   async function pullAll() {
     for (const p of PROVIDERS) {
       // sequential so the backend isn't hammered all at once
-      // eslint-disable-next-line no-await-in-loop
       await pull(p.id)
     }
   }
@@ -186,6 +185,12 @@ export function AdminClient() {
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               Refresh dashboard
             </Button>
+            <Link href="/admin/org">
+              <Button variant="outline" size="sm" className="gap-2">
+                <Users className="h-4 w-4" />
+                Org structure
+              </Button>
+            </Link>
             <Link href="/">
               <Button variant="ghost" size="sm" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
