@@ -70,13 +70,16 @@ export async function getOwnerUserId(admin: SupabaseClient): Promise<string> {
   return user.id
 }
 
-async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
+export async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
   if (!records.length) return 0
 
   // Idempotency: a re-run of the same window must not double-count. Delete the
   // existing automated rows for this provider/owner at the exact bucket
   // timestamps we're about to insert, then insert fresh. Manual/CSV rows
-  // (other collection_methods) are left untouched.
+  // (other collection_methods) are left untouched. Collectors emit several
+  // attributed rows per bucket (person / key / project / remainder), so the
+  // delete is deliberately keyed on the timestamp only, never on attribution:
+  // every row of a re-pulled bucket is replaced as a set.
   const providerId = records[0].provider_id
   const userId = records[0].user_id
   const timestamps = Array.from(new Set(records.map((r) => r.timestamp)))
