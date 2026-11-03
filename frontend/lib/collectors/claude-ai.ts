@@ -302,13 +302,13 @@ export function transformAnalytics(
 
 /**
  * Collect from the Analytics API for today plus the prior 30 UTC days (or
- * `backfillDays` with backfill), falling back to the legacy reports on 403/404.
+ * `backfillDays` with backfill, or exactly `opts.range` when given), falling back to the legacy reports on 403/404.
  */
 async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const today = startOfUTCDay(new Date())
-  const end = new Date(today.getTime() + DAY_MS)
+  const end = opts.range ? opts.range.end : new Date(today.getTime() + DAY_MS)
   const days = opts.backfill ? opts.backfillDays ?? 90 : DEFAULT_LOOKBACK_DAYS
-  let start = new Date(today.getTime() - days * DAY_MS)
+  let start = opts.range ? opts.range.start : new Date(today.getTime() - days * DAY_MS)
   if (start.getTime() < MIN_DATA_MS) start = new Date(MIN_DATA_MS)
   const bucketWidth = "1d"
   const tctx = { userId: ctx.userId, providerId: ctx.providerId, organizationId: ctx.organizationId }
