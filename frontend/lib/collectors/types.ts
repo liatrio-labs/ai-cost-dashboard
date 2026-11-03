@@ -51,8 +51,8 @@ export interface CollectOptions {
   /**
    * Explicit window [start, end) (UTC midnights, end exclusive), from a
    * validated start_date/end_date (see ./date-range). When set it takes
-   * precedence over backfill/backfillDays. Honoured by anthropic, claude-ai
-   * and openai.
+   * precedence over backfill/backfillDays. Honoured by anthropic, claude-ai,
+   * openai and vercel-ai-gateway.
    */
   range?: { start: Date; end: Date }
 }

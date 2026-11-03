@@ -3,7 +3,7 @@
  * Pure transform tests for the Vercel AI Gateway collector. No network.
  */
 
-import { transform, collector, listGatewayKeys, lookupProjectNames, parseSpendAttribution } from "./vercel-ai-gateway"
+import { transform, collector, listGatewayKeys, listGatewayKeysStrict, lookupProjectNames, parseSpendAttribution, reportWindow } from "./vercel-ai-gateway"
 import type { CostRecord } from "./types"
 
 const ctx = { userId: "user-1", providerId: "provider-aigw", teamId: "team_x" }
@@ -171,6 +171,19 @@ describe("vercel-ai-gateway collect (mocked fetch)", () => {
     expect(records).toHaveLength(1)
     expect(records[0].metadata.attribution).toEqual({ granularity: "org" })
     expect(records[0].cost_usd).toBe(5)
+  })
+
+  test("an explicit range (issue #28) sends inclusive start/end dates to every report query", async () => {
+    const windows = new Set<string>()
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.hostname === "api.vercel.com") return res({ apiKeys: [{ id: "key_a" }] })
+      windows.add(`${u.searchParams.get("start_date")}..${u.searchParams.get("end_date")}`)
+      return res({ results: [{ day: "2026-03-05", total_cost: 2 }] })
+    }) as any
+    const range = { start: new Date("2026-03-01T00:00:00Z"), end: new Date("2026-03-11T00:00:00Z") }
+    await collector.collect({ ...base, auxApiKey: "test-vercel-token" }, { range })
+    expect([...windows]).toEqual(["2026-03-01..2026-03-10"])
   })
 
   test("no aux token: org rows only, no key listing", async () => {
@@ -376,5 +389,18 @@ describe("vercel-ai-gateway key metadata and projects (issue #24)", () => {
     const names = await lookupProjectNames("test-vercel-token", [...ids, "prj_0"])
     expect(calls).toHaveLength(50)
     expect(names.size).toBe(50)
+  })
+})
+
+describe("reportWindow", () => {
+  const NOW = new Date("2026-11-03T15:00:00Z")
+  test("range: end is exclusive, so the last day is end - 1", () => {
+    expect(
+      reportWindow({ range: { start: new Date("2026-10-01T00:00:00Z"), end: new Date("2026-11-01T00:00:00Z") } }, NOW)
+    ).toEqual({ startDate: "2026-10-01", endDate: "2026-10-31" })
+  })
+  test("daily and backfill windows are unchanged", () => {
+    expect(reportWindow({}, NOW)).toEqual({ startDate: "2026-11-01", endDate: "2026-11-03" })
+    expect(reportWindow({ backfill: true, backfillDays: 10 }, NOW)).toEqual({ startDate: "2026-10-24", endDate: "2026-11-03" })
   })
 })

@@ -675,5 +675,18 @@ describe("gateway key attribution (#24)", () => {
       expect(keyByExt("k_manual")).toMatchObject({ owner_person_id: null, team_id: T.field, assignment_source: "manual" })
       expect(mockState.refreshes).toBe(1)
     })
+
+    it("issue #28: a Vercel failure is a 502 with the reason, and nothing is written", async () => {
+      process.env.VERCEL_TOKEN = "test-vercel-token"
+      rows("providers").push({ id: GW, name: "vercel-ai-gateway", display_name: "Vercel AI Gateway" })
+      global.fetch = jest.fn(async () => res({ error: "nope" }, 403)) as unknown as typeof fetch
+      const before = mockState.db.writes.length
+      const r = await call(syncGateway.POST, "POST", "/x")
+      expect(r.status).toBe(502)
+      expect(r.body.error).toMatch(/nothing was changed.*HTTP 403/)
+      expect(JSON.stringify(r.body)).not.toMatch(/test-vercel-token/)
+      expect(mockState.db.writes.length).toBe(before)
+      expect(mockState.refreshes).toBe(0)
+    })
   })
 })
