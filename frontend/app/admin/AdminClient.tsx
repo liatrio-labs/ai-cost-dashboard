@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
 import { ManageEntries } from "@/components/admin/manage-entries"
+import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
 import { ForecastUnitsCard } from "@/components/admin/forecast-units"
 import { ProviderPullCard } from "@/components/admin/provider-pull"
@@ -298,6 +299,8 @@ export function AdminClient() {
             <ManageEntries reloadKey={entriesReloadKey} />
           </CardContent>
         </Card>
+
+        <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
       </main>
     </div>
   )

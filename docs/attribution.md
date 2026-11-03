@@ -47,7 +47,8 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 | OpenAI API | no on cost (see gaps); usage `user_id` kept as a hint | yes | project | line_item × project × api key | `GET /v1/organization/costs` `group_by=line_item,project_id,api_key_id` (retries without `api_key_id` on 400); `/usage/completions` `group_by=model,project_id,api_key_id,user_id`; names from `/organization/projects` and `/projects/{id}/api_keys` |
 | Cursor | yes (member email) | n/a | n/a | member × model | `POST /teams/filtered-usage-events` (unchanged) |
 | Vercel AI Gateway | via the key: creator when `spendAttribution = user`, or an admin-set owner | yes | project, for project-scoped keys (tags not collected) | one per key with spend, plus an org remainder | `GET ai-gateway.vercel.sh/v1/report?group_by=day` once unfiltered and once per key with `api_key_id=<id>`; keys from `GET api.vercel.com/v1/api-keys?purpose=ai-gateway`, project names from `GET /v9/projects/{id}`, creator emails from `GET /v3/teams/{teamId}/members` |
-| Manual / ChatGPT | no | no | no | n/a | manual entry, no `attribution` (counts as org) |
+| Manual (not seat-based) | no | no | no | n/a | manual entry, no `attribution` (counts as org) |
+| Seat-based manual tools (Claude Ultra `claude-max`, ChatGPT, Lovable) | yes, once an admin assigns seats | no | no | one row per assigned person plus an org remainder, per month | Seat assignments (admin), `PUT /api/admin/seat-assignments` |
 
 ## Provider notes
 
@@ -185,6 +186,31 @@ Gateway history").
 The Vercel (hosting usage), Apify and Windsurf collectors were removed in #27
 after those tools were deleted from the dashboard. They had no attribution
 finer than `project` (Vercel billing) or `org` (Apify, Windsurf).
+
+### Seat-based manual tools (issue #26)
+
+Claude Ultra (formerly Claude Max; the provider slug stays `claude-max`) and
+other seat-based manual tools (providers with `metadata.billing = 'seat'`) are
+entered as one `manual_entry` row per month (`model_name 'seats'`,
+`request_count` = seats, `metadata.entry_type = 'monthly_seats'`). The admin
+**Seat assignments** card splits a month into:
+
+- one row per person: `attribution = { granularity: "person", person_email }`,
+  `seats`, and a cost that defaults to seats × `price_per_seat`;
+- one remainder row for unassigned seats: `attribution = { granularity: "org" }`,
+  `remainder: true` (left out when nothing remains).
+
+Every row keeps `entry_type`, `month`, `price_per_seat`, `cost_basis`, `notes`,
+the original timestamp and owner, and shares `metadata.seat_group_id` (plus
+`seat_group_total_usd` / `seat_group_total_seats`). The rows sum to the month's
+original total exactly (micro-dollars; the remainder absorbs rounding).
+Re-assigning replaces the set in one transaction through `replace_seat_group()`
+(migration 016), which refuses a set whose sum differs from the rows it
+replaces. Clearing all assignments collapses the month back to one plain entry.
+The view already resolves `person_email` to the person and their team, so the
+People table, person drill-down and team/department roll-ups pick it up.
+Emails not in `people` are added (no team). Manage entries lists a split month
+as one item and deletes it as a set; its rows can't be edited one by one.
 
 ## Gaps and follow-ups
 

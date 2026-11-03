@@ -12,6 +12,10 @@
  * app-token spend has no key and stays org-level (the remainder row) unless
  * apps send a project tag such as `ai-reporting-tags: project:<name>`; tag
  * attribution is not collected yet.
+ *
+ * Seat-based manual tools (issue #26): Claude Ultra (slug `claude-max`) and
+ * ChatGPT reach a person when an admin splits a month in Seat assignments;
+ * unassigned seats and un-split months stay org-level.
  */
 
 export type CoverageSupport = "yes" | "via_key_owner" | "no"
@@ -38,7 +42,12 @@ export const PROVIDER_COVERAGE: Record<string, ProviderCoverage> = {
   vercel: { person: "no", api_key: false, note: "per project only" },
   windsurf: { person: "no", api_key: false, note: "org-level only (flat seat cost)" },
   apify: { person: "no", api_key: false, note: "org-level only" },
-  chatgpt: { person: "no", api_key: false, note: "org-level only (manual entry)" },
+  chatgpt: { person: "yes", api_key: false, note: "per person when seats are assigned; otherwise org-level (manual entry)" },
+  "claude-max": {
+    person: "yes",
+    api_key: false,
+    note: "Claude Ultra: per person when seats are assigned; unassigned seats stay org-level",
+  },
   "claude-desktop": { person: "no", api_key: false, note: "org-level only (manual entry)" },
 }
 

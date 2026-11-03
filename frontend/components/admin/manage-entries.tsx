@@ -14,6 +14,48 @@ interface EntryRow {
   seats: number | null
   price_per_seat: number | null
   note: string
+  seat_group_id?: string | null
+  person_email?: string | null
+  remainder?: boolean
+}
+
+/** A split seat month (issue #26): every row sharing one seat_group_id. */
+interface SeatGroupItem {
+  kind: "group"
+  key: string
+  seat_group_id: string
+  provider_name: string
+  month: string
+  rows: EntryRow[]
+  total: number
+}
+
+type Item = { kind: "single"; key: string; row: EntryRow } | SeatGroupItem
+
+/** Group split seat rows under their month; plain entries stay one per row. Order is kept. */
+export function groupEntries(entries: EntryRow[]): Item[] {
+  const items: Item[] = []
+  const groups = new Map<string, SeatGroupItem>()
+  for (const row of entries) {
+    const gid = row.seat_group_id
+    if (!gid) {
+      items.push({ kind: "single", key: row.id, row })
+      continue
+    }
+    let g = groups.get(gid)
+    if (!g) {
+      g = { kind: "group", key: `group:${gid}`, seat_group_id: gid, provider_name: row.provider_name, month: row.month, rows: [], total: 0 }
+      groups.set(gid, g)
+      items.push(g)
+    }
+    g.rows.push(row)
+    g.total = Math.round((g.total + Number(row.cost_usd)) * 1e6) / 1e6
+  }
+  for (const g of groups.values()) {
+    // People first (by email), the unassigned remainder last.
+    g.rows.sort((a, b) => Number(!!a.remainder) - Number(!!b.remainder) || (a.person_email ?? "").localeCompare(b.person_email ?? ""))
+  }
+  return items
 }
 
 function fmt(n: number): string {
@@ -41,8 +83,8 @@ export function ManageEntries({ reloadKey, onChanged }: { reloadKey?: number; on
       const res = await fetch("/api/admin/entries")
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
       setEntries((await res.json()) as EntryRow[])
-    } catch (e: any) {
-      setError(e?.message || "Failed to load entries")
+    } catch (e: unknown) {
+      setError((e instanceof Error && e.message) || "Failed to load entries")
     } finally {
       setLoading(false)
     }
@@ -82,23 +124,24 @@ export function ManageEntries({ reloadKey, onChanged }: { reloadKey?: number; on
       setEditing(null)
       await load()
       onChanged?.()
-    } catch (e: any) {
-      setError(e?.message || "Failed to save")
+    } catch (e: unknown) {
+      setError((e instanceof Error && e.message) || "Failed to save")
     } finally {
       setBusy(false)
     }
   }
 
-  async function remove(id: string) {
+  async function remove(id: string, isGroup = false) {
     setBusy(true)
     try {
-      const res = await fetch(`/api/admin/entries?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+      const param = isGroup ? `seat_group_id=${encodeURIComponent(id)}` : `id=${encodeURIComponent(id)}`
+      const res = await fetch(`/api/admin/entries?${param}`, { method: "DELETE" })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`)
       setConfirmDelete(null)
       await load()
       onChanged?.()
-    } catch (e: any) {
-      setError(e?.message || "Failed to delete")
+    } catch (e: unknown) {
+      setError((e instanceof Error && e.message) || "Failed to delete")
     } finally {
       setBusy(false)
     }
@@ -125,7 +168,61 @@ export function ManageEntries({ reloadKey, onChanged }: { reloadKey?: number; on
         <p className="text-sm text-muted-foreground">No manual entries yet.</p>
       ) : (
         <div className="divide-y divide-border/50 rounded-md border border-border/50">
-          {entries.map((row) => {
+          {groupEntries(entries).map((item) => {
+            if (item.kind === "group") {
+              const people = item.rows.filter((r) => !r.remainder).length
+              const deleting = confirmDelete === item.key
+              return (
+                <div key={item.key} className="space-y-2 p-3" data-testid="seat-group">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {item.provider_name} · {item.month}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {fmt(item.total)} split across {people} {people === 1 ? "person" : "people"} · edit in Seat assignments
+                      </p>
+                    </div>
+                    {!deleting && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setConfirmDelete(item.key)
+                          setEditing(null)
+                        }}
+                        className="shrink-0 gap-1 text-destructive hover:text-destructive"
+                        aria-label={`Delete ${item.provider_name} ${item.month}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  <ul className="space-y-0.5 border-l border-border/50 pl-3 text-xs text-muted-foreground">
+                    {item.rows.map((r) => (
+                      <li key={r.id} className="flex justify-between gap-2">
+                        <span className="truncate">
+                          {r.remainder ? "Unassigned" : r.person_email} · {r.seats ?? "?"} seats
+                        </span>
+                        <span className="tabular-nums">{fmt(r.cost_usd)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {deleting && (
+                    <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1">
+                      <span className="text-xs text-destructive">Delete this month ({item.rows.length} rows)?</span>
+                      <Button size="sm" variant="destructive" onClick={() => remove(item.seat_group_id, true)} disabled={busy}>
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Yes, delete"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)} disabled={busy}>
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            const row = item.row
             const seatBased = row.entry_type === "monthly_seats"
             const isEditing = editing === row.id
             return (
