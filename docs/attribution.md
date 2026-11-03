@@ -73,6 +73,12 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   `workspace_id` is null. Any other error still fails the run, so a real
   outage is never hidden. `metadata.source` records which path produced a row
   (`analytics` or `cost_report`).
+- **Workspace as project (issue #32):** analytics and legacy rows with a
+  `workspace_id` also carry `attribution.project_id = workspace_id` (plus
+  `project_name` when known), so the rollup resolves the workspace's
+  `org_projects` row and its team. Granularity is unchanged (a workspace-only
+  row stays `workspace`). Default-workspace rows (`workspace_id` null) get no
+  `project_id`; their keys carry the "Default" project instead.
 
 ### Claude.ai Enterprise (`claude-ai.ts`)
 
@@ -141,8 +147,9 @@ AI Gateway spend lands on a person, a project or a team depending on the key:
 The **key sync** (`frontend/lib/org/gateway-sync.ts`) runs after every
 `vercel-ai-gateway` collection (best-effort; its result is in the collection
 summary as `key_sync`, and a failure never fails collection) and from
-`POST /api/admin/org/keys/sync-gateway` ("Sync keys now" on `/admin` and
-`/admin/org`, issue #28). It upserts one `org_api_keys` row per gateway key,
+"Sync keys now" on `/admin` and `/admin/org` (issue #28; now
+`POST /api/admin/org/keys/sync`, which also runs the Anthropic key sync, issue
+#32; `POST /api/admin/org/keys/sync-gateway` still syncs gateway keys only). It upserts one `org_api_keys` row per gateway key,
 whether or not the key has spend yet, with its name, creator, creator email and
 `spend_attribution`, and auto-assigns the owner and project with
 `assignment_source = 'auto'`. It returns `created`, `updated`, `unchanged` and
@@ -177,6 +184,69 @@ scope here; it would need a separate `group_by=tags` query.
 History collected before the per-key collector has no attribution. After
 deploying, re-pull it with the backfill command in the README ("Re-pulling AI
 Gateway history").
+
+### Anthropic keys to their creator, workspaces as projects (issue #32)
+
+The **Anthropic key sync** (`frontend/lib/org/anthropic-key-sync.ts`) uses the
+anthropic provider's Admin key to list `GET /v1/organizations/api_keys` (every
+status, `limit=1000`, paged by `after_id`), `GET /v1/organizations/users` and
+`GET /v1/organizations/workspaces?include_default=true&include_archived=true`.
+
+- **Workspaces become projects.** One `org_projects` row per workspace
+  (provider anthropic, external id = workspace id, the workspace name). The
+  default workspace (keys with `workspace_id` null) is the project `default`
+  named **"Default"**. An existing project only gets a missing name filled in;
+  a name or team set by hand is never changed.
+- **Keys.** One `org_api_keys` row per key, archived keys included: name,
+  status (`external_status`, migration 017), creator id and email,
+  `org_project_id` = the workspace project, `spend_attribution` NULL.
+- **Auto owner.** `principal.user_id`, else `created_by.id` when it is a user →
+  email (users list) → `people` (matched by email, else created with no team)
+  → `owner_person_id`, `assignment_source = 'auto'`.
+- **No owner, reason stored** (`unresolved_reason`, counted in
+  `unresolved_creators` and listed under "Unassigned keys" on `/admin/org`):
+  `service_account` (a non-user creator, stored as `type:id` in
+  `external_created_by`), `deleted_user` (not in the users list),
+  `unmatched_creator` (a user with no email) and `no_creator`.
+- **Manual wins.** A key with `assignment_source = 'manual'` (or an owner,
+  team or project set before 015) keeps its owner, team and project; only
+  metadata refreshes. If the users list fails, the existing owner, email and
+  reason are kept.
+
+It runs best-effort after every `anthropic` collection (a failure never fails
+collection; the result is `key_sync` in the summary) and from **"Sync keys
+now"** (`POST /api/admin/org/keys/sync`, on `/admin` per provider and on
+`/admin/org` for both). That route lists every requested provider's keys
+before writing: an Anthropic Admin API or Vercel key-list error is a 502 and
+nothing is written. It returns `created`, `updated`, `unchanged`,
+`manual_kept` and `unresolved_creators` per provider. Users, team members,
+workspaces and project names stay best-effort. Migration 017 is optional at
+runtime: without it, status and reason aren't stored and everything else works.
+
+**Vercel "Assign to creator".** On `/admin/org` ("API keys & projects"), a
+gateway key whose `spend_attribution` is `team` or unset, that has a
+`creator_email` and no owner, shows a one-click "Assign to creator"
+(`POST /api/admin/org/keys/assign-creator`). It sets the owner to the
+creator's person (matched by email, else created with no team) with
+`assignment_source = 'manual'`, so a later "Sync keys now" leaves it alone.
+The automatic rule is unchanged: the gateway sync assigns owners only for
+`spendAttribution = user`.
+
+#### Attribution precedence
+
+| # | Rule | Where |
+|---|---|---|
+| 1 | The person who actually used the key (`user_actor` / principal on the cost row) | `person_email` / `person_external_id` on the row beat the key owner |
+| 2 | An owner set by hand (`assignment_source = 'manual'`); the sync never overwrites it | `org_api_keys.owner_person_id` |
+| 3 | The automatic creator owner (`assignment_source = 'auto'`) | `org_api_keys.owner_person_id` |
+| 4 | The workspace's project, then that project's team | row `project_id` (= workspace), else the key's `org_project_id` |
+| 5 | Unassigned | no person and no team |
+
+The view (`cost_records_daily_attributed`) is unchanged: these rules already
+hold. Team is still **key team > person team > project team**, so the actor's
+team wins on a user_actor row unless an admin set a team on the key itself.
+Checked by `lib/org/attribution.test.ts`, `lib/org/anthropic-key-sync.test.ts`
+and `scripts/migration-tests/assertions_017.sql`.
 
 ### Cursor
 
@@ -246,7 +316,8 @@ On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project` filter matches either column. The table shows whenever any loaded row
 carries a project or workspace. Workspace names live in `org_projects` (same
 provider + external id key), and admins can name them on `/admin/org`.
-Workspaces don't take a team yet: the attributed view only joins `org_projects`
-on `project_id`, so a workspace team would need a migration. Workspaces and
-projects aren't auto-registered; the views work from observed ids, and a row is
-created when an admin names or assigns one.
+Since issue #32 Anthropic rows carry `project_id = workspace_id`, so a
+workspace's `org_projects` team applies through the existing `project_id`
+join (no view change), and the Anthropic key sync registers every workspace
+(the default one as "Default"). OpenAI and Vercel projects are still created
+when an admin names or assigns one, or by the gateway key sync.

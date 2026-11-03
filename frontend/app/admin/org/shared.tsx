@@ -71,7 +71,7 @@ export function SourceBadge({ source }: { source: KeyRow["assignment_source"] })
     <Badge
       variant={source === "manual" ? "secondary" : "outline"}
       className="ml-2"
-      title={source === "manual" ? "Set by an admin; the key sync never overwrites it" : "Set by the AI Gateway key sync from the key's creator or project"}
+      title={source === "manual" ? "Set by an admin; the key sync never overwrites it" : "Set by the key sync from the key's creator, project or workspace"}
     >
       {source}
     </Badge>

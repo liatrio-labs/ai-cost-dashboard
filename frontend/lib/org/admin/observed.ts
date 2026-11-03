@@ -173,9 +173,14 @@ export interface KeyRow {
   observed_project_id: string | null
   /** The key's Anthropic workspace from collected rows (attribution.workspace_id), issue #28. */
   observed_workspace_id: string | null
+  external_created_by: string | null
   external_created_by_email: string | null
   spend_attribution: string | null
   assignment_source: "auto" | "manual" | null
+  /** Provider key status (Anthropic, migration 017). */
+  external_status: string | null
+  /** Why the key sync left the key without an owner (migration 017, issue #32). */
+  unresolved_reason: string | null
   observed: boolean
   total_cost_usd: number
   record_count: number
@@ -240,9 +245,12 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       org_project_id: k.org_project_id ?? null,
       observed_project_id: keyProject.get(pkey(k.provider_id, k.external_key_id)) ?? null,
       observed_workspace_id: keyWorkspace.get(pkey(k.provider_id, k.external_key_id)) ?? null,
+      external_created_by: k.external_created_by ?? null,
       external_created_by_email: k.external_created_by_email ?? null,
       spend_attribution: k.spend_attribution ?? null,
       assignment_source: k.assignment_source ?? null,
+      external_status: k.external_status ?? null,
+      unresolved_reason: k.unresolved_reason ?? null,
       observed: !!s,
       total_cost_usd: round6(s?.total ?? 0),
       record_count: s?.count ?? 0,
@@ -262,9 +270,12 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       org_project_id: null,
       observed_project_id: keyProject.get(key) ?? null,
       observed_workspace_id: keyWorkspace.get(key) ?? null,
+      external_created_by: null,
       external_created_by_email: null,
       spend_attribution: null,
       assignment_source: null,
+      external_status: null,
+      unresolved_reason: null,
       observed: true,
       total_cost_usd: round6(s.total),
       record_count: s.count,
@@ -302,8 +313,11 @@ export function listProjects(records: ObservedRecord[], registered: OrgProject[]
   const workspaces = new Set<string>()
   for (const r of records) {
     const a = attributionOf(r)
-    if (a?.project_id) bump(seen, pkey(r.provider_id, a.project_id), r, a.project_name)
-    else if (a?.workspace_id) {
+    if (a?.project_id) {
+      bump(seen, pkey(r.provider_id, a.project_id), r, a.project_name)
+      // Anthropic rows name their workspace as the project too (issue #32).
+      if (a.workspace_id === a.project_id) workspaces.add(pkey(r.provider_id, a.project_id))
+    } else if (a?.workspace_id) {
       bump(seen, pkey(r.provider_id, a.workspace_id), r, null)
       workspaces.add(pkey(r.provider_id, a.workspace_id))
     }

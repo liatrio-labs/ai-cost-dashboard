@@ -41,6 +41,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { fetchWithRetry } from "@/lib/collectors/http"
 import { normalizeEmail } from "./attribution"
 import { isManual, type AssignmentSource, type SyncKeyRow } from "./gateway-sync"
+import type { UnresolvedReason } from "./key-status"
 import { ensurePeople, ensureProjects, must } from "./sync-helpers"
 
 const ADMIN_API_BASE_URL = "https://api.anthropic.com/v1/organizations"
@@ -52,16 +53,7 @@ const MAX_PAGES = 200
 export const DEFAULT_WORKSPACE_PROJECT_ID = "default"
 export const DEFAULT_WORKSPACE_PROJECT_NAME = "Default"
 
-export const UNRESOLVED_REASONS = ["no_creator", "service_account", "deleted_user", "unmatched_creator"] as const
-export type UnresolvedReason = (typeof UNRESOLVED_REASONS)[number]
-
-/** Human text for unresolved_reason (shown in /admin/org). */
-export const UNRESOLVED_REASON_TEXT: Record<UnresolvedReason, string> = {
-  no_creator: "no creator recorded",
-  service_account: "created by a service account",
-  deleted_user: "creator is no longer in the organization",
-  unmatched_creator: "creator has no email to match",
-}
+export { UNRESOLVED_REASONS, UNRESOLVED_REASON_TEXT, type UnresolvedReason } from "./key-status"
 
 export class AnthropicKeySyncError extends Error {
   constructor(message: string) {

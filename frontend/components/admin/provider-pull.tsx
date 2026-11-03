@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { MAX_RANGE_DAYS, supportsRange } from "@/lib/collectors/range-providers"
-import { GatewayKeySyncButton, formatSyncSummary, type GatewaySyncCounts } from "./gateway-key-sync"
+import { KeySyncButton, formatSyncSummary, type GatewaySyncCounts } from "./gateway-key-sync"
 
 // Providers that have an automated collector (the "Pull" list). Manual/seat
 // tools added via the admin form are NOT pullable and don't appear here.
@@ -174,7 +174,7 @@ export function ProviderPullCard() {
                   {r && !r.loading && <PullStatus r={r} />}
                 </div>
                 <div className="flex items-center gap-2">
-                  {p.id === "vercel-ai-gateway" && <GatewayKeySyncButton />}
+                  {(p.id === "vercel-ai-gateway" || p.id === "anthropic") && <KeySyncButton providers={[p.id]} />}
                   <Button variant="outline" size="sm" onClick={() => pull(p.id)} disabled={r?.loading || !!problem} className="gap-2" aria-label={`Pull ${p.name}`}>
                     {r?.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     Pull

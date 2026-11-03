@@ -12,8 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import { unassignedGatewayKeys, type ImportPreview, type KeyRow, type ProjectRow, type UnassignedQueue } from "@/lib/org/admin/observed"
-import { GatewayKeySyncButton } from "@/components/admin/gateway-key-sync"
-import { KeysByProjectCard } from "./keys-by-project"
+import { KeySyncButton } from "@/components/admin/gateway-key-sync"
+import { AssignToCreatorButton, KeysByProjectCard } from "./keys-by-project"
+import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const API = "/api/admin/org"
@@ -553,7 +554,7 @@ function GatewayKeysCard({
               project automatically on every collection. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
             </CardDescription>
           </div>
-          <GatewayKeySyncButton onSynced={reload} />
+          <KeySyncButton onSynced={reload} />
         </div>
       </CardHeader>
       <CardContent className="divide-y divide-border/50">
@@ -572,6 +573,7 @@ function GatewayKeysCard({
                 <SourceBadge source={k.assignment_source} />
               </div>
               <div className="flex items-center gap-1">
+                {canAssignToCreator(k, "vercel-ai-gateway") && <AssignToCreatorButton k={k} mutate={mutate} />}
                 <select
                   aria-label={`Assign ${k.external_key_id} to a person`}
                   className={selectClass}

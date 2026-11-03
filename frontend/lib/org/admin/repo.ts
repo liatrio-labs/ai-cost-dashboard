@@ -13,16 +13,21 @@ export const KEY_COLUMNS_BASE = "id, provider_id, external_key_id, name, owner_p
 export const KEY_COLUMNS_015 =
   "org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
 export const KEY_COLUMNS = `${KEY_COLUMNS_BASE}, ${KEY_COLUMNS_015}`
+/** Migration 017 (issue #32): Anthropic key status and why the sync left a key without an owner. */
+export const KEY_COLUMNS_017 = `${KEY_COLUMNS}, external_status, unresolved_reason`
 
 /** True for PostgREST / Postgres "column does not exist" (migration 015 not applied). */
 export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
   return !!error && (error.code === "42703" || error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? ""))
 }
 
-async function loadKeys(admin: SupabaseClient) {
-  const res = await admin.from("org_api_keys").select(KEY_COLUMNS)
-  if (isMissingColumn(res.error)) return admin.from("org_api_keys").select(KEY_COLUMNS_BASE)
-  return res
+async function loadKeys(admin: SupabaseClient): Promise<{ data: unknown[] | null; error: { code?: string; message: string } | null }> {
+  // Newest column set first; fall back while 017 / 015 aren't applied.
+  for (const columns of [KEY_COLUMNS_017, KEY_COLUMNS, KEY_COLUMNS_BASE]) {
+    const res = await admin.from("org_api_keys").select(columns as string)
+    if (columns === KEY_COLUMNS_BASE || !isMissingColumn(res.error)) return res
+  }
+  throw new Error("unreachable")
 }
 
 export async function loadOrg(admin: SupabaseClient): Promise<OrgSnapshot> {

@@ -174,6 +174,44 @@ describe("resolveAttribution: project team fallback (011)", () => {
   })
 })
 
+describe("resolveAttribution: issue #32 precedence (Anthropic keys and workspace projects)", () => {
+  // Alice's key (auto-owned by the creator sync) in workspace wrk_res, whose project belongs to Data.
+  const data = orgData()
+  data.apiKeys.push({ id: "k-an", provider_id: P.anthropic, external_key_id: "an_alice", owner_person_id: PE.alice, team_id: null, assignment_source: "auto" })
+  data.apiKeys.push({ id: "k-an-svc", provider_id: P.anthropic, external_key_id: "an_svc", owner_person_id: null, team_id: null, assignment_source: "auto" })
+  data.projects!.push({ id: "pr-an", provider_id: P.anthropic, external_project_id: "wrk_res", name: "Research", team_id: T.data })
+  const idx = buildOrgIndex(data)
+  const r = (attribution: unknown) => resolveAttribution({ provider_id: P.anthropic, metadata: { attribution } }, idx)
+
+  it("1: a user_actor row on a key owned by someone else resolves to the actor (and the actor's team)", () => {
+    expect(
+      r({ api_key_id: "an_alice", workspace_id: "wrk_res", project_id: "wrk_res", person_email: "bob@liatrio.com", person_external_id: "user_bob", granularity: "person" })
+    ).toMatchObject({ person_id: PE.bob, team_id: T.field, org_api_key_id: "k-an", project_id: "wrk_res" })
+  })
+
+  it("3: an api_actor row resolves to the key's owner, whose team beats the workspace project's", () => {
+    expect(r({ api_key_id: "an_alice", workspace_id: "wrk_res", project_id: "wrk_res", granularity: "api_key" })).toMatchObject({
+      person_id: PE.alice,
+      team_id: T.platform,
+    })
+  })
+
+  it("4: a key with no owner falls back to the workspace project's team", () => {
+    expect(r({ api_key_id: "an_svc", workspace_id: "wrk_res", project_id: "wrk_res", granularity: "api_key" })).toMatchObject({
+      person_id: null,
+      team_id: T.data,
+      department_id: D.eng,
+    })
+  })
+
+  it("5: no owner and an unmapped workspace is Unassigned", () => {
+    expect(r({ api_key_id: "an_svc", workspace_id: "wrk_other", project_id: "wrk_other", granularity: "api_key" })).toMatchObject({
+      person_id: null,
+      team_id: null,
+    })
+  })
+})
+
 describe("resolveAttribution: missing or malformed attribution", () => {
   it.each([
     ["empty metadata", {}],
