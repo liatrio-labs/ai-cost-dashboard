@@ -13,7 +13,10 @@
  * (provider x model) detail, plus API key and project tables that filter the
  * same way, so breadcrumbs and shared links fall out of the same state.
  * `project` matches the attributed view's project_id: the row's provider
- * project id, else its API key's assigned project (migration 015).
+ * project id, else its API key's assigned project (migration 015), else the
+ * row's Anthropic workspace_id (issue #28: workspaces sit beside projects on
+ * the dashboard; OpenAI / Vercel project ids and Anthropic workspace ids never
+ * collide in practice, and the provider filter can split them anyway).
  */
 
 import { UNASSIGNED_KEY } from "@/lib/org/rollup"
@@ -64,6 +67,13 @@ type FilterableRow = Pick<ResolvedAttribution, "department_id" | "team_id" | "pe
   provider_id: string
   /** Optional so rows built before projects were filterable still type-check (missing = no project). */
   project_id?: string | null
+  /** Anthropic workspace; stands in for project_id when the row has none (issue #28). */
+  workspace_id?: string | null
+}
+
+/** The project the `project` filter and the Projects table see: project_id, else workspace_id. */
+export function effectiveProjectId(row: { project_id?: string | null; workspace_id?: string | null }): string | null {
+  return row.project_id || row.workspace_id || null
 }
 
 /**
@@ -79,7 +89,7 @@ export function matchesFilters(
   for (const k of ORG_FILTER_KEYS) {
     const want = f[k]
     if (!want) continue
-    const have = row[FILTER_FIELD[k]] ?? null
+    const have = k === "project" ? effectiveProjectId(row) : (row[FILTER_FIELD[k]] ?? null)
     if (want === UNASSIGNED_FILTER ? have !== null : have !== want) return false
   }
   if (f.provider && row.provider_id !== providerIdForFilter) return false

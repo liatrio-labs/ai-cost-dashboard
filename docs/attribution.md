@@ -140,10 +140,15 @@ AI Gateway spend lands on a person, a project or a team depending on the key:
 The **key sync** (`frontend/lib/org/gateway-sync.ts`) runs after every
 `vercel-ai-gateway` collection (best-effort; its result is in the collection
 summary as `key_sync`, and a failure never fails collection) and from
-`POST /api/admin/org/keys/sync-gateway` ("Sync gateway keys" on `/admin/org`).
-It upserts one `org_api_keys` row per gateway key with its name, creator,
-creator email and `spend_attribution`, and auto-assigns the owner and project
-with `assignment_source = 'auto'`.
+`POST /api/admin/org/keys/sync-gateway` ("Sync keys now" on `/admin` and
+`/admin/org`, issue #28). It upserts one `org_api_keys` row per gateway key,
+whether or not the key has spend yet, with its name, creator, creator email and
+`spend_attribution`, and auto-assigns the owner and project with
+`assignment_source = 'auto'`. It returns `created`, `updated`, `unchanged` and
+`manual_kept` counts. The key list is strict: if Vercel's key list fails, the
+sync writes nothing and the route answers 502 with the reason (after a
+collection the failure shows in `key_sync`). Team-member and project-name
+lookups stay best-effort.
 
 **Manual assignments win.** Setting a key's owner, team or project in the admin
 UI or API marks it `assignment_source = 'manual'` (shown as a badge), and the
@@ -201,3 +206,21 @@ provider that can't attribute spend to a person or key isn't read as $0. Those
 notes come from `frontend/lib/org/coverage.ts`, which mirrors the table above:
 update both together. The dashboard also has a Projects table and a `project`
 filter (the view's effective `project_id`).
+
+### Keys under projects and workspaces (issue #28)
+
+`/admin/org` ("API keys by project") and the dashboard API keys table group keys
+by provider, then project (OpenAI `project_id`), workspace (Anthropic
+`workspace_id`, else "Default workspace") or Vercel project (the key's
+`org_project_id` or its rows' `project_id`, else "No project"), via
+`frontend/lib/org/key-groups.ts`. Registered keys with no spend are listed.
+
+On the dashboard, an Anthropic `workspace_id` stands in for a missing
+`project_id`: the Projects table shows workspaces (marked "workspace") and the
+`project` filter matches either column. The table shows whenever any loaded row
+carries a project or workspace. Workspace names live in `org_projects` (same
+provider + external id key), and admins can name them on `/admin/org`.
+Workspaces don't take a team yet: the attributed view only joins `org_projects`
+on `project_id`, so a workspace team would need a migration. Workspaces and
+projects aren't auto-registered; the views work from observed ids, and a row is
+created when an admin names or assigns one.

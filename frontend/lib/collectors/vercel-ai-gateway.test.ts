@@ -3,7 +3,7 @@
  * Pure transform tests for the Vercel AI Gateway collector. No network.
  */
 
-import { transform, collector, listGatewayKeys, listGatewayKeysStrict, lookupProjectNames, parseSpendAttribution, reportWindow } from "./vercel-ai-gateway"
+import { transform, collector, listGatewayKeys, lookupProjectNames, parseSpendAttribution, reportWindow } from "./vercel-ai-gateway"
 import type { CostRecord } from "./types"
 
 const ctx = { userId: "user-1", providerId: "provider-aigw", teamId: "team_x" }

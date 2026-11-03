@@ -289,13 +289,24 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
   )
 }
 
+/**
+ * Registered keys grouped by provider, then project / workspace (issue #28):
+ * OpenAI keys under projects, Anthropic keys under workspaces, AI Gateway
+ * keys under Vercel projects or "No project". Keys with no spend yet are
+ * listed too. A group heading filters by that project; a key filters by key.
+ * Spend on unregistered keys stays in the last "Unassigned" row.
+ */
 export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
-  const keys = data.api_key.filter(visible) as BreakdownApiKey[]
+  const unassigned = data.api_key.filter((k) => k.unassigned && visible(k)) as BreakdownApiKey[]
+  const groups = data.key_groups ?? []
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">API keys</CardTitle>
-        <CardDescription>Spend on registered provider API keys</CardDescription>
+        <CardDescription>
+          Registered provider API keys under their project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway), including keys with no
+          spend yet. Select a project to filter by it.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Table aria-label="API keys">
@@ -310,21 +321,66 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
             </TableRow>
           </TableHeader>
           <TableBody>
-            {keys.map((k) => (
+            {groups.flatMap((pg) =>
+              pg.projects.flatMap((g) => [
+                <TableRow key={`group:${g.key}`} data-testid="key-group-row" className="bg-muted/30 hover:bg-muted/30">
+                  <TableCell colSpan={4} className="py-1.5 text-xs">
+                    <span className="text-muted-foreground">
+                      {pg.label} · {pg.noun}:{" "}
+                    </span>
+                    <button
+                      type="button"
+                      className="font-medium hover:underline"
+                      aria-label={`Filter by ${pg.noun.toLowerCase()} ${g.label}`}
+                      onClick={() => onFiltersChange({ ...data.filters, project: g.external_id ?? UNASSIGNED_FILTER })}
+                    >
+                      {g.label}
+                    </button>
+                    <span className="ml-2 text-muted-foreground">
+                      {g.keys.length} key{g.keys.length === 1 ? "" : "s"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-1.5 text-right text-xs tabular-nums text-muted-foreground">{formatCurrency(g.total_cost_usd)}</TableCell>
+                  <TableCell />
+                </TableRow>,
+                ...g.keys.map((k) => (
+                  <TableRow key={k.key} data-testid="key-row">
+                    <TableCell>{k.providerName ?? "—"}</TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        className="text-left font-medium hover:underline"
+                        onClick={() => onFiltersChange({ ...data.filters, key: k.key })}
+                      >
+                        {k.label}
+                      </button>
+                      <Coverage notes={k.coverage} unassigned={false} />
+                    </TableCell>
+                    <TableCell>{k.owner ?? "—"}</TableCell>
+                    <TableCell>{k.team ?? "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCurrency(k.cost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <Change value={k.changePercent} cost={k.cost} />
+                    </TableCell>
+                  </TableRow>
+                )),
+              ])
+            )}
+            {unassigned.map((k) => (
               <TableRow key={k.key} data-testid="key-row">
-                <TableCell>{k.providerName ?? "—"}</TableCell>
+                <TableCell>—</TableCell>
                 <TableCell>
                   <button
                     type="button"
                     className="text-left font-medium hover:underline"
                     onClick={() => onFiltersChange({ ...data.filters, key: k.key })}
                   >
-                    {k.unassigned ? "Unassigned (no registered key)" : k.label}
+                    Unassigned (no registered key)
                   </button>
-                  <Coverage notes={k.coverage} unassigned={k.unassigned} />
+                  <Coverage notes={k.coverage} unassigned />
                 </TableCell>
-                <TableCell>{k.owner ?? "—"}</TableCell>
-                <TableCell>{k.team ?? "—"}</TableCell>
+                <TableCell>—</TableCell>
+                <TableCell>—</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(k.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   <Change value={k.changePercent} cost={k.cost} />
@@ -340,15 +396,17 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
 
 export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   const projects = (data.project ?? []).filter(visible) as BreakdownProject[]
-  // Only the Unassigned row: no provider reports projects for this view.
-  if (projects.length <= 1 && projects.every((p) => p.unassigned)) return null
+  // Shown whenever any provider reports a project or workspace (issue #28),
+  // even if this period's filters leave only the Unassigned row.
+  const any = data.hasProjects ?? projects.some((p) => !p.unassigned)
+  if (!any) return null
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">Projects</CardTitle>
         <CardDescription>
-          Spend by provider project (OpenAI projects, Vercel projects via project-scoped AI Gateway keys). Gateway spend from OIDC, PATs
-          or app tokens has no project and stays Unassigned.
+          Spend by provider project (OpenAI projects, Anthropic workspaces, Vercel projects via project-scoped AI Gateway keys). Select one to
+          filter the keys and the rest of the page. Gateway spend from OIDC, PATs or app tokens has no project and stays Unassigned.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -374,6 +432,7 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
                   >
                     {p.unassigned ? "Unassigned (no project)" : p.label}
                   </button>
+                  {p.kind === "workspace" && <span className="ml-2 text-xs text-muted-foreground">workspace</span>}
                 </TableCell>
                 <TableCell>{p.team ?? "—"}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(p.cost)}</TableCell>

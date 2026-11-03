@@ -74,6 +74,12 @@ export function narrowAttributed(f: DashboardFilters, providerId: string | null)
     for (const k of ORG_FILTER_KEYS) {
       const v = f[k]
       if (!v) continue
+      // project also matches workspace_id (issue #28): push down only the
+      // superset (project_id IS NULL for "unassigned"); matchesFilters narrows.
+      if (k === "project") {
+        if (v === UNASSIGNED_FILTER) q = q.is("project_id", null)
+        continue
+      }
       q = v === UNASSIGNED_FILTER ? q.is(FILTER_FIELD[k], null) : q.eq(FILTER_FIELD[k], v)
     }
     if (f.provider && providerId) q = q.eq("provider_id", providerId)

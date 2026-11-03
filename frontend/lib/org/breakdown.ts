@@ -19,6 +19,7 @@ import {
 import {
   applyFilters,
   drillLevel,
+  effectiveProjectId,
   FILTER_KEYS,
   hasFilters,
   UNASSIGNED_FILTER,
@@ -27,6 +28,7 @@ import {
   type FilterKey,
 } from "@/lib/dashboard-filters"
 import { buildOrgIndex } from "./attribution"
+import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
 import { canAttribute, coverageFor, type CoverageLevel, type CoverageSupport } from "./coverage"
 import { rollup, UNASSIGNED_LABEL, type RollupLevel } from "./rollup"
 import type { AttributedDailyRow, OrgData, OrgIndex } from "./types"
@@ -64,13 +66,18 @@ export interface BreakdownApiKey extends BreakdownEntity {
   team: string | null
 }
 
-/** Spend by project (the attributed view's project_id: row project, else the key's project). */
+/**
+ * Spend by project (the attributed view's project_id: row project, else the
+ * key's project), with Anthropic workspaces beside them (issue #28).
+ */
 export interface BreakdownProject {
-  /** External project id, or "unassigned"; also the `project` filter value. */
+  /** External project / workspace id, or "unassigned"; also the `project` filter value. */
   key: string
   id: string | null
   label: string
   unassigned: boolean
+  /** "workspace" for Anthropic workspace ids, else "project". */
+  kind: "project" | "workspace"
   provider: string | null
   providerName: string | null
   team: string | null
@@ -78,6 +85,18 @@ export interface BreakdownProject {
   prevCost: number
   changePercent: number | null
   tokens: number
+}
+
+/** A registered key in the keys-under-projects view (issue #28). */
+export interface BreakdownKeyItem extends BreakdownApiKey {
+  provider_id: string
+  external_key_id: string
+  /** Project / workspace from the key's rows, when any. */
+  observed_project_id: string | null
+  org_project_id: string | null
+  /** = cost, for grouping. */
+  total_cost_usd: number
+  name: string | null
 }
 
 export interface BreakdownDetail {
@@ -136,7 +155,15 @@ export interface BreakdownData {
   team: BreakdownEntity[]
   person: BreakdownEntity[]
   api_key: BreakdownApiKey[]
+  /**
+   * Registered keys grouped by provider, then project / workspace (issue #28).
+   * Keys with no spend are listed when no filter other than project / provider
+   * is set; a project filter keeps only that project's keys.
+   */
+  key_groups: ProviderGroup<BreakdownKeyItem>[]
   project: BreakdownProject[]
+  /** True when any provider reports a project or workspace on its loaded rows (issue #28). */
+  hasProjects: boolean
   /** provider x model for the filtered rows (the drill-down leaf). */
   detail: BreakdownDetail[]
   /** Providers with spend in the period (before org filters), with coverage. */
@@ -256,21 +283,23 @@ function projectEntities(
   slugOf: (id: string) => string,
   nameOf: (id: string) => string
 ): BreakdownProject[] {
-  type Acc = { cost: number; prev: number; tokens: number; providerId: string | null }
+  type Acc = { cost: number; prev: number; tokens: number; providerId: string | null; workspace: boolean }
   const acc = new Map<string, Acc>()
   const add = (rows: AttributedDailyRow[], field: "cost" | "prev") => {
     for (const r of rows) {
-      const key = r.project_id || UNASSIGNED_FILTER
-      const a = acc.get(key) ?? { cost: 0, prev: 0, tokens: 0, providerId: null }
+      const pid = effectiveProjectId(r)
+      const key = pid || UNASSIGNED_FILTER
+      const a = acc.get(key) ?? { cost: 0, prev: 0, tokens: 0, providerId: null, workspace: false }
       a[field] += num(r.total_cost_usd)
       if (field === "cost") a.tokens += num(r.total_tokens)
-      if (r.project_id) a.providerId ??= r.provider_id
+      if (pid) a.providerId ??= r.provider_id
+      if (!r.project_id && r.workspace_id) a.workspace = true
       acc.set(key, a)
     }
   }
   add(cur, "cost")
   add(prev, "prev")
-  if (!acc.has(UNASSIGNED_FILTER)) acc.set(UNASSIGNED_FILTER, { cost: 0, prev: 0, tokens: 0, providerId: null })
+  if (!acc.has(UNASSIGNED_FILTER)) acc.set(UNASSIGNED_FILTER, { cost: 0, prev: 0, tokens: 0, providerId: null, workspace: false })
 
   const out = [...acc].map(([key, a]): BreakdownProject => {
     const unassigned = key === UNASSIGNED_FILTER
@@ -284,6 +313,7 @@ function projectEntities(
       id: reg?.id ?? null,
       label: unassigned ? UNASSIGNED_LABEL : reg?.name || key,
       unassigned,
+      kind: a.workspace ? "workspace" : "project",
       provider: a.providerId ? slugOf(a.providerId) : null,
       providerName: a.providerId ? nameOf(a.providerId) : null,
       team,
@@ -357,6 +387,8 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
   })
 
   const project = projectEntities(cur, prev, org, index, slugOf, nameOf)
+  const key_groups = keyGroups({ api_key, org, index, cur, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf })
+  const hasProjects = providerScoped.some((r) => !!effectiveProjectId(r))
 
   // provider x model detail for whatever the filters select.
   const detailMap = new Map<string, BreakdownDetail>()
@@ -402,7 +434,9 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     team,
     person,
     api_key,
+    key_groups,
     project,
+    hasProjects,
     detail,
     providers: activeProviders,
     breadcrumbs,
@@ -435,4 +469,85 @@ function projectOptions(org: OrgData, rows: AttributedDailyRow[], slugOf: (id: s
     if (r.project_id && !out.has(r.project_id)) out.set(r.project_id, { id: r.project_id, label: r.project_id, provider: slugOf(r.provider_id) })
   }
   return [...out.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/**
+ * Registered keys grouped under their project / workspace (issue #28). Spend
+ * comes from the filtered period rows (the api_key entities); a key's project
+ * is the one carrying most of its spend in the loaded rows, else its assigned
+ * project. $0 keys are listed only when no org filter other than project is
+ * set (person / team / department / key filters can't place a key with no
+ * spend), and a project filter keeps only that project's keys.
+ */
+function keyGroups(input: {
+  api_key: BreakdownApiKey[]
+  org: OrgData
+  index: OrgIndex
+  cur: AttributedDailyRow[]
+  providerScoped: AttributedDailyRow[]
+  providers: ProviderRow[]
+  filters: DashboardFilters
+  providerIdForFilter: string | null
+  slugOf: (id: string) => string
+  nameOf: (id: string) => string
+}): ProviderGroup<BreakdownKeyItem>[] {
+  const { api_key, org, index, cur, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf } = input
+  // key id -> project -> cost, preferring the period's rows over all loaded rows.
+  const projectByKey = (rows: AttributedDailyRow[]) => {
+    const acc = new Map<string, Map<string, number>>()
+    for (const r of rows) {
+      const pid = effectiveProjectId(r)
+      if (!r.org_api_key_id || !pid) continue
+      const m = acc.get(r.org_api_key_id) ?? new Map<string, number>()
+      m.set(pid, (m.get(pid) ?? 0) + Math.abs(num(r.total_cost_usd)))
+      acc.set(r.org_api_key_id, m)
+    }
+    const out = new Map<string, string>()
+    for (const [k, m] of acc) out.set(k, [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0])
+    return out
+  }
+  const inPeriod = projectByKey(cur)
+  const anyTime = projectByKey(providerScoped)
+  const entityById = new Map(api_key.filter((e) => e.id).map((e) => [e.id!, e]))
+  const onlyProjectFilter = !filters.department && !filters.team && !filters.person && !filters.key
+  const projectsById = index.projectsById ?? new Map((org.projects ?? []).map((p) => [p.id, p]))
+
+  const items: BreakdownKeyItem[] = []
+  for (const k of org.apiKeys) {
+    if (filters.provider && k.provider_id !== providerIdForFilter) continue
+    const e = entityById.get(k.id)
+    const hasActivity = !!e && (e.cost !== 0 || e.prevCost !== 0)
+    if (!hasActivity && !onlyProjectFilter) continue
+    const owner = k.owner_person_id ? index.peopleById.get(k.owner_person_id) : undefined
+    const item: BreakdownKeyItem = {
+      key: k.id,
+      id: k.id,
+      label: k.name || k.external_key_id,
+      unassigned: false,
+      cost: e?.cost ?? 0,
+      prevCost: e?.prevCost ?? 0,
+      changePercent: e?.changePercent ?? null,
+      tokens: e?.tokens ?? 0,
+      byProvider: e?.byProvider ?? {},
+      coverage: e?.coverage ?? [],
+      provider: slugOf(k.provider_id),
+      providerName: nameOf(k.provider_id),
+      owner: owner ? owner.display_name || owner.email : null,
+      team: k.team_id ? (index.teamsById.get(k.team_id)?.name ?? null) : null,
+      provider_id: k.provider_id,
+      external_key_id: k.external_key_id,
+      observed_project_id: inPeriod.get(k.id) ?? anyTime.get(k.id) ?? null,
+      org_project_id: k.org_project_id ?? null,
+      total_cost_usd: e?.cost ?? 0,
+      name: k.name ?? null,
+    }
+    if (filters.project) {
+      const pid = keyProjectId(item, projectsById)
+      if (filters.project === UNASSIGNED_FILTER ? pid !== null : pid !== filters.project) {
+        if (!hasActivity) continue
+      }
+    }
+    items.push(item)
+  }
+  return groupKeys(items, { providers: providers.map((p) => ({ id: p.id, name: p.name, display_name: nameOf(p.id) })), projects: org.projects ?? [] })
 }
