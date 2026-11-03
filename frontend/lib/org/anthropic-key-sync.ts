@@ -71,7 +71,7 @@ export interface AnthropicApiKey {
   workspace_id: string | null
   created_by: { id: string | null; type: string | null } | null
   /** Who the key acts for, when the API reports it (wins over created_by). */
-  principal: { user_id: string | null; type: string | null } | null
+  principal: { user_id: string | null; id: string | null; type: string | null } | null
 }
 
 export interface AnthropicUser {
@@ -95,6 +95,13 @@ export interface AnthropicKeyListing {
 
 const s = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null)
 
+/** A principal / creator type that denotes a person: "user", "user_actor" (the analytics API's name) or unset. */
+function isUserType(type: string | null | undefined): boolean {
+  if (!type) return true
+  const t = type.toLowerCase()
+  return t === "user" || t === "user_actor"
+}
+
 function parseKey(k: any): AnthropicApiKey | null {
   const id = s(k?.id)
   if (!id) return null
@@ -106,7 +113,7 @@ function parseKey(k: any): AnthropicApiKey | null {
     status: s(k.status),
     workspace_id: s(k.workspace_id),
     created_by: cb ? { id: s(cb.id), type: s(cb.type) } : null,
-    principal: pr ? { user_id: s(pr.user_id) ?? (s(pr.type) === "user" ? s(pr.id) : null), type: s(pr.type) } : null,
+    principal: pr ? { user_id: s(pr.user_id) ?? (isUserType(s(pr.type)) ? s(pr.id) : null), id: s(pr.id), type: s(pr.type) } : null,
   }
 }
 
@@ -202,8 +209,10 @@ export interface CreatorResolution {
  * users list is deleted; a listed user with no email is unmatched.
  */
 export function resolveCreator(key: AnthropicApiKey, users: Map<string, AnthropicUser> | null): CreatorResolution {
-  const principalUser = key.principal?.user_id && (!key.principal.type || key.principal.type === "user") ? key.principal.user_id : null
-  const principalOther = !principalUser && key.principal?.type && key.principal.type !== "user" ? key.principal : null
+  // A principal naming a user (type "user", "user_actor" or absent) wins; one
+  // with a non-user type and no user id is a service account.
+  const principalUser = key.principal?.user_id && isUserType(key.principal.type) ? key.principal.user_id : null
+  const principalOther = !principalUser && key.principal?.type && !isUserType(key.principal.type) ? key.principal : null
   const cb = key.created_by
   let userId: string | null = principalUser
   if (!userId && !principalOther && cb?.id) {
@@ -213,7 +222,7 @@ export function resolveCreator(key: AnthropicApiKey, users: Map<string, Anthropi
     else return { createdBy: `${type}:${cb.id}`, email: null, name: null, reason: "service_account", transient: false }
   }
   if (principalOther) {
-    const id = principalOther.user_id ?? cb?.id ?? null
+    const id = principalOther.id ?? principalOther.user_id ?? cb?.id ?? null
     return { createdBy: id ? `${principalOther.type}:${id}` : null, email: null, name: null, reason: "service_account", transient: false }
   }
   if (!userId) return { createdBy: null, email: null, name: null, reason: "no_creator", transient: false }

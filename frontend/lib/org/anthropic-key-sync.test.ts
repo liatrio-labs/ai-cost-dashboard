@@ -45,7 +45,7 @@ const keys = (): AnthropicApiKey[] => [
   key("k_alice"),
   key("k_new", { created_by: { id: "user_new", type: "user" } }),
   // principal (bob) beats created_by (alice)
-  key("k_principal", { principal: { user_id: "user_bob", type: "user" } }),
+  key("k_principal", { principal: { user_id: "user_bob", id: null, type: "user" } }),
   key("k_svc", { created_by: { id: "svcacct_1", type: "service_account" } }),
   key("k_deleted", { created_by: { id: "user_gone", type: "user" } }),
   key("k_null", { created_by: null }),
@@ -325,9 +325,37 @@ describe("applyAnthropicKeySync", () => {
 
 describe("resolveCreator", () => {
   test("principal of another type is treated as a service account", () => {
-    expect(resolveCreator(key("k", { principal: { user_id: null, type: "service_account" } }), users())).toMatchObject({
+    expect(resolveCreator(key("k", { principal: { user_id: null, id: "sa_9", type: "service_account" } }), users())).toMatchObject({
       reason: "service_account",
     })
+  })
+  test("a principal typed user_actor is a user and beats created_by (Bugbot #33)", () => {
+    expect(resolveCreator(key("k", { principal: { user_id: "user_bob", id: null, type: "user_actor" } }), users())).toMatchObject({
+      createdBy: "user_bob",
+      email: "bob@liatrio.com",
+      reason: null,
+    })
+  })
+  test("a service-account principal keeps its own id", () => {
+    expect(resolveCreator(key("k", { principal: { user_id: null, id: "sa_9", type: "service_account" } }), users())).toMatchObject({
+      createdBy: "service_account:sa_9",
+      reason: "service_account",
+    })
+  })
+  test("parses a user_actor principal from the API (id fallback)", async () => {
+    const realFetch = global.fetch
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.pathname === "/v1/organizations/api_keys")
+        return { ok: true, status: 200, json: async () => ({ data: [{ id: "k1", principal: { type: "user_actor", id: "user_bob" }, created_by: { id: "user_alice", type: "user" } }], has_more: false }) } as any
+      return { ok: true, status: 200, json: async () => ({ data: [], has_more: false }) } as any
+    }) as any
+    try {
+      const l = await listAnthropicKeyData("test-admin-key")
+      expect(l.keys[0].principal).toEqual({ user_id: "user_bob", id: "user_bob", type: "user_actor" })
+    } finally {
+      global.fetch = realFetch
+    }
   })
   test("a created_by with no type is a user", () => {
     expect(resolveCreator(key("k", { created_by: { id: "user_alice", type: null } }), users())).toMatchObject({
