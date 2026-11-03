@@ -5,6 +5,13 @@
  * isn't read as $0 for that person or key.
  *
  * Keyed by providers.name (the slug). Update with docs/attribution.md.
+ *
+ * AI Gateway (issue #24): a key's spend reaches a person when its
+ * spendAttribution is "user" (the creator, mapped by the key sync) or an admin
+ * sets an owner, and a project when the key is project-scoped. OIDC, PAT and
+ * app-token spend has no key and stays org-level (the remainder row) unless
+ * apps send a project tag such as `ai-reporting-tags: project:<name>`; tag
+ * attribution is not collected yet.
  */
 
 export type CoverageSupport = "yes" | "via_key_owner" | "no"
@@ -23,7 +30,11 @@ export const PROVIDER_COVERAGE: Record<string, ProviderCoverage> = {
   "claude-ai": { person: "yes", api_key: false, note: "per person; no API keys" },
   openai: { person: "via_key_owner", api_key: true, note: "per API key and project; people only via key owner" },
   cursor: { person: "yes", api_key: false, note: "per person; no API keys" },
-  "vercel-ai-gateway": { person: "via_key_owner", api_key: true, note: "per API key; people only via key owner" },
+  "vercel-ai-gateway": {
+    person: "via_key_owner",
+    api_key: true,
+    note: "per API key; people via key creator (user spend attribution) or owner; projects via project-scoped keys; OIDC/PAT/app-token spend stays org-level",
+  },
   vercel: { person: "no", api_key: false, note: "per project only" },
   windsurf: { person: "no", api_key: false, note: "org-level only (flat seat cost)" },
   apify: { person: "no", api_key: false, note: "org-level only" },

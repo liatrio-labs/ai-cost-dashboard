@@ -20,6 +20,7 @@ import { collector as vercel } from "./vercel"
 import { collector as apify } from "./apify"
 import { collector as windsurf } from "./windsurf"
 import { collector as vercelAiGateway } from "./vercel-ai-gateway"
+import { syncGatewayKeys } from "@/lib/org/gateway-sync"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -50,6 +51,38 @@ export const PROVIDER_ENV: Record<
     // Optional: lets the collector list gateway keys for per-key rows.
     auxApiKey: "VERCEL_TOKEN",
   },
+}
+
+/**
+ * Optional per-provider step after a successful store: keeps org metadata in
+ * step with the provider (AI Gateway: the key sync, issue #24). Best-effort:
+ * a failure is reported in the summary and never fails collection.
+ */
+export const POST_COLLECT_SYNC: Record<
+  string,
+  (admin: SupabaseClient, ctx: { providerId: string; teamId?: string; auxApiKey?: string }) => Promise<Record<string, unknown> | null>
+> = {
+  "vercel-ai-gateway": async (admin, ctx) => {
+    if (!ctx.auxApiKey) return null // no VERCEL_TOKEN: keys can't be listed
+    return { ...(await syncGatewayKeys(admin, { vercelToken: ctx.auxApiKey, teamId: ctx.teamId, providerId: ctx.providerId })) }
+  },
+}
+
+/** Run the provider's post-collect sync, if any. Never throws. */
+export async function runPostCollectSync(
+  provider: string,
+  admin: SupabaseClient,
+  ctx: { providerId: string; teamId?: string; auxApiKey?: string }
+): Promise<Record<string, unknown> | undefined> {
+  const sync = POST_COLLECT_SYNC[provider]
+  if (!sync) return undefined
+  try {
+    return (await sync(admin, ctx)) ?? undefined
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    console.warn(`[${provider}] post-collect sync failed: ${error}`)
+    return { status: "error", error }
+  }
 }
 
 const DEFAULT_OWNER_EMAIL = "robert@liatrio.com"
@@ -206,24 +239,25 @@ export async function runCollectionForProvider(
 
     const ownerUserId = await getOwnerUserId(admin)
     const details: CollectorDetails = {}
-    const records = await collector.collect(
-      {
-        apiKey,
-        userId: ownerUserId,
-        providerId: (prov as { id: string }).id,
-        organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
-        teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
-        auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
-        report: (d) => Object.assign(details, d),
-      },
-      opts
-    )
+    const ctx = {
+      apiKey,
+      userId: ownerUserId,
+      providerId: (prov as { id: string }).id,
+      organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
+      teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
+      auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
+      report: (d: CollectorDetails) => Object.assign(details, d),
+    }
+    const records = await collector.collect(ctx, opts)
     // An explicit range must never delete outside itself, whatever the API returned.
     const toStore = opts.range ? recordsInRange(records, opts.range) : records
     const stored = await storeRecords(admin, toStore)
 
     // Stamp the tool's "Last updated" time on every successful pull.
     await touchProvidersCollected([(prov as { id: string }).id])
+
+    // Org metadata sync (AI Gateway keys -> people / projects). Best-effort.
+    const keySync = await runPostCollectSync(provider, admin, ctx)
 
     return {
       status: "success",
@@ -234,6 +268,7 @@ export async function runCollectionForProvider(
       ...(Object.keys(details).length ? { details } : {}),
       timestamp,
       ...(opts.range ? { days: summarizeDays(toStore, opts.range) } : {}),
+      ...(keySync ? { key_sync: keySync } : {}),
     }
   } catch (e) {
     return {

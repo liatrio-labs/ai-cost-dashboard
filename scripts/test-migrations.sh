@@ -3,8 +3,10 @@
 # production got them: 001-011 first (re-applying 010 and 011 to prove they
 # are idempotent), then fixtures, then 014 over existing data (applied twice,
 # checking cost_records row count and SUM(cost_usd) are unchanged), then any
-# later migrations, then the SQL assertions in scripts/migration-tests/.
-# Finally re-applies 010, 011 and 014 over the data. 012 and 013 are unused.
+# later migrations (each applied twice over the data, same check), then the
+# SQL assertions in scripts/migration-tests/ (assertions.sql, then any
+# assertions_NNN.sql for later migrations). Finally re-applies 010, 011, 014
+# and the later migrations over the data. 012 and 013 are unused.
 # Never touches a remote database:
 # the server listens only on a unix socket in a temp directory, and is
 # stopped and deleted on exit.
@@ -148,26 +150,41 @@ for pass in 1 2; do
 done
 echo "  PASS: 014 applied twice; cost_records count/sum unchanged ($BEFORE)"
 
+# Later migrations over existing data; the second pass proves idempotency.
 for f in "${POST[@]}"; do
-  log "Applying $(basename "$f")"
-  run_sql "$f" >/dev/null || die "$(basename "$f") failed"
+  BEFORE="$(cost_snapshot)"
+  for pass in 1 2; do
+    log "Applying $(basename "$f") (pass $pass, with data)"
+    run_sql "$f" >/dev/null || die "$(basename "$f") failed (pass $pass)"
+    AFTER="$(cost_snapshot)"
+    [[ "$AFTER" == "$BEFORE" ]] || die "cost_records changed across $(basename "$f") pass $pass: $BEFORE -> $AFTER"
+  done
+  echo "  PASS: $(basename "$f") applied twice; cost_records count/sum unchanged ($BEFORE)"
 done
 
-log "Running assertions"
-OUT="$(run_sql "$TESTS/assertions.sql")" && rc=0 || rc=$?
-printf '%s\n' "$OUT" | sed -n 's/^.*NOTICE:  \(PASS\|FAIL\)/  \1/p'
-if [[ $rc -ne 0 ]]; then
-  printf '%s\n' "$OUT" | grep -E 'ERROR|FAIL' >&2 || true
-  die "assertions failed"
-fi
+mapfile -t ASSERTS < <(printf '%s\n' "$TESTS/assertions.sql"; find "$TESTS" -maxdepth 1 -name 'assertions_[0-9][0-9][0-9].sql' | sort)
+OUT=""
+for a in "${ASSERTS[@]}"; do
+  log "Running $(basename "$a")"
+  A_OUT="$(run_sql "$a")" && rc=0 || rc=$?
+  printf '%s\n' "$A_OUT" | sed -n 's/^.*NOTICE:  \(PASS\|FAIL\)/  \1/p'
+  if [[ $rc -ne 0 ]]; then
+    printf '%s\n' "$A_OUT" | grep -E 'ERROR|FAIL' >&2 || true
+    die "$(basename "$a") failed"
+  fi
+  OUT+="$A_OUT"$'\n'
+done
 
 # 010 and 011 recreate refresh_cost_records_daily() and the attributed view,
-# so 014 must follow them.
-log "Re-applying 010, 011 and 014 (idempotency, with data)"
+# so 014 and then the later migrations (015 recreates the view) follow them.
+log "Re-applying 010, 011, 014 and later migrations (idempotency, with data)"
 BEFORE="$(cost_snapshot)"
 run_sql "$M010" >/dev/null || die "re-applying 010 with data failed"
 run_sql "$M011" >/dev/null || die "re-applying 011 with data failed"
 run_sql "$M014" >/dev/null || die "re-applying 014 with data failed"
+for f in "${POST[@]}"; do
+  run_sql "$f" >/dev/null || die "re-applying $(basename "$f") with data failed"
+done
 AFTER="$(cost_snapshot)"
 [[ "$AFTER" == "$BEFORE" ]] || die "cost_records changed across re-apply: $BEFORE -> $AFTER"
 "$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT refresh_cost_records_daily()" >/dev/null
@@ -177,8 +194,8 @@ RECON="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
   ) a FULL JOIN (
     SELECT date, sum(total_cost_usd) c FROM cost_records_daily GROUP BY date
   ) d USING (date) WHERE a.c IS DISTINCT FROM d.c")"
-[[ "$RECON" == "0" ]] || die "totals do not reconcile after re-applying 010 and 011"
-echo "  PASS: 010, 011 and 014 re-applied over existing data; totals still reconcile"
+[[ "$RECON" == "0" ]] || die "totals do not reconcile after re-applying 010, 011, 014 and later migrations"
+echo "  PASS: 010, 011, 014 and later migrations re-applied over existing data; totals still reconcile"
 
 # Re-running 010/011 must not leave 014's grants or search_path undone.
 LEAK="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
@@ -188,8 +205,8 @@ LEAK="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
     (NOT 'search_path=public, pg_temp' = ANY (COALESCE(
         (SELECT proconfig FROM pg_proc WHERE oid = 'public.refresh_cost_records_daily()'::regprocedure),
         '{}')))) v(bad) WHERE bad")"
-[[ "$LEAK" == "0" ]] || die "014 hardening not intact after re-applying 010, 011 and 014"
+[[ "$LEAK" == "0" ]] || die "014 hardening not intact after the final re-apply"
 echo "  PASS: 014 hardening intact after the final re-apply"
 
 PASSES="$(printf '%s\n' "$OUT" | grep -c 'NOTICE:  PASS' || true)"
-log "OK: 001-011 and 014 applied, 010, 011 and 014 idempotent, $((PASSES + 3)) assertions passed"
+log "OK: 001-011, 014 and ${#POST[@]} later migration(s) applied and idempotent, $((PASSES + 3 + ${#POST[@]})) assertions passed"

@@ -1,6 +1,6 @@
 /**
  * Org spend breakdown for the dashboard (issue #8): spend by department, team,
- * person and API key for a period, each with an Unassigned row, the change vs
+ * person, API key and project (issue #24) for a period, each with an Unassigned row, the change vs
  * the previous period per entity, per-provider splits and provider coverage
  * notes. Pure: GET /api/dashboard/breakdown feeds it cost_records_daily_attributed
  * rows and org tables; tests feed it fixtures.
@@ -64,6 +64,22 @@ export interface BreakdownApiKey extends BreakdownEntity {
   team: string | null
 }
 
+/** Spend by project (the attributed view's project_id: row project, else the key's project). */
+export interface BreakdownProject {
+  /** External project id, or "unassigned"; also the `project` filter value. */
+  key: string
+  id: string | null
+  label: string
+  unassigned: boolean
+  provider: string | null
+  providerName: string | null
+  team: string | null
+  cost: number
+  prevCost: number
+  changePercent: number | null
+  tokens: number
+}
+
 export interface BreakdownDetail {
   provider: string
   providerName: string
@@ -104,6 +120,8 @@ export interface BreakdownOptions {
     departmentIds: string[]
   }[]
   apiKeys: { id: string; label: string; provider: string | null }[]
+  /** Projects with spend in the period plus registered ones; id is the external project id. */
+  projects: { id: string; label: string; provider: string | null }[]
   providers: { slug: string; label: string }[]
 }
 
@@ -118,6 +136,7 @@ export interface BreakdownData {
   team: BreakdownEntity[]
   person: BreakdownEntity[]
   api_key: BreakdownApiKey[]
+  project: BreakdownProject[]
   /** provider x model for the filtered rows (the drill-down leaf). */
   detail: BreakdownDetail[]
   /** Providers with spend in the period (before org filters), with coverage. */
@@ -229,6 +248,55 @@ function entitiesAt(
   })
 }
 
+function projectEntities(
+  cur: AttributedDailyRow[],
+  prev: AttributedDailyRow[],
+  org: OrgData,
+  index: OrgIndex,
+  slugOf: (id: string) => string,
+  nameOf: (id: string) => string
+): BreakdownProject[] {
+  type Acc = { cost: number; prev: number; tokens: number; providerId: string | null }
+  const acc = new Map<string, Acc>()
+  const add = (rows: AttributedDailyRow[], field: "cost" | "prev") => {
+    for (const r of rows) {
+      const key = r.project_id || UNASSIGNED_FILTER
+      const a = acc.get(key) ?? { cost: 0, prev: 0, tokens: 0, providerId: null }
+      a[field] += num(r.total_cost_usd)
+      if (field === "cost") a.tokens += num(r.total_tokens)
+      if (r.project_id) a.providerId ??= r.provider_id
+      acc.set(key, a)
+    }
+  }
+  add(cur, "cost")
+  add(prev, "prev")
+  if (!acc.has(UNASSIGNED_FILTER)) acc.set(UNASSIGNED_FILTER, { cost: 0, prev: 0, tokens: 0, providerId: null })
+
+  const out = [...acc].map(([key, a]): BreakdownProject => {
+    const unassigned = key === UNASSIGNED_FILTER
+    const reg = unassigned
+      ? undefined
+      : ((a.providerId ? index.projects?.get(`${a.providerId}\u0000${key}`) : undefined) ??
+        (org.projects ?? []).find((p) => p.external_project_id === key))
+    const team = reg?.team_id ? index.teamsById.get(reg.team_id)?.name ?? null : null
+    return {
+      key,
+      id: reg?.id ?? null,
+      label: unassigned ? UNASSIGNED_LABEL : reg?.name || key,
+      unassigned,
+      provider: a.providerId ? slugOf(a.providerId) : null,
+      providerName: a.providerId ? nameOf(a.providerId) : null,
+      team,
+      cost: round2(a.cost),
+      prevCost: round2(a.prev),
+      changePercent: pctChange(a.cost, a.prev),
+      tokens: a.tokens,
+    }
+  })
+  const assigned = out.filter((e) => !e.unassigned).sort((x, y) => y.cost - x.cost || x.label.localeCompare(y.label))
+  return [...assigned, out.find((e) => e.unassigned)!]
+}
+
 export function computeBreakdown({ rows, org, providers, filters, params, now = new Date() }: ComputeBreakdownInput): BreakdownData {
   const index = buildOrgIndex(org)
   const meta = buildProviderMeta(providers)
@@ -288,6 +356,8 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     }
   })
 
+  const project = projectEntities(cur, prev, org, index, slugOf, nameOf)
+
   // provider x model detail for whatever the filters select.
   const detailMap = new Map<string, BreakdownDetail>()
   for (const r of cur) {
@@ -311,6 +381,7 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
       const p = index.peopleById.get(v)
       return p?.display_name || p?.email || v
     }
+    if (k === "project") return (org.projects ?? []).find((p) => p.external_project_id === v)?.name || v
     const key = index.apiKeysById.get(v)
     return key?.name || key?.external_key_id || v
   }
@@ -331,6 +402,7 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     team,
     person,
     api_key,
+    project,
     detail,
     providers: activeProviders,
     breadcrumbs,
@@ -347,7 +419,20 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
         return { id: p.id, label: p.display_name || p.email, teamId: p.team_id, teamIds: [...teamIds], departmentIds: [...departmentIds] }
       }),
       apiKeys: org.apiKeys.map((k) => ({ id: k.id, label: k.name || k.external_key_id, provider: slugOf(k.provider_id) })),
+      projects: projectOptions(org, providerScoped, slugOf),
       providers: providers.map((p) => ({ slug: p.name, label: nameOf(p.id) })),
     },
   }
+}
+
+/** Registered projects plus any project id with spend in the provider-scoped rows. */
+function projectOptions(org: OrgData, rows: AttributedDailyRow[], slugOf: (id: string) => string) {
+  const out = new Map<string, { id: string; label: string; provider: string | null }>()
+  for (const p of org.projects ?? []) {
+    out.set(p.external_project_id, { id: p.external_project_id, label: p.name || p.external_project_id, provider: slugOf(p.provider_id) })
+  }
+  for (const r of rows) {
+    if (r.project_id && !out.has(r.project_id)) out.set(r.project_id, { id: r.project_id, label: r.project_id, provider: slugOf(r.provider_id) })
+  }
+  return [...out.values()].sort((a, b) => a.label.localeCompare(b.label))
 }

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom"
 import { useState } from "react"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable } from "./org-breakdown"
+import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable, ProjectsTable } from "./org-breakdown"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { EMPTY_ORG, PROVIDERS, attributedRows } from "@/lib/org/dashboard-fixtures"
 import { D, PE, T, orgData } from "@/lib/org/test-fixtures"
@@ -186,5 +186,26 @@ describe("OrgFilterBar person scope follows where spend lands", () => {
     render(<OrgFilterBar data={breakdown()} filters={{ department: "unassigned" }} onFiltersChange={onChange} />)
     await user.selectOptions(screen.getByLabelText("Team"), "unassigned")
     expect(onChange).toHaveBeenLastCalledWith({ department: "unassigned", team: "unassigned" })
+  })
+})
+
+describe("ProjectsTable (issue #24)", () => {
+  it("is hidden when no spend has a project", () => {
+    const { container } = render(<ProjectsTable data={breakdown()} onFiltersChange={() => {}} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it("lists projects with team and spend, and clicking one filters by project", async () => {
+    const user = userEvent.setup()
+    const org = orgData()
+    org.apiKeys = org.apiKeys.map((k) => (k.external_key_id === "key_bare" ? { ...k, org_project_id: "pr-sales" } : k))
+    const changes: DashboardFilters[] = []
+    render(<ProjectsTable data={breakdown({}, org)} onFiltersChange={(f) => changes.push(f)} />)
+    const table = screen.getByRole("table", { name: "Projects" })
+    expect(within(rowOf(table, "Sales tools")).getByText("Field")).toBeInTheDocument()
+    expect(within(rowOf(table, "Sales tools")).getByText("$10.00")).toBeInTheDocument()
+    expect(within(rowOf(table, "Unassigned (no project)")).getByText("$240.00")).toBeInTheDocument()
+    await user.click(within(table).getByRole("button", { name: "Sales tools" }))
+    expect(changes).toEqual([{ project: "proj_2" }])
   })
 })

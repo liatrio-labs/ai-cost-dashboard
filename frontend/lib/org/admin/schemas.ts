@@ -225,7 +225,13 @@ export function identityCreateSchema(org: Pick<OrgSnapshot, "people" | "provider
 const externalId = (label: string) =>
   z.string({ error: `${label} is required` }).trim().min(1, { error: `${label} is required` }).max(255)
 
-export function keyAssignSchema(org: Pick<OrgSnapshot, "people" | "teams" | "providers">) {
+/**
+ * Register or update a key. Setting owner_person_id, team_id or
+ * org_project_id (migration 015) marks the key's assignment "manual", so the
+ * AI Gateway key sync never overwrites it. A key's project must belong to the
+ * key's provider.
+ */
+export function keyAssignSchema(org: Pick<OrgSnapshot, "people" | "teams" | "providers"> & Partial<Pick<OrgSnapshot, "projects">>) {
   return z
     .strictObject({
       provider_id: id("provider_id"),
@@ -233,12 +239,25 @@ export function keyAssignSchema(org: Pick<OrgSnapshot, "people" | "teams" | "pro
       name: optionalText(200),
       owner_person_id: nullableId("owner_person_id").optional(),
       team_id: nullableId("team_id").optional(),
+      org_project_id: nullableId("org_project_id").optional(),
     })
     .superRefine((v, ctx) => {
       checkProvider(org, ctx, v.provider_id)
       checkPerson(org, ctx, v.owner_person_id, "owner_person_id")
       checkTeam(org, ctx, v.team_id)
+      if (v.org_project_id) {
+        const project = (org.projects ?? []).find((p) => p.id === v.org_project_id)
+        if (!project) unknownRef(ctx, "org_project_id", "project", v.org_project_id)
+        else if (project.provider_id !== v.provider_id) {
+          ctx.addIssue({ code: "custom", path: ["org_project_id"], message: "The project belongs to a different provider than the key" })
+        }
+      }
     })
+}
+
+/** Does a key write set an assignment by hand (owner, team or project)? */
+export function isManualAssignment(body: { owner_person_id?: unknown; team_id?: unknown; org_project_id?: unknown }): boolean {
+  return body.owner_person_id !== undefined || body.team_id !== undefined || body.org_project_id !== undefined
 }
 
 export function projectAssignSchema(org: Pick<OrgSnapshot, "teams" | "providers">) {

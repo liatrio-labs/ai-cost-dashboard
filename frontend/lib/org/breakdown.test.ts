@@ -167,3 +167,37 @@ describe("filter options", () => {
     expect(carol).toMatchObject({ teamIds: ["unassigned"], departmentIds: ["unassigned"] })
   })
 })
+
+describe("computeBreakdown projects (issue #24)", () => {
+  // key_bare ($10 openai, no owner/team) assigned to proj_2 (Sales tools -> Field).
+  const withKeyProject = () => {
+    const org = orgData()
+    org.apiKeys = org.apiKeys.map((k) => (k.id === K.bare ? { ...k, org_project_id: "pr-sales" } : k))
+    return org
+  }
+
+  it("without project data every row lands in the Unassigned project", () => {
+    const d = run()
+    expect(d.project.map((p) => [p.key, p.cost])).toEqual([["unassigned", NOV_TOTAL]])
+  })
+
+  it("a key's assigned project shows in the drill-down with the project's team, and totals still reconcile", () => {
+    const d = run({}, withKeyProject())
+    expect(d.project.map((p) => [p.key, p.label, p.team, p.cost])).toEqual([
+      ["proj_2", "Sales tools", "Field", 10],
+      ["unassigned", "Unassigned", null, NOV_TOTAL - 10],
+    ])
+    expect(sum(d.project)).toBe(NOV_TOTAL)
+    expect(row(d, "team", T.field)!.cost).toBe(50 + 10) // bob 50 + key_bare via project
+    expect(d.options.projects).toEqual([{ id: "proj_2", label: "Sales tools", provider: "openai" }])
+  })
+
+  it("the project filter narrows every level and shows a breadcrumb", () => {
+    const d = run({ project: "proj_2" }, withKeyProject())
+    expect(d.total.cost).toBe(10)
+    expect(d.api_key.filter((e) => e.cost > 0).map((e) => e.key)).toEqual([K.bare])
+    expect(d.breadcrumbs).toEqual([{ key: "project", value: "proj_2", label: "Sales tools" }])
+    const none = run({ project: "unassigned" }, withKeyProject())
+    expect(none.total.cost).toBe(NOV_TOTAL - 10)
+  })
+})

@@ -46,7 +46,7 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 | Claude.ai Enterprise | yes (actor email) | n/a | n/a (`rbac_group_id` maps to claude.ai groups, not collected) | actor × model × product | same analytics endpoints, `group_by[]=actor,model,product`; fallback legacy `analytics/cost_report` + `usage_report` by model (org only) |
 | OpenAI API | no on cost (see gaps); usage `user_id` kept as a hint | yes | project | line_item × project × api key | `GET /v1/organization/costs` `group_by=line_item,project_id,api_key_id` (retries without `api_key_id` on 400); `/usage/completions` `group_by=model,project_id,api_key_id,user_id`; names from `/organization/projects` and `/projects/{id}/api_keys` |
 | Cursor | yes (member email) | n/a | n/a | member × model | `POST /teams/filtered-usage-events` (unchanged) |
-| Vercel AI Gateway | no (would need apps to send `user`) | yes | n/a (tags not collected) | one per key with spend, plus an org remainder | `GET ai-gateway.vercel.sh/v1/report?group_by=day` once unfiltered and once per key with `api_key_id=<id>`; keys from `GET api.vercel.com/v1/api-keys?purpose=ai-gateway` |
+| Vercel AI Gateway | via the key: creator when `spendAttribution = user`, or an admin-set owner | yes | project, for project-scoped keys (tags not collected) | one per key with spend, plus an org remainder | `GET ai-gateway.vercel.sh/v1/report?group_by=day` once unfiltered and once per key with `api_key_id=<id>`; keys from `GET api.vercel.com/v1/api-keys?purpose=ai-gateway`, project names from `GET /v9/projects/{id}`, creator emails from `GET /v3/teams/{teamId}/members` |
 | Vercel (billing) | no | no | project (FOCUS `Tags.ProjectId/ProjectName`) | one per charge | `GET /v1/billing/charges` (unchanged) |
 | Windsurf | no (usage only; cost is flat seats) | no | no | one org row | unchanged |
 | Apify | no | no | no | one org row | unchanged (account-scoped) |
@@ -119,6 +119,61 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   capped at 200; keys past the cap land in the remainder row.
 - Per-user rows would need apps to send `user` and a separate `group_by=user`
   query. That isn't done yet.
+- Each key's settings ride along on its rows (issue #24). The key list returns
+  `projectId` (set when the key is scoped to one project), `createdBy` (Vercel
+  user id) and `metadata.spendAttribution` (`user` | `team`; unset counts as
+  team). They go in `metadata.gateway_key` (`project_id`, `created_by`,
+  `spend_attribution`). A project-scoped key's rows also set
+  `attribution.project_id`, plus `project_name` from a best-effort
+  `GET /v9/projects/{id}`; a failed lookup leaves the name null and never fails
+  collection. `api_key_id` stays the primary dimension (`granularity:
+  "api_key"`), and the remainder rule and all-or-nothing fallback are unchanged.
+
+### AI Gateway keys to people, projects and teams (issue #24)
+
+AI Gateway spend lands on a person, a project or a team depending on the key:
+
+| Key | Resolves to |
+|---|---|
+| `spendAttribution = user` | the key's creator: `createdBy` → email (Vercel team members) → `people` (matched by email, else created with no team) → `owner_person_id`, then the person's team |
+| project-scoped (`projectId` set) | its `org_projects` row (created by the sync), then the project's team once an admin sets one |
+| `spendAttribution = team` or unset, not scoped | nothing until an admin assigns a person, project or team ("Unassigned gateway keys" on `/admin/org`) |
+| no key (OIDC, PAT, app tokens) | the org remainder row, always org-level (see below) |
+
+The **key sync** (`frontend/lib/org/gateway-sync.ts`) runs after every
+`vercel-ai-gateway` collection (best-effort; its result is in the collection
+summary as `key_sync`, and a failure never fails collection) and from
+`POST /api/admin/org/keys/sync-gateway` ("Sync gateway keys" on `/admin/org`).
+It upserts one `org_api_keys` row per gateway key with its name, creator,
+creator email and `spend_attribution`, and auto-assigns the owner and project
+with `assignment_source = 'auto'`.
+
+**Manual assignments win.** Setting a key's owner, team or project in the admin
+UI or API marks it `assignment_source = 'manual'` (shown as a badge), and the
+sync then only refreshes the creator and `spend_attribution` columns. A key with
+no source but an owner, team or project already set counts as manual too. The
+sync never sets a key's team, and never renames a project or changes its team.
+If the creator's email can't be read on a run, an existing auto owner is kept;
+if a key switches to `team`, its auto owner is cleared.
+
+Team precedence in `cost_records_daily_attributed` (migration 015) and
+`frontend/lib/org/attribution.ts`: the person is resolved first (the key's
+owner for gateway rows); then team = **key team > person team > project team**,
+where the project is the row's `attribution.project_id`, else the key's
+assigned `org_project_id` (same provider only). The project drill-down on the
+dashboard uses the same effective project.
+
+**OIDC, PAT and app-token spend stays org-level.** Vercel ties OIDC requests to
+a project for budgets, but `/v1/report` has no project grouping or filter, and
+those requests have no gateway key to split by. That spend stays in the
+remainder row (Unassigned) unless apps send a project tag, for example an
+`ai-reporting-tags: project:<name>` header (or
+`providerOptions.gateway.tags`). Collecting tag-based attribution is out of
+scope here; it would need a separate `group_by=tags` query.
+
+History collected before the per-key collector has no attribution. After
+deploying, re-pull it with the backfill command in the README ("Re-pulling AI
+Gateway history").
 
 ### Cursor, Vercel billing, Windsurf, Apify
 
@@ -138,7 +193,8 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   people instead (#5 API keys table).
 - Anthropic and Claude.ai service accounts, federated actors and `rbac_group_id`
   are kept in metadata only. The contract has no field for them.
-- AI Gateway per-user and per-tag spend is not collected.
+- AI Gateway per-user and per-tag spend is not collected, so OIDC, PAT and
+  app-token spend stays org-level even when apps send a project tag.
 - The OpenAI `/costs` `api_key_id` grouping and the AI Gateway key-listing
   response shape could not be confirmed from the official docs while this was
   built. Both paths degrade safely (retry without the key grouping, or fall back
@@ -149,4 +205,5 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 The dashboard (#8) shows each provider's coverage next to org breakdowns, so a
 provider that can't attribute spend to a person or key isn't read as $0. Those
 notes come from `frontend/lib/org/coverage.ts`, which mirrors the table above:
-update both together.
+update both together. The dashboard also has a Projects table and a `project`
+filter (the view's effective `project_id`).

@@ -96,21 +96,23 @@ export async function fetchAttributedDaily(
   )
 }
 
-/** Org tables (authenticated SELECT, migration 010). Identities aren't needed for labels. */
+/** Org tables (authenticated SELECT, migrations 010/011). Identities aren't needed for labels. */
 export async function fetchOrgData(supabase: SupabaseLike): Promise<OrgData> {
-  const [departments, teams, people, apiKeys] = await Promise.all([
+  const [departments, teams, people, apiKeys, projects] = await Promise.all([
     supabase.from("departments").select("id, name, description").order("name"),
     supabase.from("teams").select("id, name, department_id").order("name"),
     supabase.from("people").select("id, email, display_name, team_id, active").order("email"),
     supabase.from("org_api_keys").select("id, provider_id, external_key_id, name, owner_person_id, team_id").order("name"),
+    supabase.from("org_projects").select("id, provider_id, external_project_id, name, team_id").order("name"),
   ])
-  for (const r of [departments, teams, people, apiKeys]) if (r.error) throw r.error
+  for (const r of [departments, teams, people, apiKeys, projects]) if (r.error) throw r.error
   return {
     departments: (departments.data || []) as OrgData["departments"],
     teams: (teams.data || []) as OrgData["teams"],
     people: (people.data || []) as OrgData["people"],
     identities: [],
     apiKeys: (apiKeys.data || []) as OrgData["apiKeys"],
+    projects: (projects.data || []) as NonNullable<OrgData["projects"]>,
   }
 }
 

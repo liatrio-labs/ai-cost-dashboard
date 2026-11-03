@@ -3,7 +3,7 @@
  * Pure transform tests for the Vercel AI Gateway collector. No network.
  */
 
-import { transform, collector, listGatewayKeys } from "./vercel-ai-gateway"
+import { transform, collector, listGatewayKeys, lookupProjectNames, parseSpendAttribution } from "./vercel-ai-gateway"
 import type { CostRecord } from "./types"
 
 const ctx = { userId: "user-1", providerId: "provider-aigw", teamId: "team_x" }
@@ -231,5 +231,150 @@ describe("listGatewayKeys pagination (mocked fetch)", () => {
     global.fetch = jest.fn(async () => res({ apiKeys: page(0, 5), pagination: { next: 1 } })) as unknown as typeof fetch
     expect(await listGatewayKeys("test-vercel-token")).toHaveLength(5)
     expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2)
+  })
+})
+
+describe("vercel-ai-gateway key metadata and projects (issue #24)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+    jest.restoreAllMocks()
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const base = { apiKey: "test-gateway-key", userId: "user-1", providerId: "prov-aigw", teamId: "team_x", auxApiKey: "test-vercel-token" }
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+  const apiKeys = [
+    { id: "k_user", name: "alice laptop", createdBy: "uid_alice", metadata: { spendAttribution: "user" } },
+    { id: "k_proj", name: "web app", createdBy: "uid_bob", projectId: "prj_web", metadata: { spendAttribution: "team" } },
+    { id: "k_unset", name: "legacy", createdBy: "uid_bob" },
+  ]
+  // Unfiltered daily totals and per-key reports (today and yesterday).
+  const report: Record<string, { day: string; total_cost: number; input_tokens: number; request_count: number }[]> = {
+    all: [
+      { day: yesterday, total_cost: 10, input_tokens: 1000, request_count: 10 },
+      { day: today, total_cost: 7.5, input_tokens: 700, request_count: 7 },
+    ],
+    k_user: [
+      { day: yesterday, total_cost: 4, input_tokens: 400, request_count: 4 },
+      { day: today, total_cost: 2.5, input_tokens: 200, request_count: 2 },
+    ],
+    k_proj: [
+      { day: yesterday, total_cost: 3, input_tokens: 300, request_count: 3 },
+      { day: today, total_cost: 5, input_tokens: 500, request_count: 5 },
+    ],
+    k_unset: [{ day: yesterday, total_cost: 1, input_tokens: 100, request_count: 1 }],
+  }
+
+  function mockFetch(projectLookup: (id: string) => Response | Promise<Response>) {
+    const seen: string[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      seen.push(`${u.hostname}${u.pathname}`)
+      if (u.hostname === "api.vercel.com" && u.pathname === "/v1/api-keys") return res({ apiKeys })
+      if (u.hostname === "api.vercel.com" && u.pathname.startsWith("/v9/projects/")) {
+        expect(u.searchParams.get("teamId")).toBe("team_x")
+        return projectLookup(decodeURIComponent(u.pathname.split("/").pop()!))
+      }
+      return res({ results: report[u.searchParams.get("api_key_id") ?? "all"] ?? [] })
+    }) as any
+    return seen
+  }
+
+  test("listGatewayKeys carries projectId, createdBy and spendAttribution", async () => {
+    mockFetch(() => res({}))
+    const keys = await listGatewayKeys("test-vercel-token", "team_x")
+    expect(keys).toEqual([
+      { id: "k_user", name: "alice laptop", createdBy: "uid_alice", spendAttribution: "user" },
+      { id: "k_proj", name: "web app", createdBy: "uid_bob", projectId: "prj_web", spendAttribution: "team" },
+      { id: "k_unset", name: "legacy", createdBy: "uid_bob" },
+    ])
+  })
+
+  test("each day's per-key rows plus the remainder equal the unfiltered /v1/report total", async () => {
+    mockFetch(() => res({ id: "prj_web", name: "Website" }))
+    const records = await collector.collect(base)
+    for (const t of report.all) {
+      const day = records.filter((r) => r.timestamp.startsWith(t.day))
+      expect(day.reduce((s, r) => s + r.cost_usd, 0)).toBeCloseTo(t.total_cost, 9)
+      expect(day.reduce((s, r) => s + (r.input_tokens ?? 0), 0)).toBe(t.input_tokens)
+    }
+    const y = records.filter((r) => r.timestamp.startsWith(yesterday))
+    // 3 keys + remainder (10 - 4 - 3 - 1 = 2)
+    expect(y).toHaveLength(4)
+    expect(y.find((r) => r.metadata.remainder)!.cost_usd).toBeCloseTo(2)
+    // today: k_user 2.5 + k_proj 5 = 7.5 -> no remainder row
+    expect(records.filter((r) => r.timestamp.startsWith(today)).some((r) => r.metadata.remainder)).toBe(false)
+  })
+
+  test("project-scoped key rows set attribution.project_id/project_name; api_key stays the granularity", async () => {
+    mockFetch(() => res({ id: "prj_web", name: "Website" }))
+    const records = await collector.collect(base)
+    const proj = records.filter((r) => (r.metadata.attribution as any).api_key_id === "k_proj")
+    expect(proj).toHaveLength(2)
+    for (const r of proj) {
+      expect(r.metadata.attribution).toEqual({
+        granularity: "api_key",
+        api_key_id: "k_proj",
+        api_key_name: "web app",
+        project_id: "prj_web",
+        project_name: "Website",
+      })
+      expect(r.metadata.gateway_key).toEqual({ project_id: "prj_web", created_by: "uid_bob", spend_attribution: "team" })
+    }
+    const user = records.find((r) => (r.metadata.attribution as any).api_key_id === "k_user")!
+    expect(user.metadata.attribution).toEqual({ granularity: "api_key", api_key_id: "k_user", api_key_name: "alice laptop" })
+    expect(user.metadata.gateway_key).toEqual({ project_id: null, created_by: "uid_alice", spend_attribution: "user" })
+    const unset = records.find((r) => (r.metadata.attribution as any).api_key_id === "k_unset")!
+    expect(unset.metadata.gateway_key).toEqual({ project_id: null, created_by: "uid_bob", spend_attribution: null })
+    // The remainder row stays org-level and carries no key metadata.
+    const rem = records.find((r) => r.metadata.remainder)!
+    expect(rem.metadata.attribution).toEqual({ granularity: "org" })
+    expect(rem.metadata.gateway_key).toBeUndefined()
+  })
+
+  test("a failed project lookup leaves project_name null and never fails collection", async () => {
+    for (const lookup of [() => res({ error: "forbidden" }, 403), () => Promise.reject(new Error("network down"))]) {
+      mockFetch(lookup)
+      const records = await collector.collect(base)
+      const proj = records.find((r) => (r.metadata.attribution as any).api_key_id === "k_proj")!
+      expect(proj.metadata.attribution).toEqual({ granularity: "api_key", api_key_id: "k_proj", api_key_name: "web app", project_id: "prj_web" })
+      expect(records.reduce((s, r) => s + r.cost_usd, 0)).toBeCloseTo(17.5)
+    }
+  })
+
+  test("the all-or-nothing fallback still applies with scoped keys", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.pathname === "/v1/api-keys") return res({ apiKeys })
+      if (u.pathname.startsWith("/v9/projects/")) return res({ name: "Website" })
+      if (u.searchParams.get("api_key_id") === "k_proj") return res({ error: "bad" }, 400)
+      return res({ results: report[u.searchParams.get("api_key_id") ?? "all"] ?? [] })
+    }) as any
+    const records = await collector.collect(base)
+    expect(records).toHaveLength(2)
+    for (const r of records) expect(r.metadata.attribution).toEqual({ granularity: "org" })
+  })
+
+  test("parseSpendAttribution accepts user/team only", () => {
+    expect(parseSpendAttribution("User")).toBe("user")
+    expect(parseSpendAttribution("team")).toBe("team")
+    expect(parseSpendAttribution("everyone")).toBeNull()
+    expect(parseSpendAttribution(undefined)).toBeNull()
+  })
+
+  test("lookupProjectNames caps lookups and dedupes ids", async () => {
+    const calls: string[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      calls.push(String(url))
+      return res({ name: "n" })
+    }) as any
+    const ids = Array.from({ length: 60 }, (_, i) => `prj_${i}`)
+    const names = await lookupProjectNames("test-vercel-token", [...ids, "prj_0"])
+    expect(calls).toHaveLength(50)
+    expect(names.size).toBe(50)
   })
 })

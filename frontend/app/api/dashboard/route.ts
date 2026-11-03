@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       daily = applyFilters(await fetchAttributedDaily(supabase, filters, providerId), filters, providerId)
       // Person / key (or provider) views get a trailing average, not a forecast.
       const last = monthlyTotals(daily).at(-1)?.month
-      if (last && (filters.person || filters.key)) trailingAverage = trailingAverageOf(daily, last)
+      if (last && (filters.person || filters.key || filters.project)) trailingAverage = trailingAverageOf(daily, last)
     } else {
       // Pull the daily rollup (real automated data).
       daily = await fetchAllPaged<DailyRow>(

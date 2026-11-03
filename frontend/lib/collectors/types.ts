@@ -75,4 +75,6 @@ export interface CollectionSummary {
   timestamp: string
   /** Explicit-range runs only: per-UTC-day rows and cost stored, every day of the range listed. */
   days?: Array<{ date: string; records: number; cost_usd: number }>
+  /** Post-collect org sync result (AI Gateway key sync, issue #24), when the provider has one. */
+  key_sync?: Record<string, unknown>
 }

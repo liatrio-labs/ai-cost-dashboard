@@ -1,14 +1,18 @@
 /**
  * Pure attribution resolution. Mirrors cost_records_daily_attributed in
- * database/migrations/011_org_projects.sql (which recreates the 010 view)
- * exactly; change both together.
+ * database/migrations/015_gateway_key_attribution.sql (which recreates the
+ * 010/011 view) exactly; change both together.
  *
  * 1. Person: person_email = people.email (case-insensitive); else
  *    (provider, person_external_id) in identities; else (provider, person_email)
  *    in identities; else the API key's owner; else none.
- * 2. Team: the API key's team; else the person's team; else the project's
+ * 2. Project: the row's project_id (provider + external id in org_projects);
+ *    else, only when the row has no project_id, the API key's org_project_id
+ *    (same provider only, migration 015). project_id in the result is the
+ *    effective project's external id.
+ * 3. Team: the API key's team; else the person's team; else the project's
  *    team (org_projects, migration 011); else none.
- * 3. Department: the team's department; else none.
+ * 4. Department: the team's department; else none.
  *
  * Empty strings count as absent. Emails are trimmed and lower-cased; external
  * ids and key ids match exactly. Membership is current-state only.
@@ -73,6 +77,7 @@ export function buildOrgIndex(data: OrgData): OrgIndex {
     apiKeys: new Map(),
     apiKeysById: new Map(data.apiKeys.map((k) => [k.id, k])),
     projects: new Map(),
+    projectsById: new Map((data.projects ?? []).map((pr) => [pr.id, pr])),
   }
   for (const p of data.people) {
     const email = normalizeEmail(p.email)
@@ -106,8 +111,13 @@ export function resolveAttribution(record: AttributableRecord, index: OrgIndex):
     null
 
   const person = personId ? index.peopleById.get(personId) : undefined
-  const projectId = attr?.project_id ?? null
-  const project = projectId ? index.projects?.get(providerKey(record.provider_id, projectId)) : undefined
+  const rowProjectId = attr?.project_id ?? null
+  const keyProjectRow =
+    !rowProjectId && apiKey?.org_project_id ? index.projectsById?.get(apiKey.org_project_id) : undefined
+  // A key's project only counts for the key's own provider (same as the SQL join).
+  const keyProject = keyProjectRow?.provider_id === record.provider_id ? keyProjectRow : undefined
+  const project = rowProjectId ? index.projects?.get(providerKey(record.provider_id, rowProjectId)) : keyProject
+  const projectId = rowProjectId ?? keyProject?.external_project_id ?? null
   const teamId = apiKey?.team_id ?? person?.team_id ?? project?.team_id ?? null
   const departmentId = teamId ? (index.teamsById.get(teamId)?.department_id ?? null) : null
 

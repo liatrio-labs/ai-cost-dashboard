@@ -198,14 +198,33 @@ org_projects      (id, provider_id → providers, external_project_id, name,
 Same access rules. These tables are managed at `/admin/org` through the
 `/api/admin/org/*` routes (issue #7).
 
-#### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011)
+Migration 015 (issue #24) adds AI Gateway key metadata to `org_api_keys`:
+
+```sql
+org_api_keys      + org_project_id → org_projects NULL (ON DELETE SET NULL),
+                    external_created_by, external_created_by_email,
+                    spend_attribution  ('user' | 'team' | NULL = unset, treated as team),
+                    assignment_source  ('auto' | 'manual' | NULL)
+```
+
+The gateway key sync (`frontend/lib/org/gateway-sync.ts`, after every
+`vercel-ai-gateway` collection and from `POST /api/admin/org/keys/sync-gateway`)
+fills these in and auto-assigns `owner_person_id` (user-attributed keys, via the
+creator's email) and `org_project_id` (project-scoped keys) with
+`assignment_source = 'auto'`. Any admin write that sets an owner, team or
+project marks the key `'manual'`, and the sync never changes those three
+columns on a manual key. Keys assigned by hand before 015 are marked `'manual'`
+by the migration.
+
+#### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011 and 015)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).
 
 ```sql
 - date, provider_id, model_name
 - person_id, org_api_key_id, team_id, department_id   -- NULL = Unassigned
-- project_id, workspace_id                            -- from the attribution
+- project_id      -- effective project: the row's attribution.project_id, else the key's org_project_id (015)
+- workspace_id    -- from the attribution
 - granularity  -- 'person' | 'api_key' | 'project' | 'workspace' | 'org'
 - total_cost_usd, total_tokens, total_input_tokens, total_output_tokens,
   total_requests, record_count
@@ -217,9 +236,12 @@ Same access rules. These tables are managed at `/admin/org` through the
    `(provider, person_external_id)` in `person_identities`; else
    `(provider, person_email)` in `person_identities.external_id`; else the API
    key's `owner_person_id`; else none.
-2. Team: the API key's `team_id`; else the person's `team_id`; else the
+2. Project: the row's `attribution.project_id` (`org_projects` by provider +
+   external id); else, only when the row has none, the API key's
+   `org_project_id` (same provider only, since 015).
+3. Team: the API key's `team_id`; else the person's `team_id`; else the
    project's `team_id` (`org_projects`, since 011); else Unassigned.
-3. Department: the team's `department_id`; else Unassigned.
+4. Department: the team's `department_id`; else Unassigned.
 
 Rows without `attribution` (everything written before #6) get granularity
 `org` and land in Unassigned, so for every date the view's totals equal
@@ -384,6 +406,15 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   `initialize_user_preferences`, `refresh_cost_records_daily` and
   `create_monthly_partition` are not callable by anon/authenticated; the daily
   rollups are not readable by anon. Re-apply it after re-running 010 or 011.
+- **015_gateway_key_attribution.sql**: AI Gateway key attribution (#24).
+  `org_api_keys.org_project_id` (→ `org_projects`, `ON DELETE SET NULL`),
+  `external_created_by`, `external_created_by_email`, `spend_attribution`,
+  `assignment_source` (auto/manual); recreates `cost_records_daily_attributed`
+  with the key's project as the project fallback (same grants as 014). With no
+  key projects assigned the view is identical to 011's. Re-apply after re-running
+  010, 011 or 014. **Apply 015 before deploying the code that reads it** (the
+  admin org page falls back to the pre-015 columns, but key writes and the key
+  sync need them; the sync failing never fails collection).
 
 ### Testing migrations locally
 
@@ -396,9 +427,12 @@ count and `SUM(cost_usd)` are unchanged), applies any later migrations and runs
 `assertions.sql` (precedence rules, Unassigned, per-date reconciliation with
 `cost_records_daily`, both views refreshed by `refresh_cost_records_daily()`,
 project team fallback, RLS/grants, and the 014 hardening as `anon`,
-`authenticated` and `service_role`), then re-applies 010, 011 and 014 over the
-data. 011 must always follow 010, because 010 recreates the view without the
-project fallback, and 014 must follow both. Server binaries come from `PG_BIN`, an installed
+`authenticated` and `service_role`), applies each later migration (015) twice
+over the data with the same row count / sum check, runs `assertions_015.sql`
+(gateway key owner, key project and project team precedence, no fan-out,
+reconciliation, `ON DELETE SET NULL`, grants), then re-applies 010, 011, 014 and
+015 over the data. 011 must always follow 010, because 010 recreates the view
+without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.
 

@@ -216,6 +216,31 @@ while [[ ! "$start" > "$last" ]]; do
 done
 ```
 
+### Re-pulling AI Gateway history
+
+Vercel AI Gateway spend collected before the per-key collector was deployed has no
+`metadata.attribution`, so it is all org-level. The explicit-range path above doesn't
+cover `vercel-ai-gateway`; use the cron route's trailing backfill instead (one report
+call for the whole window plus one per gateway key, inside the 300 s function limit).
+It needs the same `VERCEL_TOKEN` as the daily run to split per key, replaces each
+re-pulled day's rows as a set (same rules as below), and runs the gateway key sync
+afterwards. **Operator step after deploying migration 015 and this code; not run as
+part of the change.**
+
+```bash
+BASE=https://your-deployment.example.com
+CRON_SECRET=replace-with-cron-secret
+
+# ~310 days back covers the gateway history from 2025-12-28.
+curl -sS "$BASE/api/cron/vercel-ai-gateway?backfill=true&days=310" \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  | jq '{success, result: {status: .result.status, records_stored: .result.records_stored, key_sync: .result.key_sync}}'
+```
+
+Then refresh the rollups (`/admin` → Refresh, or wait for the 15-minute
+refresh-aggregates cron) and assign the keys listed under "Unassigned gateway keys"
+on `/admin/org`.
+
 What a re-pull does to existing rows (`storeRecords()` in `frontend/lib/collectors/runner.ts`):
 
 - Every `api_automated` row for that provider at a bucket timestamp the provider

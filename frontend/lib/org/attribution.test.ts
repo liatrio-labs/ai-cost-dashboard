@@ -1,5 +1,5 @@
 import { buildOrgIndex, getAttribution, normalizeEmail, resolveAttribution } from "./attribution"
-import { D, K, P, PE, T, orgData } from "./test-fixtures"
+import { D, K, P, PE, PR, T, orgData } from "./test-fixtures"
 
 const index = buildOrgIndex(orgData())
 const resolve = (provider_id: string, attribution?: unknown) =>
@@ -227,6 +227,69 @@ describe("helpers", () => {
       project_name: null,
       workspace_id: null,
       granularity: "person",
+    })
+  })
+})
+
+describe("resolveAttribution: AI Gateway key projects (migration 015)", () => {
+  const GW = "prov-aigw"
+  const WEB = "pr-web"
+  const NT = "pr-nt"
+  const idx = buildOrgIndex({
+    ...orgData(),
+    projects: [
+      ...orgData().projects!,
+      { id: WEB, provider_id: GW, external_project_id: "prj_web", name: "Website", team_id: T.platform },
+      { id: NT, provider_id: GW, external_project_id: "prj_nt", name: "No team", team_id: null },
+    ],
+    apiKeys: [
+      ...orgData().apiKeys,
+      { id: "gk-user", provider_id: GW, external_key_id: "gk_user", owner_person_id: PE.carol, team_id: null, org_project_id: null },
+      { id: "gk-user-team", provider_id: GW, external_key_id: "gk_user_team", owner_person_id: PE.bob, team_id: null },
+      { id: "gk-proj", provider_id: GW, external_key_id: "gk_proj", owner_person_id: null, team_id: null, org_project_id: WEB },
+      { id: "gk-person-proj", provider_id: GW, external_key_id: "gk_person_proj", owner_person_id: PE.dave, team_id: null, org_project_id: WEB },
+      { id: "gk-key-team", provider_id: GW, external_key_id: "gk_key_team", owner_person_id: PE.dave, team_id: T.field, org_project_id: WEB },
+      { id: "gk-xprov", provider_id: GW, external_key_id: "gk_xprov", owner_person_id: null, team_id: null, org_project_id: PR.sales },
+    ],
+  })
+  const r = (attribution: Record<string, unknown>) =>
+    resolveAttribution({ provider_id: GW, metadata: { attribution: { granularity: "api_key", ...attribution } } }, idx)
+
+  // Same cases as scripts/migration-tests/assertions_015.sql.
+  it("user-attributed key -> owner; owner without a team -> team Unassigned", () => {
+    expect(r({ api_key_id: "gk_user" })).toMatchObject({ person_id: PE.carol, team_id: null, project_id: null })
+  })
+  it("user-attributed key -> owner -> owner's team", () => {
+    expect(r({ api_key_id: "gk_user_team" })).toMatchObject({ person_id: PE.bob, team_id: T.field, department_id: D.sales })
+  })
+  it("project-scoped key -> project -> project's team", () => {
+    expect(r({ api_key_id: "gk_proj", project_id: "prj_web" })).toMatchObject({
+      person_id: null,
+      org_api_key_id: "gk-proj",
+      project_id: "prj_web",
+      team_id: T.platform,
+      department_id: D.eng,
+      granularity: "api_key",
+    })
+  })
+  it("key org_project_id applies when the row has no project_id", () => {
+    expect(r({ api_key_id: "gk_proj" })).toMatchObject({ project_id: "prj_web", team_id: T.platform })
+  })
+  it("the row's project_id beats the key's project", () => {
+    expect(r({ api_key_id: "gk_proj", project_id: "prj_nt" })).toMatchObject({ project_id: "prj_nt", team_id: null })
+  })
+  it("person team beats project team; key team beats both", () => {
+    expect(r({ api_key_id: "gk_person_proj" })).toMatchObject({ person_id: PE.dave, team_id: T.data, project_id: "prj_web" })
+    expect(r({ api_key_id: "gk_key_team" })).toMatchObject({ person_id: PE.dave, team_id: T.field, project_id: "prj_web" })
+  })
+  it("a key project from another provider is ignored", () => {
+    expect(r({ api_key_id: "gk_xprov" })).toMatchObject({ project_id: null, team_id: null })
+  })
+  it("remainder rows stay org-level Unassigned", () => {
+    expect(resolveAttribution({ provider_id: GW, metadata: { remainder: true, attribution: { granularity: "org" } } }, idx)).toMatchObject({
+      ...UNASSIGNED,
+      project_id: null,
+      granularity: "org",
     })
   })
 })
