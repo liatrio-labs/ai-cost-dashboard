@@ -292,8 +292,10 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
 /**
  * Registered keys grouped by provider, then project / workspace (issue #28):
  * OpenAI keys under projects, Anthropic keys under workspaces, AI Gateway
- * keys under Vercel projects or "No project". Keys with no spend yet are
- * listed too. A group heading filters by that project; a key filters by key.
+ * keys under Vercel projects or "No project". With no org filter every key is
+ * listed; a person / team / department filter lists the keys it owns (even at
+ * $0) plus keys with spend in the selection (issue #35). A group heading
+ * filters by that project; a key filters by key.
  * Spend on unregistered keys stays in the last "Unassigned" row.
  */
 export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
@@ -305,7 +307,8 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
         <CardTitle className="text-lg">API keys</CardTitle>
         <CardDescription>
           Registered provider API keys under their project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway), including keys with no
-          spend yet. Select a project to filter by it.
+          spend yet. A person, team or department filter shows the keys they own plus any key with spend from them. Select a project to filter
+          by it.
         </CardDescription>
       </CardHeader>
       <CardContent>

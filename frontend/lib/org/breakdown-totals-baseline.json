@@ -1,0 +1,1426 @@
+{
+ "owned": {
+  "{}": {
+   "total": {
+    "cost": 290,
+    "prevCost": 105,
+    "changePercent": 176.2
+   },
+   "department": [
+    [
+     "dept-eng",
+     185,
+     80
+    ],
+    [
+     "dept-sales",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     30,
+     25
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     115,
+     50
+    ],
+    [
+     "team-field",
+     75,
+     0
+    ],
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     30,
+     25
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     155,
+     50
+    ],
+    [
+     "p-bob",
+     75,
+     0
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "p-carol",
+     0,
+     5
+    ],
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     200,
+     105
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\"}": {
+   "total": {
+    "cost": 155,
+    "prevCost": 50,
+    "changePercent": 210
+   },
+   "department": [
+    [
+     "dept-eng",
+     155,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     115,
+     50
+    ],
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     155,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"person\":\"p-bob\"}": {
+   "total": {
+    "cost": 75,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"person\":\"p-carol\"}": {
+   "total": {
+    "cost": 0,
+    "prevCost": 5,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ],
+   "person": [
+    [
+     "p-carol",
+     0,
+     5
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ]
+  },
+  "{\"person\":\"unassigned\"}": {
+   "total": {
+    "cost": 30,
+    "prevCost": 20,
+    "changePercent": 50
+   },
+   "department": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     20,
+     20
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"provider\":\"anthropic\"}": {
+   "total": {
+    "cost": 100,
+    "prevCost": 50,
+    "changePercent": 100
+   },
+   "department": [
+    [
+     "dept-eng",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"project\":\"wrk_eng\"}": {
+   "total": {
+    "cost": 0,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  },
+  "{\"team\":\"team-platform\"}": {
+   "total": {
+    "cost": 115,
+    "prevCost": 50,
+    "changePercent": 130
+   },
+   "department": [
+    [
+     "dept-eng",
+     115,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     115,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     115,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"team\":\"team-data\"}": {
+   "total": {
+    "cost": 70,
+    "prevCost": 30,
+    "changePercent": 133.3
+   },
+   "department": [
+    [
+     "dept-eng",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     30,
+     30
+    ]
+   ]
+  },
+  "{\"team\":\"team-field\"}": {
+   "total": {
+    "cost": 75,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"department\":\"dept-eng\"}": {
+   "total": {
+    "cost": 185,
+    "prevCost": 80,
+    "changePercent": 131.3
+   },
+   "department": [
+    [
+     "dept-eng",
+     185,
+     80
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     115,
+     50
+    ],
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     155,
+     50
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     130,
+     80
+    ]
+   ]
+  },
+  "{\"department\":\"dept-sales\"}": {
+   "total": {
+    "cost": 75,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     75,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"key\":\"k-team\"}": {
+   "total": {
+    "cost": 40,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"team\":\"team-data\"}": {
+   "total": {
+    "cost": 40,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  }
+ },
+ "base": {
+  "{}": {
+   "total": {
+    "cost": 250,
+    "prevCost": 105,
+    "changePercent": 138.1
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80
+    ],
+    [
+     "dept-sales",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     30,
+     25
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "team-field",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     30,
+     25
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50
+    ],
+    [
+     "p-bob",
+     50,
+     0
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "p-carol",
+     0,
+     5
+    ],
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     200,
+     105
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\"}": {
+   "total": {
+    "cost": 140,
+    "prevCost": 50,
+    "changePercent": 180
+   },
+   "department": [
+    [
+     "dept-eng",
+     140,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"person\":\"p-bob\"}": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"person\":\"p-carol\"}": {
+   "total": {
+    "cost": 0,
+    "prevCost": 5,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ],
+   "person": [
+    [
+     "p-carol",
+     0,
+     5
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     5
+    ]
+   ]
+  },
+  "{\"person\":\"unassigned\"}": {
+   "total": {
+    "cost": 30,
+    "prevCost": 20,
+    "changePercent": 50
+   },
+   "department": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     30,
+     20
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     20,
+     20
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"provider\":\"anthropic\"}": {
+   "total": {
+    "cost": 100,
+    "prevCost": 50,
+    "changePercent": 100
+   },
+   "department": [
+    [
+     "dept-eng",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"project\":\"wrk_eng\"}": {
+   "total": {
+    "cost": 0,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  },
+  "{\"team\":\"team-platform\"}": {
+   "total": {
+    "cost": 100,
+    "prevCost": 50,
+    "changePercent": 100
+   },
+   "department": [
+    [
+     "dept-eng",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     100,
+     50
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     100,
+     50
+    ]
+   ]
+  },
+  "{\"team\":\"team-data\"}": {
+   "total": {
+    "cost": 70,
+    "prevCost": 30,
+    "changePercent": 133.3
+   },
+   "department": [
+    [
+     "dept-eng",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     30,
+     30
+    ]
+   ]
+  },
+  "{\"team\":\"team-field\"}": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"department\":\"dept-eng\"}": {
+   "total": {
+    "cost": 170,
+    "prevCost": 80,
+    "changePercent": 112.5
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50
+    ],
+    [
+     "team-data",
+     70,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50
+    ],
+    [
+     "p-dave",
+     30,
+     30
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     130,
+     80
+    ]
+   ]
+  },
+  "{\"department\":\"dept-sales\"}": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-sales",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-field",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-bob",
+     50,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     50,
+     0
+    ]
+   ]
+  },
+  "{\"key\":\"k-team\"}": {
+   "total": {
+    "cost": 40,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  },
+  "{\"person\":\"p-alice\",\"team\":\"team-data\"}": {
+   "total": {
+    "cost": 40,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ],
+   "unassignedKey": [
+    [
+     "unassigned",
+     0,
+     0
+    ]
+   ]
+  }
+ }
+}
