@@ -223,14 +223,29 @@ const bySpend = <T extends { total_cost_usd: number; provider_id: string }>(a: T
 /** Every key seen in attribution.api_key_id, merged with registered org_api_keys. */
 export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): KeyRow[] {
   const seen = new Map<string, Seen>()
+  // A key's project / workspace comes from its most recent row (ties: the
+  // costlier row), never from scan order, which is by row id and changes when
+  // an older range is re-pulled.
   const keyProject = new Map<string, string>()
   const keyWorkspace = new Map<string, string>()
+  type Pick = { ts: string; cost: number }
+  const projectPick = new Map<string, Pick>()
+  const workspacePick = new Map<string, Pick>()
+  const newer = (map: Map<string, Pick>, key: string, r: ObservedRecord) => {
+    const ts = r.timestamp ?? ""
+    const cost = num(r.cost_usd)
+    const cur = map.get(key)
+    if (cur && (ts < cur.ts || (ts === cur.ts && cost <= cur.cost))) return false
+    map.set(key, { ts, cost })
+    return true
+  }
   for (const r of records) {
     const a = attributionOf(r)
     if (!a?.api_key_id) continue
     bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
-    if (a.project_id) keyProject.set(pkey(r.provider_id, a.api_key_id), a.project_id)
-    if (a.workspace_id) keyWorkspace.set(pkey(r.provider_id, a.api_key_id), a.workspace_id)
+    const k = pkey(r.provider_id, a.api_key_id)
+    if (a.project_id && newer(projectPick, k, r)) keyProject.set(k, a.project_id)
+    if (a.workspace_id && newer(workspacePick, k, r)) keyWorkspace.set(k, a.workspace_id)
   }
   const rows = new Map<string, KeyRow>()
   for (const k of registered) {
