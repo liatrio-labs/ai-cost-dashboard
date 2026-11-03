@@ -34,7 +34,16 @@ export interface CollectorContext {
   teamId?: string
   /** Optional second credential a collector may need (AI Gateway: VERCEL_TOKEN to list keys). */
   auxApiKey?: string
+  /**
+   * Optional sink for per-run diagnostics (e.g. OpenAI `costs_grouping`). The
+   * runner merges them into CollectionSummary.details. Never pass secrets or
+   * raw provider response bodies.
+   */
+  report?: (details: CollectorDetails) => void
 }
+
+/** Small, non-secret per-run diagnostics surfaced in the collection summary. */
+export type CollectorDetails = Record<string, string | number | boolean | null>
 
 export interface CollectOptions {
   backfill?: boolean
@@ -61,6 +70,8 @@ export interface CollectionSummary {
   owner_user_id?: string
   reason?: string
   error?: string
+  /** Diagnostics a collector reported via ctx.report (e.g. { costs_grouping: "fallback" }). */
+  details?: CollectorDetails
   timestamp: string
   /** Explicit-range runs only: per-UTC-day rows and cost stored, every day of the range listed. */
   days?: Array<{ date: string; records: number; cost_usd: number }>

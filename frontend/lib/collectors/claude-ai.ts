@@ -14,9 +14,9 @@
  *
  * Requires an API key with the `read:analytics` scope. Amounts are cents.
  *
- * Daily pulls re-fetch today plus the prior 30 UTC days: Claude.ai totals stay
- * revisable for ~30 days, and a short window would freeze undercounts that no
- * longer match the admin site (see PR #2).
+ * Daily pulls re-fetch today plus the prior DEFAULT_LOOKBACK_DAYS (30) UTC
+ * days (31 buckets): Claude.ai totals stay revisable for ~30 days, and a short
+ * window would freeze undercounts that no longer match the admin site (PR #2).
  */
 
 import type { Collector, CostRecord, CollectorContext, CollectOptions } from "./types"
@@ -45,8 +45,8 @@ const CENTS_PER_USD = 100.0
 const PAGE_LIMIT_1D = 31
 // Restart pagination this many times if a cursor expires (HTTP 410).
 const MAX_PAGINATION_RESTARTS = 3
-// Non-backfill lookback: today plus this many prior UTC days (= 31 buckets).
-const DEFAULT_LOOKBACK_DAYS = 30
+/** Daily (non-backfill) pull: today plus this many prior UTC days (= 31 buckets). */
+export const DEFAULT_LOOKBACK_DAYS = 30
 export const ANALYTICS_GROUP_BY = ["actor", "model", "product"]
 
 /** Build a join key matching cost and usage results within a bucket. */

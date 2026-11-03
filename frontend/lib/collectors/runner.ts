@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createAdminClient, touchProvidersCollected } from "@/lib/supabase/admin"
-import type { Collector, CostRecord, CollectionSummary, CollectOptions } from "./types"
+import type { Collector, CostRecord, CollectionSummary, CollectOptions, CollectorDetails } from "./types"
 import { DAY_MS, isoDate } from "./http"
 
 import { collector as anthropic } from "./anthropic"
@@ -238,6 +238,7 @@ export async function runCollectionForProvider(
     }
 
     const ownerUserId = await getOwnerUserId(admin)
+    const details: CollectorDetails = {}
     const ctx = {
       apiKey,
       userId: ownerUserId,
@@ -245,6 +246,7 @@ export async function runCollectionForProvider(
       organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
       teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
       auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
+      report: (d: CollectorDetails) => Object.assign(details, d),
     }
     const records = await collector.collect(ctx, opts)
     // An explicit range must never delete outside itself, whatever the API returned.
@@ -263,6 +265,7 @@ export async function runCollectionForProvider(
       records_collected: records.length,
       records_stored: stored,
       owner_user_id: ownerUserId,
+      ...(Object.keys(details).length ? { details } : {}),
       timestamp,
       ...(opts.range ? { days: summarizeDays(toStore, opts.range) } : {}),
       ...(keySync ? { key_sync: keySync } : {}),

@@ -15,7 +15,11 @@
  *      default workspace, whose workspace_id is null).
  *
  * Requires an Admin API key (sk-ant-admin...). Analytics data refreshes within
- * 4-24h, so a daily pull re-fetches today plus the prior 3 UTC days.
+ * 4-24h and keeps settling for days after a UTC day ends, so a daily
+ * (non-backfill) pull re-fetches today plus the prior DEFAULT_LOOKBACK_DAYS (7)
+ * UTC days, i.e. [today - 7d, tomorrow). storeRecords() replaces every
+ * api_automated row at a re-fetched timestamp, so late revisions (up or down)
+ * overwrite what an earlier run captured.
  */
 
 import type { Collector, CostRecord, CollectorContext, CollectOptions } from "./types"
@@ -37,8 +41,11 @@ import {
 const ADMIN_API_BASE_URL = "https://api.anthropic.com/v1/organizations"
 const ANTHROPIC_VERSION = "2023-06-01"
 const RATE_LIMIT_DELAY_MS = 1000 // delay between paginated requests
-/** Daily pull: today plus this many prior UTC days (analytics lags 4-24h). */
-export const DEFAULT_LOOKBACK_DAYS = 3
+/**
+ * Daily (non-backfill) pull: today plus this many prior UTC days. Usage keeps
+ * settling after a day ends; a 7-day window lets late revisions land (#21).
+ */
+export const DEFAULT_LOOKBACK_DAYS = 7
 export const ANALYTICS_GROUP_BY = ["actor", "api_key_id", "workspace_id", "model"]
 const SEP = "\u0000"
 
@@ -247,8 +254,9 @@ async function fetchLegacyPaginated(
 }
 
 /**
- * Collect from the Analytics API (today + prior 3 days, `backfillDays` with
- * backfill, or exactly `opts.range` when given), falling back to the legacy reports on 403/404.
+ * Collect from the Analytics API (today + prior DEFAULT_LOOKBACK_DAYS days,
+ * `backfillDays` with backfill, or exactly `opts.range` when given), falling
+ * back to the legacy reports on 403/404.
  */
 async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const bucketWidth = "1d"
