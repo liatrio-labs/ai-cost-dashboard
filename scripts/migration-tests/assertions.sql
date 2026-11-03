@@ -35,9 +35,12 @@ LEFT JOIN departments d ON d.id = a.department_id;
 -- ---------------------------------------------------------------------------
 -- 3. refresh_cost_records_daily() refreshes both views
 -- ---------------------------------------------------------------------------
-SELECT pg_temp.check('3: both views empty before refresh (fixtures inserted after CREATE)',
-    (SELECT count(*) FROM cost_records_daily) = 0
-    AND (SELECT count(*) FROM cost_records_daily_attributed) = 0);
+-- 015 recreates cost_records_daily_attributed over the fixtures (WITH DATA,
+-- so CONCURRENTLY refreshes keep working), so only cost_records_daily is
+-- still empty here. 'new rows appear in both views after refresh' below
+-- proves the refresh covers the attributed view too.
+SELECT pg_temp.check('3: cost_records_daily empty before refresh (fixtures inserted after CREATE)',
+    (SELECT count(*) FROM cost_records_daily) = 0);
 
 SELECT refresh_cost_records_daily();
 
