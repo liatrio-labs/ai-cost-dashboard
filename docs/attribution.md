@@ -143,3 +143,10 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   response shape could not be confirmed from the official docs while this was
   built. Both paths degrade safely (retry without the key grouping, or fall back
   to org rows) instead of failing.
+
+## Dashboard coverage notes
+
+The dashboard (#8) shows each provider's coverage next to org breakdowns, so a
+provider that can't attribute spend to a person or key isn't read as $0. Those
+notes come from `frontend/lib/org/coverage.ts`, which mirrors the table above:
+update both together.
