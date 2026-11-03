@@ -26,7 +26,7 @@ jest.mock("@/lib/db", () => {
   }
 })
 jest.mock("@/lib/collectors/runner", () => ({
-  COLLECTORS: { anthropic: {}, "claude-ai": {}, openai: {}, cursor: {} },
+  COLLECTORS: { anthropic: {}, "claude-ai": {}, openai: {}, cursor: {}, "vercel-ai-gateway": {} },
   runCollectionForProvider: (...args: unknown[]) => mockRun(...args),
 }))
 jest.mock("@/lib/supabase/admin", () => ({
@@ -127,6 +127,23 @@ describe("POST /api/admin/collect", () => {
       clamped: true,
     })
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  test("issue #28: a vercel-ai-gateway range reaches the runner unclamped", async () => {
+    mockRun.mockResolvedValue({ status: "success", provider: "vercel-ai-gateway", records_stored: 3, timestamp: "t" })
+    const r = await POST(req({ provider: "vercel-ai-gateway", start_date: "2025-12-20", end_date: "2026-01-10" }, { authorization: `Bearer ${SECRET}` }))
+    expect(r.status).toBe(200)
+    expect(mockRun.mock.calls[0]).toEqual([
+      "vercel-ai-gateway",
+      { range: { start: new Date("2025-12-20T00:00:00Z"), end: new Date("2026-01-11T00:00:00Z") } },
+    ])
+    expect((await r.json()).range).toMatchObject({ start_date: "2025-12-20", end_date: "2026-01-10", clamped: false })
+  })
+
+  test("issue #28: vercel-ai-gateway without a range keeps backfill days", async () => {
+    mockRun.mockResolvedValue({ status: "success", provider: "vercel-ai-gateway", records_stored: 3, timestamp: "t" })
+    await POST(req({ provider: "vercel-ai-gateway", backfill: true, backfill_days: 30 }, { authorization: `Bearer ${SECRET}` }))
+    expect(mockRun.mock.calls[0]).toEqual(["vercel-ai-gateway", { backfill: true, backfillDays: 30 }])
   })
 
   test.each([

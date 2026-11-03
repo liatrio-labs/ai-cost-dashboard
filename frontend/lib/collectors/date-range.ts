@@ -27,11 +27,9 @@ import { DAY_MS, isoDate, startOfUTCDay } from "./http"
 import { MIN_DATA_MS } from "./anthropic-analytics"
 import { MAX_HISTORICAL_DAYS } from "./openai"
 
-/** Longest accepted range, in days, end inclusive. Matches the analytics API span limit. */
-export const MAX_RANGE_DAYS = 31
+import { MAX_RANGE_DAYS, RANGE_PROVIDERS } from "./range-providers"
 
-/** Providers whose collectors honour CollectOptions.range. */
-export const RANGE_PROVIDERS = ["anthropic", "claude-ai", "openai", "vercel-ai-gateway"] as const
+export { MAX_RANGE_DAYS, RANGE_PROVIDERS }
 
 /** Providers whose start_date is never clamped (no documented earliest data). */
 const UNCLAMPED_PROVIDERS = new Set(["vercel-ai-gateway"])

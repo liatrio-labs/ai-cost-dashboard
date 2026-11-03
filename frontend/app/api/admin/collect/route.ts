@@ -6,7 +6,8 @@
  *   { provider, start_date, end_date }                  explicit range (issue #20)
  *
  * start_date / end_date are ISO YYYY-MM-DD UTC days, end_date inclusive, span
- * <= 31 days, for anthropic, claude-ai and openai (see lib/collectors/date-range).
+ * <= 31 days, for anthropic, claude-ai, openai and vercel-ai-gateway (see
+ * lib/collectors/date-range).
  * A range takes precedence over backfill.
  *
  * Auth: an admin session (requireAdmin), or
