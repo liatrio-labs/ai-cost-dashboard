@@ -280,9 +280,10 @@ export function forecastUnitForFilters(f: {
   team?: string
   person?: string
   key?: string
+  project?: string
   provider?: string
 }): { level: UnitLevel; key: string } | null {
-  if (f.person || f.key || f.provider) return null
+  if (f.person || f.key || f.project || f.provider) return null
   if (f.team) return { level: "team", key: f.team }
   if (f.department) return { level: "department", key: f.department }
   return null

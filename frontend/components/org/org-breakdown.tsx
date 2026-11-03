@@ -2,7 +2,8 @@
 
 /**
  * Org spend views (issue #8): breadcrumbs, the department -> team -> person ->
- * (provider x model) drill-down, the People table and the API keys table.
+ * (provider x model) drill-down, the People table, the API keys table and
+ * the Projects table (issue #24).
  * Presentational: state lives in the URL, so every interaction is a call to
  * onFiltersChange with the next filter set.
  */
@@ -23,6 +24,7 @@ import type {
   BreakdownApiKey,
   BreakdownData,
   BreakdownEntity,
+  BreakdownProject,
   BreakdownProvider,
   CoverageNote,
 } from "@/lib/org/breakdown"
@@ -36,7 +38,7 @@ const LEVEL_TITLE: Record<DrillLevel, string> = {
   detail: "Provider and model detail",
 }
 
-const visible = (e: BreakdownEntity) => e.unassigned || e.cost !== 0 || e.prevCost !== 0
+const visible = (e: Pick<BreakdownEntity, "unassigned" | "cost" | "prevCost">) => e.unassigned || e.cost !== 0 || e.prevCost !== 0
 
 function Change({ value, cost }: { value: number | null; cost: number }) {
   if (value === null) return <span className="text-muted-foreground">{cost === 0 ? "–" : "new"}</span>
@@ -336,6 +338,57 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
   )
 }
 
+export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
+  const projects = (data.project ?? []).filter(visible) as BreakdownProject[]
+  // Only the Unassigned row: no provider reports projects for this view.
+  if (projects.length <= 1 && projects.every((p) => p.unassigned)) return null
+  return (
+    <Card className="border-border/50 bg-card/50 backdrop-blur">
+      <CardHeader>
+        <CardTitle className="text-lg">Projects</CardTitle>
+        <CardDescription>
+          Spend by provider project (OpenAI projects, Vercel projects via project-scoped AI Gateway keys). Gateway spend from OIDC, PATs
+          or app tokens has no project and stays Unassigned.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table aria-label="Projects">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Provider</TableHead>
+              <TableHead>Project</TableHead>
+              <TableHead>Team</TableHead>
+              <TableHead className="text-right">Spend</TableHead>
+              <TableHead className="text-right">Change</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {projects.map((p) => (
+              <TableRow key={p.key} data-testid="project-row">
+                <TableCell>{p.providerName ?? "—"}</TableCell>
+                <TableCell>
+                  <button
+                    type="button"
+                    className="text-left font-medium hover:underline"
+                    onClick={() => onFiltersChange({ ...data.filters, project: p.key })}
+                  >
+                    {p.unassigned ? "Unassigned (no project)" : p.label}
+                  </button>
+                </TableCell>
+                <TableCell>{p.team ?? "—"}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCurrency(p.cost)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <Change value={p.changePercent} cost={p.cost} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
 const selectClass =
   "h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 
@@ -402,6 +455,7 @@ export function OrgFilterBar({
       {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk)}
       {field("person", "Person", people.map((p) => ({ value: p.id, label: p.label })))}
       {field("key", "API key", o?.apiKeys.map((k) => ({ value: k.id, label: k.label })) ?? [])}
+      {field("project", "Project", o?.projects?.map((p) => ({ value: p.id, label: p.label })) ?? [])}
       {field("provider", "Provider", o?.providers.map((p) => ({ value: p.slug, label: p.label })) ?? [], false)}
       {active && (
         <button type="button" className="text-xs text-muted-foreground underline hover:text-foreground" onClick={() => onFiltersChange({})}>
@@ -412,7 +466,7 @@ export function OrgFilterBar({
   )
 }
 
-/** The Org tab: breadcrumbs, the drill-down, People and API keys. */
+/** The Org tab: breadcrumbs, the drill-down, People, API keys and projects. */
 export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   return (
     <div className="space-y-6">
@@ -421,6 +475,7 @@ export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; o
       {data.level !== "person" && <DrilldownTable data={data} onFiltersChange={onFiltersChange} />}
       {data.level !== "detail" && <PeopleTable data={data} onFiltersChange={onFiltersChange} />}
       <ApiKeysTable data={data} onFiltersChange={onFiltersChange} />
+      <ProjectsTable data={data} onFiltersChange={onFiltersChange} />
     </div>
   )
 }

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import type { OrgSnapshot } from "@/lib/org/admin/schemas"
-import type { ImportPreview, KeyRow, ProjectRow, UnassignedQueue } from "@/lib/org/admin/observed"
+import { unassignedGatewayKeys, type ImportPreview, type KeyRow, type ProjectRow, type UnassignedQueue } from "@/lib/org/admin/observed"
 
 const API = "/api/admin/org"
 
@@ -503,14 +503,17 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
     const p = org.providers.find((x) => x.id === id)
     return p?.display_name || p?.name || id
   }
+  const gatewayId = org.providers.find((p) => p.name === "vercel-ai-gateway")?.id ?? null
 
   return (
     <div className="space-y-4">
+      <GatewayKeysCard org={org} mutate={mutate} keys={keys} gatewayId={gatewayId} />
+
       <Card>
         <CardHeader>
           <CardTitle>API keys</CardTitle>
           <CardDescription>
-            Every key seen in collected data plus registered keys. A key&apos;s team wins over its owner&apos;s team. Key ids only; secrets are never stored.
+            Every key seen in collected data plus registered keys. A key&apos;s team wins over its owner&apos;s team, which wins over its project&apos;s team. Key ids only; secrets are never stored.
           </CardDescription>
         </CardHeader>
         <CardContent className="divide-y divide-border/50">
@@ -531,6 +534,7 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
                       unregistered
                     </Badge>
                   )}
+                  <SourceBadge source={k.assignment_source} />
                 </div>
                 <div className="flex items-center gap-1">
                   <select
@@ -546,6 +550,23 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
                       </option>
                     ))}
                   </select>
+                  {org.projects.some((p) => p.provider_id === k.provider_id) && (
+                    <select
+                      aria-label={`Project for ${k.external_key_id}`}
+                      className={selectClass}
+                      value={k.org_project_id ?? ""}
+                      onChange={(e) => save({ org_project_id: e.target.value || null })}
+                    >
+                      <option value="">No project</option>
+                      {org.projects
+                        .filter((p) => p.provider_id === k.provider_id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name || p.external_project_id}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                   <TeamSelect org={org} value={k.team_id} noneLabel="No team" ariaLabel={`Team for ${k.external_key_id}`} onChange={(teamId) => save({ team_id: teamId })} />
                   {k.id && (
                     <Button variant="ghost" size="sm" aria-label="Unregister key" onClick={() => mutate(`/keys/${k.id}`, "DELETE", undefined, "Key unregistered")}>
@@ -596,6 +617,121 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/** auto = set by the AI Gateway key sync; manual = set by an admin (the sync never overwrites it). */
+function SourceBadge({ source }: { source: KeyRow["assignment_source"] }) {
+  if (!source) return null
+  return (
+    <Badge
+      variant={source === "manual" ? "secondary" : "outline"}
+      className="ml-2"
+      title={source === "manual" ? "Set by an admin; the key sync never overwrites it" : "Set by the AI Gateway key sync from the key's creator or project"}
+    >
+      {source}
+    </Badge>
+  )
+}
+
+/**
+ * AI Gateway keys with no owner, team or project: their spend is Unassigned
+ * until assigned here (or until the key sync maps them). Assigning marks the
+ * key "manual".
+ */
+function GatewayKeysCard({ org, mutate, keys, gatewayId }: { org: Org; mutate: Mutate; keys: KeyRow[] | null; gatewayId: string | null }) {
+  const [syncing, setSyncing] = useState(false)
+  if (!gatewayId) return null
+  const pending = keys ? unassignedGatewayKeys(keys, gatewayId) : null
+  const projects = org.projects.filter((p) => p.provider_id === gatewayId)
+  const projectLabel = (k: KeyRow) => {
+    const id = k.org_project_id ?? null
+    const pr = id ? org.projects.find((p) => p.id === id) : org.projects.find((p) => p.provider_id === k.provider_id && p.external_project_id === k.observed_project_id)
+    return pr?.name || pr?.external_project_id || k.observed_project_id || "No project"
+  }
+
+  async function sync() {
+    setSyncing(true)
+    try {
+      await mutate("/keys/sync-gateway", "POST", undefined, "Gateway keys synced")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle>Unassigned gateway keys</CardTitle>
+            <CardDescription>
+              Vercel AI Gateway keys with no owner, project or team. Keys set to &quot;user&quot; spend attribution map to their creator and project-scoped keys to their
+              project automatically on every collection. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" className="gap-2" disabled={syncing} onClick={sync}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync gateway keys
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="divide-y divide-border/50">
+        {!pending && <Loader2 className="h-4 w-4 animate-spin" />}
+        {pending?.length === 0 && <p className="text-sm text-muted-foreground">Every gateway key is assigned to a person, project or team.</p>}
+        {pending?.map((k) => {
+          const save = (patch: Record<string, unknown>, text: string) =>
+            mutate("/keys", "POST", { provider_id: k.provider_id, external_key_id: k.external_key_id, name: k.name, ...patch }, text)
+          return (
+            <div key={k.external_key_id} className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid="gateway-key-row">
+              <div>
+                <span className="font-medium">{k.name || k.external_key_id}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {k.external_created_by_email ?? "creator unknown"} · {projectLabel(k)} · spend {k.spend_attribution ?? "unset (team)"} · {usd(k.total_cost_usd)}
+                </span>
+                <SourceBadge source={k.assignment_source} />
+              </div>
+              <div className="flex items-center gap-1">
+                <select
+                  aria-label={`Assign ${k.external_key_id} to a person`}
+                  className={selectClass}
+                  value=""
+                  onChange={(e) => e.target.value && save({ owner_person_id: e.target.value }, `Assigned ${k.name || k.external_key_id}`)}
+                >
+                  <option value="">Person…</option>
+                  {org.people.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.display_name || p.email}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={`Assign ${k.external_key_id} to a project`}
+                  className={selectClass}
+                  value=""
+                  disabled={!projects.length}
+                  onChange={(e) => e.target.value && save({ org_project_id: e.target.value }, `Assigned ${k.name || k.external_key_id}`)}
+                >
+                  <option value="">Project…</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || p.external_project_id}
+                    </option>
+                  ))}
+                </select>
+                <TeamSelect
+                  org={org}
+                  value={null}
+                  noneLabel="Team…"
+                  ariaLabel={`Assign ${k.external_key_id} to a team`}
+                  onChange={(teamId) => teamId && save({ team_id: teamId }, `Assigned ${k.name || k.external_key_id}`)}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
   )
 }
 
