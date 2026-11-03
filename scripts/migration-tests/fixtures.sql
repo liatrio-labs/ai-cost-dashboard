@@ -102,3 +102,10 @@ INSERT INTO cost_records (user_id, provider_id, timestamp, model_name, cost_usd,
 SELECT '00000000-0000-0000-0000-000000000001', p.id, fx.ts, fx.model, fx.cost,
        100, 60, 40, 1, 'api_automated', fx.meta
 FROM fx JOIN providers p ON p.name = fx.provider;
+
+-- (016, issue #26) The seat-based manual tool production created through the
+-- admin UI (no migration seeds it), still named 'Claude Max', so 016's rename
+-- runs over it. Its cost rows are added by assertions_016.sql.
+INSERT INTO providers (name, display_name, metadata) VALUES
+    ('claude-max', 'Claude Max',
+     '{"collection_method": "manual", "cost_basis": "seat_subscription", "billing": "seat"}');
