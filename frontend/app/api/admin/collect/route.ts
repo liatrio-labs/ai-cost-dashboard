@@ -59,10 +59,11 @@ export async function POST(request: NextRequest) {
     // Refresh the dashboard rollup so pulled data shows immediately.
     if (result.status === "success") await refreshDailyAggregates()
     return successResponse(range ? { ...result, range: describeRange(range) } : result)
-  } catch (e: any) {
-    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
-    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : undefined
+    if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
+    if (message === "Forbidden") return errorResponse("Forbidden", 403)
     console.error("POST /api/admin/collect error:", e)
-    return errorResponse(e?.message || "Failed to trigger collection", 500)
+    return errorResponse(message || "Failed to trigger collection", 500)
   }
 }
