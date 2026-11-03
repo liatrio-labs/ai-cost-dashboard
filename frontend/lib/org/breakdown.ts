@@ -157,8 +157,10 @@ export interface BreakdownData {
   api_key: BreakdownApiKey[]
   /**
    * Registered keys grouped by provider, then project / workspace (issue #28).
-   * Keys with no spend are listed when no filter other than project / provider
-   * is set; a project filter keeps only that project's keys.
+   * With no org filter other than project every key is listed; a person /
+   * team / department / key filter lists the keys it owns (even at $0) plus
+   * keys with spend in the filtered rows (issue #35). Provider and project
+   * filters narrow both.
    */
   key_groups: ProviderGroup<BreakdownKeyItem>[]
   project: BreakdownProject[]
@@ -477,9 +479,19 @@ function projectOptions(org: OrgData, rows: AttributedDailyRow[], slugOf: (id: s
  * Registered keys grouped under their project / workspace (issue #28). Spend
  * comes from the filtered period rows (the api_key entities); a key's project
  * is the one carrying most of its spend in the loaded rows, else its assigned
- * project. $0 keys are listed only when no org filter other than project is
- * set (person / team / department / key filters can't place a key with no
- * spend), and a project filter keeps only that project's keys.
+ * project.
+ *
+ * Which keys are listed (issue #35):
+ * - No org filter other than project: every registered key, $0 ones included.
+ * - Otherwise a key is listed when it has spend in the filtered current or
+ *   comparison period (e.g. someone else's key used by this person), or when
+ *   it belongs to the selection, for every org filter that is set:
+ *   person = the key's owner; team = the key's team_id or its owner's team;
+ *   department = that team's department; key = the key itself. Such keys show
+ *   even at $0 (no spend in the period, or none ever). An "unassigned" filter
+ *   value can't own keys, so it keeps the spend-only rule.
+ * - The provider and project filters always apply on top.
+ * Display only: totals and the entity tables don't read this list.
  */
 function keyGroups(input: {
   api_key: BreakdownApiKey[]
@@ -518,13 +530,26 @@ function keyGroups(input: {
   const entityById = new Map(api_key.filter((e) => e.id).map((e) => [e.id!, e]))
   const onlyProjectFilter = !filters.department && !filters.team && !filters.person && !filters.key
   const projectsById = index.projectsById ?? new Map((org.projects ?? []).map((p) => [p.id, p]))
+  const deptOf = (teamId: string | null | undefined) => (teamId ? (index.teamsById.get(teamId)?.department_id ?? null) : null)
+  // Does the key belong to every org filter that is set (owner / team / department / id)?
+  const owns = (want: string | undefined, have: (string | null | undefined)[]) =>
+    !want || (want !== UNASSIGNED_FILTER && have.includes(want))
+  const inSelection = (k: OrgData["apiKeys"][number]) => {
+    const ownerTeam = k.owner_person_id ? (index.peopleById.get(k.owner_person_id)?.team_id ?? null) : null
+    return (
+      owns(filters.person, [k.owner_person_id]) &&
+      owns(filters.team, [k.team_id, ownerTeam]) &&
+      owns(filters.department, [deptOf(k.team_id), deptOf(ownerTeam)]) &&
+      owns(filters.key, [k.id])
+    )
+  }
 
   const items: BreakdownKeyItem[] = []
   for (const k of org.apiKeys) {
     if (filters.provider && k.provider_id !== providerIdForFilter) continue
     const e = entityById.get(k.id)
     const hasActivity = !!e && (e.cost !== 0 || e.prevCost !== 0)
-    if (!hasActivity && !onlyProjectFilter) continue
+    if (!hasActivity && !onlyProjectFilter && !inSelection(k)) continue
     const owner = k.owner_person_id ? index.peopleById.get(k.owner_person_id) : undefined
     const item: BreakdownKeyItem = {
       key: k.id,
