@@ -261,3 +261,56 @@ describe("openai collect (mocked fetch)", () => {
     expect(records[0].metadata.attribution).toEqual({ granularity: "project", project_id: "proj_a" })
   })
 })
+
+describe("openai collect with an explicit range (issue #20)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const ctx = { apiKey: "test-admin-key", userId: "user-1", providerId: "prov-openai" }
+  const unix = (iso: string) => String(Date.parse(iso) / 1000)
+
+  it("requests exactly start_time/end_time for the range, on costs and usage", async () => {
+    const seen: Record<string, string[][]> = { costs: [], usage: [] }
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      const span = [u.searchParams.get("start_time")!, u.searchParams.get("end_time")!]
+      if (u.pathname.endsWith("/costs")) seen.costs.push(span)
+      else if (u.pathname.endsWith("/usage/completions")) seen.usage.push(span)
+      else return res({ data: [], has_more: false })
+      return res({ data: [], has_more: false })
+    }) as any
+    await collector.collect(ctx, {
+      range: { start: new Date("2026-02-01T00:00:00Z"), end: new Date("2026-03-04T00:00:00Z") },
+    })
+    const want = [[unix("2026-02-01T00:00:00Z"), unix("2026-03-04T00:00:00Z")]]
+    expect(seen.costs).toEqual(want)
+    expect(seen.usage).toEqual(want)
+  })
+
+  it("pages through a >31-bucket range with the same window on every page", async () => {
+    const costPages: Array<[string | null, string | null, string | null]> = []
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.pathname.endsWith("/costs")) {
+        const page = u.searchParams.get("page")
+        costPages.push([u.searchParams.get("start_time"), u.searchParams.get("end_time"), page])
+        return page
+          ? res({ data: [], has_more: false })
+          : res({ data: [], has_more: true, next_page: "p2" })
+      }
+      return res({ data: [], has_more: false })
+    }) as any
+    await collector.collect(ctx, {
+      range: { start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-03-10T00:00:00Z") },
+    })
+    const s = unix("2026-01-01T00:00:00Z")
+    const e = unix("2026-03-10T00:00:00Z")
+    expect(costPages).toEqual([
+      [s, e, null],
+      [s, e, "p2"],
+    ])
+  })
+})

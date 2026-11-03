@@ -343,3 +343,49 @@ describe("claude-ai collect (mocked fetch)", () => {
     expect(records[0].metadata.source).toBe("cost_report")
   })
 })
+
+describe("claude-ai collect with an explicit range (issue #20)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+    jest.restoreAllMocks()
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const ctx = { apiKey: "test-analytics-key", userId: "user-1", providerId: "prov-claude-ai" }
+
+  async function spansFor(range: { start: Date; end: Date }, path: string, failAnalytics = false) {
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (failAnalytics && (u.pathname.endsWith("/analytics/cost") || u.pathname.endsWith("/analytics/usage"))) {
+        return res({}, 403)
+      }
+      urls.push(u)
+      return res({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx, { range })
+    return urls
+      .filter((u) => u.pathname.endsWith(path))
+      .map((u) => [u.searchParams.get("starting_at"), u.searchParams.get("ending_at")])
+  }
+
+  test("requests exactly [start, end)", async () => {
+    const range = { start: new Date("2026-03-01T00:00:00Z"), end: new Date("2026-04-01T00:00:00Z") }
+    const want = [["2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z"]]
+    expect(await spansFor(range, "/analytics/cost")).toEqual(want)
+    expect(await spansFor(range, "/analytics/usage")).toEqual(want)
+  })
+
+  test("a >31-day range is split into <= 31-day spans (analytics and legacy)", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    const range = { start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-03-10T00:00:00Z") }
+    const want = [
+      ["2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z"],
+      ["2026-02-01T00:00:00Z", "2026-03-04T00:00:00Z"],
+      ["2026-03-04T00:00:00Z", "2026-03-10T00:00:00Z"],
+    ]
+    expect(await spansFor(range, "/analytics/cost")).toEqual(want)
+    expect(await spansFor(range, "/cost_report", true)).toEqual(want)
+  })
+})

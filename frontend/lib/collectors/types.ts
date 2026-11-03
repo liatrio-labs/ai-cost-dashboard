@@ -39,6 +39,13 @@ export interface CollectorContext {
 export interface CollectOptions {
   backfill?: boolean
   backfillDays?: number
+  /**
+   * Explicit window [start, end) (UTC midnights, end exclusive), from a
+   * validated start_date/end_date (see ./date-range). When set it takes
+   * precedence over backfill/backfillDays. Honoured by anthropic, claude-ai
+   * and openai.
+   */
+  range?: { start: Date; end: Date }
 }
 
 export interface Collector {
@@ -55,4 +62,6 @@ export interface CollectionSummary {
   reason?: string
   error?: string
   timestamp: string
+  /** Explicit-range runs only: per-UTC-day rows and cost stored, every day of the range listed. */
+  days?: Array<{ date: string; records: number; cost_usd: number }>
 }
