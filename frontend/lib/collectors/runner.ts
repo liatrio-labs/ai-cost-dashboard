@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createAdminClient, touchProvidersCollected } from "@/lib/supabase/admin"
-import type { Collector, CostRecord, CollectionSummary, CollectOptions } from "./types"
+import type { Collector, CostRecord, CollectionSummary, CollectOptions, CollectorDetails } from "./types"
 import { DAY_MS, isoDate } from "./http"
 
 import { collector as anthropic } from "./anthropic"
@@ -205,6 +205,7 @@ export async function runCollectionForProvider(
     }
 
     const ownerUserId = await getOwnerUserId(admin)
+    const details: CollectorDetails = {}
     const records = await collector.collect(
       {
         apiKey,
@@ -213,6 +214,7 @@ export async function runCollectionForProvider(
         organizationId: envCfg.orgId ? process.env[envCfg.orgId] : undefined,
         teamId: envCfg.teamId ? process.env[envCfg.teamId] : undefined,
         auxApiKey: envCfg.auxApiKey ? process.env[envCfg.auxApiKey] : undefined,
+        report: (d) => Object.assign(details, d),
       },
       opts
     )
@@ -229,6 +231,7 @@ export async function runCollectionForProvider(
       records_collected: records.length,
       records_stored: stored,
       owner_user_id: ownerUserId,
+      ...(Object.keys(details).length ? { details } : {}),
       timestamp,
       ...(opts.range ? { days: summarizeDays(toStore, opts.range) } : {}),
     }

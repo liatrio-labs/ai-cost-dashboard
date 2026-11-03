@@ -7,7 +7,9 @@
  *     group_by=line_item,project_id,api_key_id   (USD, daily buckets; authoritative)
  *     If the API rejects api_key_id on /costs (400), we retry with
  *     line_item,project_id so collection never breaks (rows are then
- *     project-level).
+ *     project-level). Each run logs one line saying which grouping was used
+ *     ("[openai] costs grouping=api_key" or "grouping=fallback status=400") and
+ *     reports it as `costs_grouping` in the collection summary (cron JSON).
  * - GET /v1/organization/usage/completions
  *     group_by=model,project_id,api_key_id,user_id (tokens; joined best-effort)
  * - GET /v1/organization/projects and /projects/{id}/api_keys
@@ -22,6 +24,10 @@
  * usage model matches the line_item (case-insensitive) for the same project and
  * key; usage is summed across user_id (cost has no user dimension) and the
  * distinct user ids are kept in metadata.usage_user_ids.
+ *
+ * Daily (non-backfill) pulls re-fetch today plus the prior
+ * DEFAULT_LOOKBACK_DAYS (7) UTC days, i.e. [today - 7d, tomorrow): costs keep
+ * settling after a day ends and storeRecords() overwrites re-fetched days.
  */
 
 import type { Collector, CostRecord, CollectorContext, CollectOptions } from "./types"
@@ -31,6 +37,8 @@ import { buildAttribution, str } from "./attribution"
 // NOTE: singular "organization".
 const API_BASE_URL = "https://api.openai.com/v1/organization"
 export const MAX_HISTORICAL_DAYS = 366
+/** Daily (non-backfill) pull: today plus this many prior UTC days (#21). */
+export const DEFAULT_LOOKBACK_DAYS = 7
 // Max buckets per page for bucket_width=1d is 31; pagination fetches the rest.
 const PAGE_LIMIT = 31
 const SEP = "\u0000"
@@ -38,6 +46,9 @@ const SEP = "\u0000"
 export const COST_GROUP_BY = ["line_item", "project_id", "api_key_id"]
 export const COST_GROUP_BY_FALLBACK = ["line_item", "project_id"]
 export const USAGE_GROUP_BY = ["model", "project_id", "api_key_id", "user_id"]
+
+/** How /costs was grouped this run: by api key, or the 400 fallback. */
+export type CostsGrouping = "api_key" | "fallback"
 
 /** Best-effort id -> name lookups. */
 export interface NameLookup {
@@ -237,6 +248,16 @@ export async function fetchNames(apiKey: string, organizationId?: string): Promi
   return names
 }
 
+/**
+ * One structured line per run. Only fixed tokens and the HTTP status: never the
+ * key, headers or a response body.
+ */
+function logCostsGrouping(grouping: CostsGrouping, status?: number): void {
+  const groupBy = (grouping === "api_key" ? COST_GROUP_BY : COST_GROUP_BY_FALLBACK).join(",")
+  const statusPart = status === undefined ? "" : ` status=${status}`
+  console.log(`[openai] costs grouping=${grouping}${statusPart} group_by=${groupBy}`)
+}
+
 function isoDateToUnix(isoDay: string): number {
   return unixSeconds(new Date(`${isoDay}T00:00:00.000Z`))
 }
@@ -246,7 +267,7 @@ async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promis
   endDate.setUTCHours(0, 0, 0, 0)
   const days = opts.backfill
     ? Math.min(opts.backfillDays ?? MAX_HISTORICAL_DAYS, MAX_HISTORICAL_DAYS)
-    : 1
+    : DEFAULT_LOOKBACK_DAYS
   const startDate = new Date(endDate)
   startDate.setUTCDate(startDate.getUTCDate() - days)
   const endPlusOne = new Date(endDate)
@@ -258,6 +279,8 @@ async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promis
   const fetchCosts = async (): Promise<{ buckets: any[]; byKey: boolean }> => {
     try {
       const buckets = await fetchPaginated("/costs", ctx.apiKey, ctx.organizationId, startUnix, endUnix, COST_GROUP_BY)
+      logCostsGrouping("api_key")
+      ctx.report?.({ costs_grouping: "api_key" })
       return { buckets, byKey: true }
     } catch (e) {
       if (!(e instanceof HttpError) || e.status !== 400) throw e
@@ -269,6 +292,8 @@ async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promis
         endUnix,
         COST_GROUP_BY_FALLBACK
       )
+      logCostsGrouping("fallback", e.status)
+      ctx.report?.({ costs_grouping: "fallback" })
       return { buckets, byKey: false }
     }
   }

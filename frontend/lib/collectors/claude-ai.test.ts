@@ -7,7 +7,7 @@
  * tokens when usage is absent, and that bad buckets/results are skipped.
  */
 
-import { transform, transformAnalytics, collector } from "./claude-ai"
+import { transform, transformAnalytics, collector, DEFAULT_LOOKBACK_DAYS } from "./claude-ai"
 
 const CTX = {
   userId: "user-123",
@@ -300,10 +300,19 @@ describe("claude-ai transformAnalytics", () => {
   })
 })
 
+
+// Pin "now" (Date only; real timers so pagination sleeps still resolve).
+const NOW = new Date("2026-11-03T15:30:00Z")
+const TODAY_MS = Date.UTC(2026, 10, 3)
+const DAY = 24 * 3600 * 1000
+function pinNow() {
+  jest.useFakeTimers({ now: NOW, doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate", "nextTick", "queueMicrotask", "hrtime", "performance"] })
+}
 describe("claude-ai collect (mocked fetch)", () => {
   const realFetch = global.fetch
   afterEach(() => {
     global.fetch = realFetch
+    jest.useRealTimers()
     jest.restoreAllMocks()
   })
   const res = (body: unknown, status = 200) =>
@@ -327,6 +336,22 @@ describe("claude-ai collect (mocked fetch)", () => {
       expect(u.searchParams.getAll("group_by[]")).toEqual(["actor", "model", "product"])
       const span = Date.parse(u.searchParams.get("ending_at")!) - Date.parse(u.searchParams.get("starting_at")!)
       expect(span).toBeLessThanOrEqual(31 * 24 * 3600 * 1000)
+    }
+  })
+
+  test("daily window is unchanged: [today - 30d, tomorrow) = 31 buckets", async () => {
+    pinNow()
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      urls.push(new URL(String(url)))
+      return res({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx)
+    expect(DEFAULT_LOOKBACK_DAYS).toBe(30)
+    expect(urls).toHaveLength(2)
+    for (const u of urls) {
+      expect(Date.parse(u.searchParams.get("starting_at")!)).toBe(TODAY_MS - 30 * DAY)
+      expect(Date.parse(u.searchParams.get("ending_at")!)).toBe(TODAY_MS + DAY)
     }
   })
 

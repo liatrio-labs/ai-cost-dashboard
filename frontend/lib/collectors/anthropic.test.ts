@@ -5,7 +5,7 @@
  * Validates the merge of Admin API usage + cost buckets into cost_records rows.
  */
 
-import { transform, transformAnalytics, collector, ANALYTICS_GROUP_BY } from "./anthropic"
+import { transform, transformAnalytics, collector, ANALYTICS_GROUP_BY, DEFAULT_LOOKBACK_DAYS } from "./anthropic"
 
 const CTX = {
   userId: "user-1",
@@ -273,10 +273,19 @@ describe("anthropic transformAnalytics", () => {
   })
 })
 
+
+// Pin "now" (Date only; real timers so pagination sleeps still resolve).
+const NOW = new Date("2026-11-03T15:30:00Z")
+const TODAY_MS = Date.UTC(2026, 10, 3)
+const DAY = 24 * 3600 * 1000
+function pinNow() {
+  jest.useFakeTimers({ now: NOW, doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate", "nextTick", "queueMicrotask", "hrtime", "performance"] })
+}
 describe("anthropic collect (mocked fetch)", () => {
   const realFetch = global.fetch
   afterEach(() => {
     global.fetch = realFetch
+    jest.useRealTimers()
     jest.restoreAllMocks()
   })
 
@@ -310,9 +319,44 @@ describe("anthropic collect (mocked fetch)", () => {
       expect(u.searchParams.getAll("group_by[]")).toEqual(ANALYTICS_GROUP_BY)
       expect(u.searchParams.get("time_bucket_width")).toBe("1d")
       expect(u.searchParams.get("limit")).toBe("1000")
-      // Re-pulls today + the prior 3 days.
+      // Re-pulls today + the prior 7 days.
       const span = Date.parse(u.searchParams.get("ending_at")!) - Date.parse(u.searchParams.get("starting_at")!)
-      expect(span).toBe(4 * 24 * 3600 * 1000)
+      expect(span).toBe(8 * 24 * 3600 * 1000)
+    }
+  })
+
+  test("daily window is [today - 7d, tomorrow) (DEFAULT_LOOKBACK_DAYS = 7)", async () => {
+    pinNow()
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      urls.push(new URL(String(url)))
+      return jsonResponse({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx)
+    expect(DEFAULT_LOOKBACK_DAYS).toBe(7)
+    expect(urls).toHaveLength(2)
+    for (const u of urls) {
+      expect(u.searchParams.get("starting_at")).toBe("2026-10-27T00:00:00Z")
+      expect(u.searchParams.get("ending_at")).toBe("2026-11-04T00:00:00Z")
+      expect(Date.parse(u.searchParams.get("starting_at")!)).toBe(TODAY_MS - 7 * DAY)
+    }
+  })
+
+  test("legacy fallback uses the same 7-day daily window", async () => {
+    pinNow()
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    const legacy: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.pathname.includes("/analytics/")) return jsonResponse({}, 404)
+      legacy.push(u)
+      return jsonResponse({ data: [], has_more: false })
+    }) as any
+    await collector.collect(ctx)
+    expect(legacy).toHaveLength(2)
+    for (const u of legacy) {
+      expect(Date.parse(u.searchParams.get("starting_at")!)).toBe(TODAY_MS - 7 * DAY)
+      expect(Date.parse(u.searchParams.get("ending_at")!)).toBe(TODAY_MS + DAY)
     }
   })
 
