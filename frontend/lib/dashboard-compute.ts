@@ -6,7 +6,7 @@
  */
 
 import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
-import { orgProjection, type UnitForecast } from "@/lib/unit-forecast"
+import { nextMonth, orgProjection, prevMonth, type UnitForecast } from "@/lib/unit-forecast"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -310,6 +310,19 @@ export function computeDashboard({
   const forecast: { month: string; total: number; projected: boolean }[] = [...history]
   if (unitForecast) {
     // A team/department filter: that unit's projection (lib/unit-forecast.ts).
+    // The projection starts after the ORG's last month, so months the unit has
+    // no rows for (e.g. none yet this month) are filled with $0 up to there;
+    // otherwise the chart would jump straight from its last spend to the
+    // projection.
+    const first = unitForecast.projection[0]?.month
+    if (first && forecast.length) {
+      const lastOrgMonth = prevMonth(first)
+      const have = new Set(forecast.map((f) => f.month))
+      for (let m = nextMonth(forecast[0].month); m <= lastOrgMonth; m = nextMonth(m)) {
+        if (!have.has(m)) forecast.push({ month: m, total: 0, projected: false })
+      }
+      forecast.sort((a, b) => a.month.localeCompare(b.month))
+    }
     for (const p of unitForecast.projection) forecast.push({ ...p, projected: true })
   } else if (projectForecast && history.length >= 1) {
     // Anchor on the recent run-rate (max of the last two real months) and

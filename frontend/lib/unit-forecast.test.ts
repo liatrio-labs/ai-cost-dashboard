@@ -299,3 +299,31 @@ describe("forecastDescription", () => {
     expect(forecastDescription(meta, undefined, false)).toBe("History only for this view")
   })
 })
+
+describe("unit forecast chart series", () => {
+  it("fills months a unit has no spend in with $0 up to the org's last month", () => {
+    // Org has Sep-Nov; the team only spent in Sep.
+    const rows: UnitRow[] = [
+      { date: "2026-09-05", team_id: T.data, department_id: D.eng, total_cost_usd: 30 },
+      { date: "2026-09-05", team_id: T.platform, department_id: D.eng, total_cost_usd: 70 },
+      { date: "2026-10-05", team_id: T.platform, department_id: D.eng, total_cost_usd: 80 },
+      { date: "2026-11-01", team_id: T.platform, department_id: D.eng, total_cost_usd: 90 },
+    ]
+    const unit = computeUnitForecasts({ rows, level: "team", settings: S }).units.find((u) => u.key === T.data)!
+    const out = computeDashboard({
+      daily: rows.filter((r) => r.team_id === T.data).map((r) => ({ ...r, provider_id: "p", model_name: "m" })),
+      providers: PROVIDERS,
+      params: { month: "2026-11" },
+      forecastSettings: S,
+      projectForecast: false,
+      unitForecast: unit,
+    })
+    expect(out.forecast.map((f) => [f.month, f.projected])).toEqual([
+      ["2026-09", false],
+      ["2026-10", false],
+      ["2026-11", false],
+      ["2026-12", true],
+    ])
+    expect(out.forecast.slice(1, 3).map((f) => f.total)).toEqual([0, 0])
+  })
+})
