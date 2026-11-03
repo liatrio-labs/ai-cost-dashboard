@@ -216,6 +216,22 @@ project marks the key `'manual'`, and the sync never changes those three
 columns on a manual key. Keys assigned by hand before 015 are marked `'manual'`
 by the migration.
 
+Migration 017 (issue #32) adds two metadata columns for the Anthropic key sync
+(`frontend/lib/org/anthropic-key-sync.ts`):
+
+```sql
+org_api_keys      + external_status    (provider key status: active | inactive | archived; NULL = unknown),
+                    unresolved_reason  ('no_creator' | 'service_account' | 'deleted_user' |
+                                        'unmatched_creator' | NULL)
+```
+
+The Anthropic sync registers every key (all statuses), makes each workspace an
+`org_projects` row (the default workspace is the project `default`, named
+"Default"), sets `org_project_id` to the key's workspace project and assigns
+the owner from the key's creator (`assignment_source = 'auto'`, never over a
+manual key). Keys it can't give an owner keep the reason in
+`unresolved_reason`. The view is unchanged.
+
 #### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011 and 015)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).
@@ -427,6 +443,13 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   (saving a seat assignment fails without it; everything else works). If the
   rename alone is wanted without the migration, the one-line operator step is
   `UPDATE providers SET display_name = 'Claude Ultra' WHERE name = 'claude-max';`.
+- **017_anthropic_key_sync.sql**: Anthropic key sync columns (#32).
+  `org_api_keys.external_status` and `org_api_keys.unresolved_reason` (CHECK:
+  no_creator / service_account / deleted_user / unmatched_creator / NULL). No
+  view, grant or data change. The app works before it is applied: the sync and
+  the admin org page fall back to the 015 columns (key status and the
+  unresolved reason are then not stored or shown). **Needs Robert's explicit
+  approval before it is applied to production.**
 
 ### Testing migrations locally
 
@@ -446,7 +469,11 @@ reconciliation, `ON DELETE SET NULL`, grants), runs `assertions_016.sql`
 (Claude Ultra rename, a production-shaped $15,600 of `claude-max` seat rows
 split and re-assigned through `replace_seat_group()` with sums unchanged,
 person/team resolution, un-split months unchanged, refusals, EXECUTE grants),
-then re-applies 010, 011, 014, 015 and 016 over the data. 011 must always follow 010, because 010 recreates the view
+runs `assertions_017.sql` (the 017 columns and CHECK, and the issue #32
+precedence against the real view: a `user_actor` row on someone else's key
+resolves to the actor, manual owner, auto creator owner, workspace project
+team, Default project via the key, Unassigned; no fan-out, reconciliation,
+grants), then re-applies 010, 011, 014, 015, 016 and 017 over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

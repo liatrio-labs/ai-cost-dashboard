@@ -232,10 +232,14 @@ gateway key, inside the 300 s function limit). Either way it needs the same
 a set (same rules as below), and runs the gateway key sync afterwards. **Operator step
 after deploying migration 015 and this code; not run as part of the change.**
 
-To register every gateway key (keys with no spend included) without collecting, use
-**Sync keys now** on `/admin` (pull card) or `/admin/org` ("API keys & projects"). It
-reports created / updated / unchanged / manual-kept counts; a failed Vercel key list is
-an error and changes nothing.
+To register every gateway and Anthropic key (keys with no spend included) without
+collecting, use **Sync keys now** on `/admin` (pull card, per provider) or `/admin/org`
+("API keys & projects", both providers). It reports created / updated / unchanged /
+manual-kept / unresolved-creator counts per provider; a failed Vercel or Anthropic key
+list is an error and changes nothing. Anthropic keys are assigned to their creator and
+workspaces become projects (issue #32, see `docs/attribution.md`); the same sync runs
+after every Anthropic collection. Migration 017 stores Anthropic key status and the
+reason a key has no owner; the sync works without it.
 
 ```bash
 BASE=https://your-deployment.example.com

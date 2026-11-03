@@ -25,6 +25,7 @@
 import type { Collector, CostRecord, CollectorContext, CollectOptions } from "./types"
 import { fetchWithRetry, toFloat, toInt, rfc3339, startOfUTCDay, DAY_MS, sleep } from "./http"
 import { buildAttribution, str } from "./attribution"
+import type { Attribution } from "./types"
 import {
   AnalyticsUnavailableError,
   actorMetadata,
@@ -68,6 +69,19 @@ function legacyInputTokens(row: Record<string, any>): number {
     total += toInt(row[field] ?? 0)
   }
   return total
+}
+
+/**
+ * Issue #32: an Anthropic workspace is also the row's project
+ * (attribution.project_id = workspace_id, plus project_name when known), so
+ * the rollup resolves the workspace's org_projects row and that project's
+ * team. Granularity is left as it was (a workspace-only row stays
+ * "workspace"). The default workspace (workspace_id null) gets no project_id;
+ * its keys carry the "Default" project instead (lib/org/anthropic-key-sync.ts).
+ */
+export function withWorkspaceProject(a: Attribution, workspaceName?: string | null): Attribution {
+  if (!a.workspace_id || a.project_id) return a
+  return { ...a, project_id: a.workspace_id, ...(workspaceName ? { project_name: workspaceName } : {}) }
 }
 
 interface UsageAgg {
@@ -135,7 +149,7 @@ export function transform(
         bucket_width: bucketWidth,
         organization_id: ctx.organizationId,
         source: "cost_report",
-        attribution: buildAttribution({ workspace_id: str(workspaceId) }),
+        attribution: withWorkspaceProject(buildAttribution({ workspace_id: str(workspaceId) })),
       },
     })
   }
@@ -208,7 +222,7 @@ export function transformAnalytics(
         source: "analytics",
         list_amount_usd: cost?.listCents != null ? cost.listCents / 100 : null,
         ...actorMetadata(group),
-        attribution: groupAttribution(group),
+        attribution: withWorkspaceProject(groupAttribution(group)),
       },
     })
   }

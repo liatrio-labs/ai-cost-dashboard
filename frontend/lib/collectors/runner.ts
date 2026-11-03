@@ -18,6 +18,7 @@ import { collector as openai } from "./openai"
 import { collector as cursor } from "./cursor"
 import { collector as vercelAiGateway } from "./vercel-ai-gateway"
 import { syncGatewayKeys } from "@/lib/org/gateway-sync"
+import { syncAnthropicKeys } from "@/lib/org/anthropic-key-sync"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -44,15 +45,28 @@ export const PROVIDER_ENV: Record<
   },
 }
 
+/** What a post-collect sync gets: the collector context (apiKey is the provider's admin key). */
+export interface PostCollectCtx {
+  providerId: string
+  apiKey?: string
+  teamId?: string
+  auxApiKey?: string
+}
+
 /**
  * Optional per-provider step after a successful store: keeps org metadata in
- * step with the provider (AI Gateway: the key sync, issue #24). Best-effort:
- * a failure is reported in the summary and never fails collection.
+ * step with the provider (AI Gateway: the key sync, issue #24; Anthropic: the
+ * key sync, issue #32). Best-effort: a failure is reported in the summary as
+ * key_sync and never fails collection.
  */
 export const POST_COLLECT_SYNC: Record<
   string,
-  (admin: SupabaseClient, ctx: { providerId: string; teamId?: string; auxApiKey?: string }) => Promise<Record<string, unknown> | null>
+  (admin: SupabaseClient, ctx: PostCollectCtx) => Promise<Record<string, unknown> | null>
 > = {
+  anthropic: async (admin, ctx) => {
+    if (!ctx.apiKey) return null
+    return { ...(await syncAnthropicKeys(admin, { adminKey: ctx.apiKey, providerId: ctx.providerId })) }
+  },
   "vercel-ai-gateway": async (admin, ctx) => {
     if (!ctx.auxApiKey) return null // no VERCEL_TOKEN: keys can't be listed
     return { ...(await syncGatewayKeys(admin, { vercelToken: ctx.auxApiKey, teamId: ctx.teamId, providerId: ctx.providerId })) }
@@ -63,7 +77,7 @@ export const POST_COLLECT_SYNC: Record<
 export async function runPostCollectSync(
   provider: string,
   admin: SupabaseClient,
-  ctx: { providerId: string; teamId?: string; auxApiKey?: string }
+  ctx: PostCollectCtx
 ): Promise<Record<string, unknown> | undefined> {
   const sync = POST_COLLECT_SYNC[provider]
   if (!sync) return undefined
@@ -247,7 +261,7 @@ export async function runCollectionForProvider(
     // Stamp the tool's "Last updated" time on every successful pull.
     await touchProvidersCollected([(prov as { id: string }).id])
 
-    // Org metadata sync (AI Gateway keys -> people / projects). Best-effort.
+    // Org metadata sync (AI Gateway / Anthropic keys -> people / projects). Best-effort.
     const keySync = await runPostCollectSync(provider, admin, ctx)
 
     return {

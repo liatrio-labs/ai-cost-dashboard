@@ -81,6 +81,10 @@ export interface OrgApiKey {
   spend_attribution?: string | null
   /** auto = set by the key sync; manual = set by an admin (never overwritten); null = nothing assigned. */
   assignment_source?: "auto" | "manual" | null
+  /** Provider key status (Anthropic: active | inactive | archived), migration 017. */
+  external_status?: string | null
+  /** Why the key sync left the key without an owner (migration 017, issue #32). */
+  unresolved_reason?: string | null
 }
 
 /** Provider project metadata (migration 011) with the team that owns its spend. */

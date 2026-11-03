@@ -227,11 +227,11 @@ describe("anthropic transformAnalytics", () => {
     expect(alice.metadata.source).toBe("analytics")
 
     const key = d1.find((r) => (r.metadata.attribution as any).api_key_id)!
-    expect(key.metadata.attribution).toEqual({ granularity: "api_key", api_key_id: "apikey_01", workspace_id: "wrkspc_01" })
+    expect(key.metadata.attribution).toEqual({ granularity: "api_key", api_key_id: "apikey_01", workspace_id: "wrkspc_01", project_id: "wrkspc_01" })
     expect(key.cost_usd).toBeCloseTo(12.345678)
 
     const svc = d1.find((r) => r.metadata.actor_type === "service_account_actor")!
-    expect(svc.metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_02" })
+    expect(svc.metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_02", project_id: "wrkspc_02" })
     expect(svc.metadata.service_account_id).toBe("svc_01")
 
     const unattributed = d1.find((r) => r.metadata.actor_type === null)!
@@ -267,7 +267,7 @@ describe("anthropic transformAnalytics", () => {
     ]
     const records = transform([], cost, CTX)
     const ws = records.find((r) => r.cost_usd === 5)!
-    expect(ws.metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_01" })
+    expect(ws.metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_01", project_id: "wrkspc_01" })
     const dflt = records.find((r) => r.cost_usd === 2.5)!
     expect(dflt.metadata.attribution).toEqual({ granularity: "org" })
   })
@@ -391,7 +391,7 @@ describe("anthropic collect (mocked fetch)", () => {
     expect(records[0].cost_usd).toBeCloseTo(10)
     expect(records[0].tokens_used).toBe(10)
     expect(records[0].metadata.source).toBe("cost_report")
-    expect(records[0].metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_01" })
+    expect(records[0].metadata.attribution).toEqual({ granularity: "workspace", workspace_id: "wrkspc_01", project_id: "wrkspc_01" })
   })
 
   test("other analytics errors still fail the collection (no silent fallback)", async () => {

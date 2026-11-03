@@ -8,17 +8,25 @@
  * from Sync keys now) are listed too.
  *
  * Owner, team and project are assigned inline through POST
- * /api/admin/org/keys, which marks the assignment manual (the gateway key
- * sync never overwrites it).
+ * /api/admin/org/keys, which marks the assignment manual (the key syncs
+ * never overwrite it).
+ *
+ * Issue #32: Anthropic keys show their status and creator; keys the sync
+ * couldn't give an owner (service account, deleted or unmatched creator, no
+ * creator) are listed under "Unassigned keys" with the reason. AI Gateway
+ * keys with team / unset spend attribution, a creator email and no owner get
+ * a one-click "Assign to creator" (POST /api/admin/org/keys/assign-creator,
+ * manual).
  */
 
 import { useMemo } from "react"
-import { Loader2, Trash2 } from "lucide-react"
+import { Loader2, Trash2, UserCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { KeyRow, ProjectRow } from "@/lib/org/admin/observed"
 import { groupKeys } from "@/lib/org/key-groups"
+import { canAssignToCreator, unresolvedReasonText } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "never")
@@ -84,11 +92,19 @@ export function KeysByProjectCard({
                   </div>
                   <div className="divide-y divide-border/50 px-3">
                     {g.keys.map((k) => (
-                      <KeyLine key={`${k.provider_id}:${k.external_key_id}`} k={k} org={org} mutate={mutate} owner={personLabel(k.owner_person_id)} />
+                      <KeyLine
+                        key={`${k.provider_id}:${k.external_key_id}`}
+                        k={k}
+                        org={org}
+                        mutate={mutate}
+                        owner={personLabel(k.owner_person_id)}
+                        providerSlug={pg.provider_slug}
+                      />
                     ))}
                   </div>
                 </div>
               ))}
+              <UnassignedKeys keys={pg.projects.flatMap((g) => g.keys)} />
             </div>
           </section>
         ))}
@@ -97,11 +113,61 @@ export function KeysByProjectCard({
   )
 }
 
-function KeyLine({ k, org, mutate, owner }: { k: KeyRow; org: Org; mutate: Mutate; owner: string | null }) {
+/** Keys the sync left without an owner, with the reason (issue #32). */
+function UnassignedKeys({ keys }: { keys: KeyRow[] }) {
+  const pending = keys.filter((k) => !k.owner_person_id && k.unresolved_reason)
+  if (!pending.length) return null
+  return (
+    <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs" role="group" aria-label="Unassigned keys">
+      <p className="font-medium">Unassigned keys</p>
+      <ul className="mt-1 space-y-0.5 text-muted-foreground">
+        {pending.map((k) => (
+          <li key={`${k.provider_id}:${k.external_key_id}`} data-testid="unassigned-key">
+            <span className="text-foreground">{k.name || k.external_key_id}</span>: {unresolvedReasonText(k.unresolved_reason)} · {usd(k.total_cost_usd)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** Vercel "Assign to creator" (issue #32): owner = the creator's person, marked manual. */
+export function AssignToCreatorButton({ k, mutate }: { k: KeyRow; mutate: Mutate }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1"
+      title={`Make ${k.external_created_by_email} the owner (manual; the sync won't change it)`}
+      aria-label={`Assign ${k.external_key_id} to creator`}
+      onClick={() =>
+        mutate("/keys/assign-creator", "POST", { provider_id: k.provider_id, external_key_id: k.external_key_id }, `Assigned to ${k.external_created_by_email}`)
+      }
+    >
+      <UserCheck className="h-4 w-4" />
+      Assign to creator
+    </Button>
+  )
+}
+
+function KeyLine({
+  k,
+  org,
+  mutate,
+  owner,
+  providerSlug,
+}: {
+  k: KeyRow
+  org: Org
+  mutate: Mutate
+  owner: string | null
+  providerSlug: string | null
+}) {
   const save = (patch: Record<string, unknown>) =>
     mutate("/keys", "POST", { provider_id: k.provider_id, external_key_id: k.external_key_id, name: k.name, ...patch }, "Key updated")
   const keyProjects = org.projects.filter((p) => p.provider_id === k.provider_id)
   const team = k.team_id ? org.teams.find((t) => t.id === k.team_id)?.name : null
+  const creator = k.external_created_by_email ?? (k.external_created_by?.includes(":") ? k.external_created_by : null)
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid="admin-key-row">
       <div className="min-w-0">
@@ -111,13 +177,20 @@ function KeyLine({ k, org, mutate, owner }: { k: KeyRow; org: Org; mutate: Mutat
             unregistered
           </Badge>
         )}
+        {k.external_status && (
+          <Badge variant={k.external_status === "active" ? "outline" : "secondary"} className="ml-2">
+            {k.external_status}
+          </Badge>
+        )}
         <SourceBadge source={k.assignment_source} />
         <p className="text-xs text-muted-foreground">
-          <code>{k.external_key_id}</code> · owner {owner ?? "none"} · team {team ?? "none"}
-          {k.external_created_by_email && ` · created by ${k.external_created_by_email}`} · last seen {day(k.last_seen)} · {usd(k.total_cost_usd)}
+          <code>{k.external_key_id}</code> · owner {owner ?? "none"}
+          {!owner && k.unresolved_reason && ` (${unresolvedReasonText(k.unresolved_reason)})`} · team {team ?? "none"}
+          {creator && ` · created by ${creator}`} · last seen {day(k.last_seen)} · {usd(k.total_cost_usd)}
         </p>
       </div>
       <div className="flex items-center gap-1">
+        {canAssignToCreator(k, providerSlug) && <AssignToCreatorButton k={k} mutate={mutate} />}
         <select
           aria-label={`Owner of ${k.external_key_id}`}
           className={selectClass}
