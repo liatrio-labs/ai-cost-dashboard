@@ -29,6 +29,9 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
   collectors; idempotent (delete-then-insert per day) so re-runs never double-count.
 - 🛠️ **Admin area** — trigger a manual pull, add tools, record manual/seat-based monthly
   entries, edit the forecast headcount, and force a dashboard refresh.
+- 💳 **Seat assignments** — split a seat-based tool's month (Claude Ultra, formerly
+  Claude Max, slug `claude-max`; ChatGPT; Lovable) across the people who hold the
+  seats. Per-person rows plus an Unassigned remainder; the month's total never changes.
 - 🗓️ **Period selection** — view any month or a custom date range.
 - 🔐 **Google SSO** — Supabase Auth, restricted to the `@liatrio.com` domain.
 - 🌙 **Dark mode + Liatrio brand** — Space Grotesk, brand palette, logomark favicon,

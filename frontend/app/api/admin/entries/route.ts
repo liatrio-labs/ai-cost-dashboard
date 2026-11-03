@@ -6,6 +6,12 @@
  *                                        price_per_seat?, note? } (seats×price
  *                                        recomputes cost_usd)
  * DELETE /api/admin/entries?id=<id>   — delete one
+ * DELETE /api/admin/entries?seat_group_id=<id> — delete a split seat month
+ *                                        (every row of the set, issue #26)
+ *
+ * Rows of a split seat month (metadata.seat_group_id) can't be edited one by
+ * one, since that would break the month's reconciliation; re-assign them in
+ * Seat assignments or delete the whole set.
  *
  * Scoped to manual rows only (collection_method in manual_entry/csv_import) so
  * API-collected data can't be edited here. Mutations refresh the dashboard rollup.
@@ -21,6 +27,26 @@ export const dynamic = "force-dynamic"
 
 const MANUAL_METHODS = ["manual_entry", "csv_import"]
 
+type Meta = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+interface EntryDbRow {
+  id: string
+  provider_id: string
+  timestamp: string
+  cost_usd: number
+  model_name: string
+  collection_method: string
+  metadata: Meta | null
+  providers?: { display_name?: string; name?: string } | null
+}
+
+/** Maps requireAdmin's errors to 401/403, anything else to `status`. */
+function failure(e: unknown, fallback: string) {
+  const message = e instanceof Error ? e.message : ""
+  if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
+  if (message === "Forbidden") return errorResponse("Forbidden", 403)
+  return errorResponse(message || (e as { message?: string })?.message || fallback, 500)
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies()
@@ -31,9 +57,9 @@ export async function GET() {
       .select("id, provider_id, timestamp, cost_usd, model_name, collection_method, metadata, providers(display_name, name)")
       .in("collection_method", MANUAL_METHODS)
       .order("timestamp", { ascending: false })
-      .limit(200)
+      .limit(500)
     if (error) throw error
-    const rows = (data || []).map((r: any) => ({
+    const rows = ((data || []) as unknown as EntryDbRow[]).map((r) => ({
       id: r.id,
       provider_id: r.provider_id,
       provider_name: r.providers?.display_name || r.providers?.name || "—",
@@ -45,13 +71,15 @@ export async function GET() {
       seats: r.metadata?.seats ?? null,
       price_per_seat: r.metadata?.price_per_seat ?? null,
       note: r.metadata?.notes || "",
+      seat_group_id: r.metadata?.seat_group_id || null,
+      person_email:
+        r.metadata?.attribution?.granularity === "person" ? r.metadata?.attribution?.person_email || null : null,
+      remainder: r.metadata?.remainder === true,
       collection_method: r.collection_method,
     }))
     return successResponse(rows)
-  } catch (e: any) {
-    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
-    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
-    return errorResponse(e?.message || "Failed to list entries", 500)
+  } catch (e) {
+    return failure(e, "Failed to list entries")
   }
 }
 
@@ -71,12 +99,19 @@ export async function PATCH(request: NextRequest) {
       .eq("id", id)
       .single()
     if (getErr || !existing) return errorResponse("Entry not found", 404)
-    if (!MANUAL_METHODS.includes((existing as any).collection_method)) {
+    const row = existing as unknown as EntryDbRow
+    if (!MANUAL_METHODS.includes(row.collection_method)) {
       return errorResponse("Only manual entries can be edited", 400)
     }
+    if (row.metadata?.seat_group_id) {
+      return errorResponse(
+        "This entry is part of a split seat month; re-assign it in Seat assignments or delete the whole month",
+        400
+      )
+    }
 
-    const meta = { ...((existing as any).metadata || {}) }
-    let cost = (existing as any).cost_usd as number
+    const meta: Meta = { ...(row.metadata || {}) }
+    let cost = Number(row.cost_usd)
 
     // Seat-based: recompute cost from seats × price.
     const hasSeats = body.seats !== undefined && body.price_per_seat !== undefined
@@ -103,7 +138,7 @@ export async function PATCH(request: NextRequest) {
 
     const { data, error } = await admin
       .from("cost_records")
-      .update(update as any)
+      .update(update as never)
       .eq("id", id)
       .select("id, cost_usd, metadata")
       .single()
@@ -111,10 +146,8 @@ export async function PATCH(request: NextRequest) {
 
     await refreshDailyAggregates()
     return successResponse({ message: "Entry updated", entry: data })
-  } catch (e: any) {
-    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
-    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
-    return errorResponse(e?.message || "Failed to update entry", 500)
+  } catch (e) {
+    return failure(e, "Failed to update entry")
   }
 }
 
@@ -124,17 +157,36 @@ export async function DELETE(request: NextRequest) {
     await requireAdmin(cookieStore)
 
     const id = request.nextUrl.searchParams.get("id")
-    if (!id) return errorResponse("id query parameter is required", 400)
+    const groupId = request.nextUrl.searchParams.get("seat_group_id")
+    if (!id && !groupId) return errorResponse("id or seat_group_id query parameter is required", 400)
 
     const admin = createAdminClient()
+    if (groupId) {
+      // One statement, so the whole split month goes at once.
+      const { data, error } = await admin
+        .from("cost_records")
+        .delete()
+        .in("collection_method", MANUAL_METHODS)
+        .eq("metadata->>seat_group_id", groupId)
+        .select("id")
+      if (error) throw error
+      if (!data || data.length === 0) return errorResponse("Seat group not found", 404)
+      await refreshDailyAggregates()
+      return successResponse({ message: `Deleted ${data.length} entries`, deleted: data.length })
+    }
+
     const { data: existing, error: getErr } = await admin
       .from("cost_records")
-      .select("id, collection_method")
-      .eq("id", id)
+      .select("id, collection_method, metadata")
+      .eq("id", id!)
       .single()
     if (getErr || !existing) return errorResponse("Entry not found", 404)
-    if (!MANUAL_METHODS.includes((existing as any).collection_method)) {
+    const row = existing as unknown as EntryDbRow
+    if (!MANUAL_METHODS.includes(row.collection_method)) {
       return errorResponse("Only manual entries can be deleted here", 400)
+    }
+    if (row.metadata?.seat_group_id) {
+      return errorResponse("This entry is part of a split seat month; delete the whole month (seat_group_id)", 400)
     }
 
     const { error } = await admin.from("cost_records").delete().eq("id", id)
@@ -142,9 +194,7 @@ export async function DELETE(request: NextRequest) {
 
     await refreshDailyAggregates()
     return successResponse({ message: "Entry deleted" })
-  } catch (e: any) {
-    if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
-    if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
-    return errorResponse(e?.message || "Failed to delete entry", 500)
+  } catch (e) {
+    return failure(e, "Failed to delete entry")
   }
 }

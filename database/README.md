@@ -415,6 +415,18 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   010, 011 or 014. **Apply 015 before deploying the code that reads it** (the
   admin org page falls back to the pre-015 columns, but key writes and the key
   sync need them; the sync failing never fails collection).
+- **016_seat_assignments.sql**: per-person seat assignments (#26). No new table
+  and no view change: adds `replace_seat_group(uuid[], jsonb)`, which deletes a
+  month's manual seat rows and inserts their per-person split in one
+  transaction, refusing missing/non-manual ids, a second provider, negative
+  costs or a sum that differs from the rows replaced (SECURITY INVOKER, pinned
+  `search_path`, EXECUTE for `service_role` only). Also renames the
+  `claude-max` provider's display name from 'Claude Max' to 'Claude Ultra'
+  (slug unchanged; only a row still named exactly 'Claude Max'; no
+  `cost_records` change). **Apply 016 before deploying the code that calls it**
+  (saving a seat assignment fails without it; everything else works). If the
+  rename alone is wanted without the migration, the one-line operator step is
+  `UPDATE providers SET display_name = 'Claude Ultra' WHERE name = 'claude-max';`.
 
 ### Testing migrations locally
 
@@ -430,8 +442,11 @@ project team fallback, RLS/grants, and the 014 hardening as `anon`,
 `authenticated` and `service_role`), applies each later migration (015) twice
 over the data with the same row count / sum check, runs `assertions_015.sql`
 (gateway key owner, key project and project team precedence, no fan-out,
-reconciliation, `ON DELETE SET NULL`, grants), then re-applies 010, 011, 014 and
-015 over the data. 011 must always follow 010, because 010 recreates the view
+reconciliation, `ON DELETE SET NULL`, grants), runs `assertions_016.sql`
+(Claude Ultra rename, a production-shaped $15,600 of `claude-max` seat rows
+split and re-assigned through `replace_seat_group()` with sums unchanged,
+person/team resolution, un-split months unchanged, refusals, EXECUTE grants),
+then re-applies 010, 011, 014, 015 and 016 over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

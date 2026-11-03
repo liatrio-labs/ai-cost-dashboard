@@ -50,7 +50,8 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 | Vercel (billing) | no | no | project (FOCUS `Tags.ProjectId/ProjectName`) | one per charge | `GET /v1/billing/charges` (unchanged) |
 | Windsurf | no (usage only; cost is flat seats) | no | no | one org row | unchanged |
 | Apify | no | no | no | one org row | unchanged (account-scoped) |
-| Manual / ChatGPT | no | no | no | n/a | manual entry, no `attribution` (counts as org) |
+| Manual (not seat-based) | no | no | no | n/a | manual entry, no `attribution` (counts as org) |
+| Seat-based manual tools (Claude Ultra `claude-max`, ChatGPT, Lovable) | yes, once an admin assigns seats | no | no | one row per assigned person plus an org remainder, per month | Seat assignments (admin), `PUT /api/admin/seat-assignments` |
 
 ## Provider notes
 
@@ -186,6 +187,31 @@ Gateway history").
   seat fee by usage would invent numbers. Rows are `org`.
 - Apify: the token and usage API are account-scoped, with no user, key or
   project dimension. Rows are `org`.
+
+### Seat-based manual tools (issue #26)
+
+Claude Ultra (formerly Claude Max; the provider slug stays `claude-max`) and
+other seat-based manual tools (providers with `metadata.billing = 'seat'`) are
+entered as one `manual_entry` row per month (`model_name 'seats'`,
+`request_count` = seats, `metadata.entry_type = 'monthly_seats'`). The admin
+**Seat assignments** card splits a month into:
+
+- one row per person: `attribution = { granularity: "person", person_email }`,
+  `seats`, and a cost that defaults to seats × `price_per_seat`;
+- one remainder row for unassigned seats: `attribution = { granularity: "org" }`,
+  `remainder: true` (left out when nothing remains).
+
+Every row keeps `entry_type`, `month`, `price_per_seat`, `cost_basis`, `notes`,
+the original timestamp and owner, and shares `metadata.seat_group_id` (plus
+`seat_group_total_usd` / `seat_group_total_seats`). The rows sum to the month's
+original total exactly (micro-dollars; the remainder absorbs rounding).
+Re-assigning replaces the set in one transaction through `replace_seat_group()`
+(migration 016), which refuses a set whose sum differs from the rows it
+replaces. Clearing all assignments collapses the month back to one plain entry.
+The view already resolves `person_email` to the person and their team, so the
+People table, person drill-down and team/department roll-ups pick it up.
+Emails not in `people` are added (no team). Manage entries lists a split month
+as one item and deletes it as a set; its rows can't be edited one by one.
 
 ## Gaps and follow-ups
 

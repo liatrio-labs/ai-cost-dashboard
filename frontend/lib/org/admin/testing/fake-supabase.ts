@@ -78,7 +78,8 @@ export class FakeSupabase {
     return new FakeQuery(this, table)
   }
 
-  async rpc(name: string) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async rpc(name: string, _args?: Record<string, unknown>): Promise<{ data: unknown; error: FakeError | null }> {
     this.rpcCalls.push(name)
     return { data: null, error: null }
   }
