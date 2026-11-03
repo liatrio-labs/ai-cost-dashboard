@@ -1,4 +1,5 @@
--- Fixtures for the migration assertions. Inserted AFTER all migrations, so
+-- Fixtures for the migration assertions. Inserted after 001-011 and before
+-- 014 (so 014 is applied over existing data, as in production), so
 -- both materialized views are still empty until refresh_cost_records_daily().
 --
 -- Org:

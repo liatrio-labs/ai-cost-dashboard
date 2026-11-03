@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Applies database/migrations/001-011 to a throwaway local PostgreSQL 15,
-# re-applies 010 and 011 to prove they are idempotent, seeds fixtures and runs the SQL
-# assertions in scripts/migration-tests/. Never touches a remote database:
+# Applies database/migrations to a throwaway local PostgreSQL 15 the way
+# production got them: 001-011 first (re-applying 010 and 011 to prove they
+# are idempotent), then fixtures, then 014 over existing data (applied twice,
+# checking cost_records row count and SUM(cost_usd) are unchanged), then any
+# later migrations, then the SQL assertions in scripts/migration-tests/.
+# Finally re-applies 010, 011 and 014 over the data. 012 and 013 are unused.
+# Never touches a remote database:
 # the server listens only on a unix socket in a temp directory, and is
 # stopped and deleted on exit.
 #
@@ -106,14 +110,21 @@ log "Applying Supabase auth stub"
 run_sql "$TESTS/auth_stub.sql" >/dev/null
 
 mapfile -t FILES < <(find "$MIGRATIONS" -maxdepth 1 -name '0[0-9][0-9]_*.sql' | sort)
-[[ ${#FILES[@]} -ge 11 ]] || die "expected migrations 001-011, found ${#FILES[@]}"
+M010="$MIGRATIONS/010_org_structure.sql"
+M011="$MIGRATIONS/011_org_projects.sql"
+M014="$MIGRATIONS/014_security_hardening.sql"
+[[ -f "$M014" ]] || die "014_security_hardening.sql not found"
+PRE=() POST=()
 for f in "${FILES[@]}"; do
+  b="$(basename "$f")"
+  if [[ "$b" < "014_" ]]; then PRE+=("$f"); elif [[ "$f" != "$M014" ]]; then POST+=("$f"); fi
+done
+[[ ${#PRE[@]} -ge 11 ]] || die "expected migrations 001-011, found ${#PRE[@]}"
+for f in "${PRE[@]}"; do
   log "Applying $(basename "$f")"
   run_sql "$f" >/dev/null || die "$(basename "$f") failed"
 done
 
-M010="$MIGRATIONS/010_org_structure.sql"
-M011="$MIGRATIONS/011_org_projects.sql"
 # 010 recreates the attributed view without the 011 project fallback, so
 # 011 is always re-applied after it.
 log "Re-applying 010 and 011 (idempotency, empty tables)"
@@ -123,6 +134,25 @@ run_sql "$M011" >/dev/null || die "re-applying 011 failed"
 log "Seeding fixtures"
 run_sql "$TESTS/fixtures.sql" >/dev/null || die "fixtures failed"
 
+cost_snapshot() {
+  "$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT count(*) || '/' || COALESCE(sum(cost_usd), 0) FROM cost_records"
+}
+
+# 014 over existing data, as in production; the second run proves idempotency.
+BEFORE="$(cost_snapshot)"
+for pass in 1 2; do
+  log "Applying 014_security_hardening.sql (pass $pass, with data)"
+  run_sql "$M014" >/dev/null || die "014 failed (pass $pass)"
+  AFTER="$(cost_snapshot)"
+  [[ "$AFTER" == "$BEFORE" ]] || die "cost_records changed across 014 pass $pass: $BEFORE -> $AFTER"
+done
+echo "  PASS: 014 applied twice; cost_records count/sum unchanged ($BEFORE)"
+
+for f in "${POST[@]}"; do
+  log "Applying $(basename "$f")"
+  run_sql "$f" >/dev/null || die "$(basename "$f") failed"
+done
+
 log "Running assertions"
 OUT="$(run_sql "$TESTS/assertions.sql")" && rc=0 || rc=$?
 printf '%s\n' "$OUT" | sed -n 's/^.*NOTICE:  \(PASS\|FAIL\)/  \1/p'
@@ -131,9 +161,15 @@ if [[ $rc -ne 0 ]]; then
   die "assertions failed"
 fi
 
-log "Re-applying 010 and 011 (idempotency, with data)"
+# 010 and 011 recreate refresh_cost_records_daily() and the attributed view,
+# so 014 must follow them.
+log "Re-applying 010, 011 and 014 (idempotency, with data)"
+BEFORE="$(cost_snapshot)"
 run_sql "$M010" >/dev/null || die "re-applying 010 with data failed"
 run_sql "$M011" >/dev/null || die "re-applying 011 with data failed"
+run_sql "$M014" >/dev/null || die "re-applying 014 with data failed"
+AFTER="$(cost_snapshot)"
+[[ "$AFTER" == "$BEFORE" ]] || die "cost_records changed across re-apply: $BEFORE -> $AFTER"
 "$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT refresh_cost_records_daily()" >/dev/null
 RECON="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
   SELECT count(*) FROM (
@@ -142,7 +178,18 @@ RECON="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
     SELECT date, sum(total_cost_usd) c FROM cost_records_daily GROUP BY date
   ) d USING (date) WHERE a.c IS DISTINCT FROM d.c")"
 [[ "$RECON" == "0" ]] || die "totals do not reconcile after re-applying 010 and 011"
-echo "  PASS: 010 and 011 re-applied over existing data; totals still reconcile"
+echo "  PASS: 010, 011 and 014 re-applied over existing data; totals still reconcile"
+
+# Re-running 010/011 must not leave 014's grants or search_path undone.
+LEAK="$("$PSQL" -X -qAt -v ON_ERROR_STOP=1 -c "
+  SELECT count(*) FROM (VALUES
+    (has_table_privilege('anon', 'public.cost_records_daily_attributed', 'SELECT')),
+    (has_function_privilege('authenticated', 'public.refresh_cost_records_daily()', 'EXECUTE')),
+    (NOT 'search_path=public, pg_temp' = ANY (COALESCE(
+        (SELECT proconfig FROM pg_proc WHERE oid = 'public.refresh_cost_records_daily()'::regprocedure),
+        '{}')))) v(bad) WHERE bad")"
+[[ "$LEAK" == "0" ]] || die "014 hardening not intact after re-applying 010, 011 and 014"
+echo "  PASS: 014 hardening intact after the final re-apply"
 
 PASSES="$(printf '%s\n' "$OUT" | grep -c 'NOTICE:  PASS' || true)"
-log "OK: 001-011 applied, 010 and 011 idempotent, $((PASSES + 1)) assertions passed"
+log "OK: 001-011 and 014 applied, 010, 011 and 014 idempotent, $((PASSES + 3)) assertions passed"
