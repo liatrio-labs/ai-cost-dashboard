@@ -6,6 +6,14 @@
  */
 
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  coerceUnitOverrides,
+  serializeUnitOverrides,
+  unitOverrideKey,
+  type UnitLevel,
+  type UnitOverride,
+  type UnitOverrides,
+} from "@/lib/unit-forecast"
 
 export interface ForecastSettings {
   employees: number
@@ -76,5 +84,49 @@ export async function setForecastEmployees(employees: number): Promise<ForecastS
     { onConflict: "key" }
   )
   if (error) throw new Error(`Failed to save forecast settings: ${error.message}`)
+  return next
+}
+
+// ---------------------------------------------------------------------------
+// Per-unit (team / department) overrides, issue #9. Stored in app_settings
+// under key 'forecast_units' as { overrides: { "<level>:<id|unassigned>":
+// { plateau_usd, headcount } } }. See lib/unit-forecast.ts.
+// ---------------------------------------------------------------------------
+
+export const FORECAST_UNITS_KEY = "forecast_units"
+
+/** Read the per-unit overrides (service-role; {} on any error). */
+export async function getForecastUnitOverrides(): Promise<UnitOverrides> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("value")
+      .eq("key", FORECAST_UNITS_KEY)
+      .maybeSingle()
+    if (error || !data) return {}
+    return coerceUnitOverrides((data as { value: unknown }).value)
+  } catch {
+    return {}
+  }
+}
+
+/** Set (or with both fields null, clear) one unit's override. Returns all overrides. */
+export async function setForecastUnitOverride(
+  level: UnitLevel,
+  key: string,
+  override: UnitOverride
+): Promise<UnitOverrides> {
+  const current = await getForecastUnitOverrides()
+  const k = unitOverrideKey(level, key)
+  const next: UnitOverrides = { ...current }
+  if (override.plateauUsd == null && override.headcount == null) delete next[k]
+  else next[k] = { plateauUsd: override.plateauUsd ?? null, headcount: override.headcount ?? null }
+  const admin = createAdminClient()
+  const { error } = await admin.from("app_settings").upsert(
+    { key: FORECAST_UNITS_KEY, value: serializeUnitOverrides(next), updated_at: new Date().toISOString() } as any,
+    { onConflict: "key" }
+  )
+  if (error) throw new Error(`Failed to save forecast overrides: ${error.message}`)
   return next
 }
