@@ -6,7 +6,8 @@
  * (authoritative USD) + Usage (tokens) merge.
  */
 
-import { transform, collector, COST_GROUP_BY, USAGE_GROUP_BY } from "./openai"
+import { transform, collector, COST_GROUP_BY, USAGE_GROUP_BY, DEFAULT_LOOKBACK_DAYS } from "./openai"
+import type { CollectorDetails } from "./types"
 
 // UTC midnight of 2026-06-01 in unix seconds.
 const BUCKET_UNIX = Math.floor(Date.UTC(2026, 5, 1) / 1000)
@@ -205,9 +206,17 @@ describe("openai attribution", () => {
 
 describe("openai collect (mocked fetch)", () => {
   const realFetch = global.fetch
+  let logSpy: jest.SpyInstance
+  beforeEach(() => {
+    logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
+  })
   afterEach(() => {
     global.fetch = realFetch
+    jest.useRealTimers()
+    jest.restoreAllMocks()
   })
+  /** Every console.log line the collector wrote, as one string each. */
+  const logLines = () => logSpy.mock.calls.map((c) => c.map(String).join(" "))
   const res = (body: unknown, status = 200) =>
     ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
   const ctx = { apiKey: "test-admin-key", userId: "user-1", providerId: "prov-openai" }
@@ -259,5 +268,61 @@ describe("openai collect (mocked fetch)", () => {
     expect(costGroupings).toEqual([COST_GROUP_BY, ["line_item", "project_id"]])
     expect(records).toHaveLength(1)
     expect(records[0].metadata.attribution).toEqual({ granularity: "project", project_id: "proj_a" })
+  })
+
+  // A key-shaped secret and a body that echoes it: neither may reach the logs.
+  const SECRET_KEY = "sk-admin-SECRET-should-never-be-logged"
+  const secretCtx = { ...ctx, apiKey: SECRET_KEY }
+
+  function mockOpenAI(rejectKeyGrouping: boolean, calls: URL[] = []) {
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      calls.push(u)
+      if (u.pathname.endsWith("/costs")) {
+        if (rejectKeyGrouping && u.searchParams.getAll("group_by").includes("api_key_id")) {
+          return res({ error: { message: `invalid group_by for ${SECRET_KEY}` } }, 400)
+        }
+        return res({ data: [], has_more: false })
+      }
+      if (u.pathname.endsWith("/usage/completions")) return res({ data: [], has_more: false })
+      return res({}, 404)
+    }) as any
+  }
+
+  it("daily window is [today - 7d, tomorrow) (DEFAULT_LOOKBACK_DAYS = 7)", async () => {
+    jest.useFakeTimers({ now: new Date("2026-11-03T15:30:00Z"), doNotFake: ["setTimeout", "clearTimeout", "setImmediate", "nextTick", "queueMicrotask"] })
+    const calls: URL[] = []
+    mockOpenAI(false, calls)
+    await collector.collect(ctx)
+    expect(DEFAULT_LOOKBACK_DAYS).toBe(7)
+    const windowed = calls.filter((u) => u.searchParams.has("start_time"))
+    expect(windowed.map((u) => u.pathname.split("/").pop()).sort()).toEqual(["completions", "costs"])
+    for (const u of windowed) {
+      expect(Number(u.searchParams.get("start_time"))).toBe(Date.UTC(2026, 9, 27) / 1000)
+      expect(Number(u.searchParams.get("end_time"))).toBe(Date.UTC(2026, 10, 4) / 1000)
+    }
+  })
+
+  it("reports costs_grouping=api_key and logs one grouping line when api_key_id is accepted", async () => {
+    mockOpenAI(false)
+    const details: CollectorDetails = {}
+    await collector.collect({ ...secretCtx, report: (d) => Object.assign(details, d) })
+    expect(details).toEqual({ costs_grouping: "api_key" })
+    const lines = logLines().filter((l) => l.startsWith("[openai] costs grouping="))
+    expect(lines).toEqual(["[openai] costs grouping=api_key group_by=line_item,project_id,api_key_id"])
+  })
+
+  it("reports costs_grouping=fallback after a 400 and never logs key material or bodies", async () => {
+    mockOpenAI(true)
+    const details: CollectorDetails = {}
+    await collector.collect({ ...secretCtx, report: (d) => Object.assign(details, d) })
+    expect(details).toEqual({ costs_grouping: "fallback" })
+    const lines = logLines().filter((l) => l.startsWith("[openai] costs grouping="))
+    expect(lines).toEqual(["[openai] costs grouping=fallback status=400 group_by=line_item,project_id"])
+    for (const l of logLines()) {
+      expect(l).not.toContain(SECRET_KEY)
+      expect(l).not.toContain("sk-admin")
+      expect(l).not.toContain("invalid group_by")
+    }
   })
 })

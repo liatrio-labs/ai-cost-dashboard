@@ -57,6 +57,35 @@ Rows carry `metadata.attribution` (person / API key / project / workspace, or
 which endpoints are used. The AI Gateway collector also uses `VERCEL_TOKEN`
 (optional) to list gateway keys for per-key rows.
 
+### Daily refetch windows and coverage
+
+Provider usage keeps settling after a UTC day ends, so each daily (non-backfill)
+cron re-fetches a trailing window and overwrites it:
+
+| Collector | Daily window | Constant |
+|---|---|---|
+| `anthropic` | today + prior 7 UTC days | `DEFAULT_LOOKBACK_DAYS` in `lib/collectors/anthropic.ts` |
+| `openai` | today + prior 7 UTC days | `DEFAULT_LOOKBACK_DAYS` in `lib/collectors/openai.ts` |
+| `claude-ai` | today + prior 30 UTC days (31 buckets) | `DEFAULT_LOOKBACK_DAYS` in `lib/collectors/claude-ai.ts` |
+
+`storeRecords()` deletes every `api_automated` row for the provider at each
+re-fetched bucket timestamp and inserts the new set, so a revised day (higher or
+lower) ends up with exactly the new rows, and an old org-level row (e.g. an
+Anthropic `model = 'unknown'` row) at that timestamp is replaced, not added to.
+Manual and CSV rows are never touched.
+
+OpenAI `/costs` is grouped by `api_key_id` when the org allows it and falls back
+to `line_item,project_id` on a 400. Each run logs one line
+(`[openai] costs grouping=api_key ...` or `[openai] costs grouping=fallback status=400 ...`)
+and the cron JSON carries the same flag at `result.details.costs_grouping`.
+
+Missing or short days are reported by **`GET /api/admin/coverage?provider=&days=`**
+(admin only, read-only). It reads `cost_records_daily` and flags each of the last
+`days` complete UTC days (default 7, max 90) that is missing, or below 25% of that
+provider's trailing 14-day median. Providers with a $0 median and days with no
+history are ignored. The logic is the pure `findCoverageGaps` in
+`lib/collectors/coverage.ts`. Results reflect the last materialized-view refresh.
+
 ## Tech stack
 
 - **Framework:** Next.js 16 (App Router) · React 19 · TypeScript
