@@ -228,3 +228,185 @@ BEGIN
 EXCEPTION WHEN unique_violation THEN
     RAISE NOTICE 'PASS: team names are unique within a department (including none)';
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- 014: security hardening (#17)
+-- ---------------------------------------------------------------------------
+-- A partition created after 014 must get the same protection.
+SELECT create_monthly_partition(2027, 7);
+
+-- Every cost_records partition, at any depth.
+CREATE FUNCTION pg_temp.cr_partitions() RETURNS SETOF REGCLASS LANGUAGE sql AS $$
+    WITH RECURSIVE tree AS (
+        SELECT inhrelid FROM pg_inherits WHERE inhparent = 'public.cost_records'::regclass
+        UNION ALL
+        SELECT i.inhrelid FROM pg_inherits i JOIN tree t ON i.inhparent = t.inhrelid
+    )
+    SELECT inhrelid::regclass FROM tree
+$$;
+
+SELECT pg_temp.check('014: RLS enabled on providers and app_settings',
+    (SELECT bool_and(relrowsecurity) FROM pg_class
+      WHERE oid IN ('public.providers'::regclass, 'public.app_settings'::regclass)));
+SELECT pg_temp.check('014: RLS enabled on all 16 cost_records partitions, including one created after 014',
+    (SELECT count(*) FROM pg_temp.cr_partitions()) = 16
+    AND 'public.cost_records_2027_07'::regclass IN (SELECT * FROM pg_temp.cr_partitions())
+    AND (SELECT bool_and(c.relrowsecurity) FROM pg_class c
+          WHERE c.oid IN (SELECT * FROM pg_temp.cr_partitions())));
+SELECT pg_temp.check('014: no policies on app_settings or any partition',
+    NOT EXISTS (SELECT 1 FROM pg_policy
+                 WHERE polrelid = 'public.app_settings'::regclass
+                    OR polrelid IN (SELECT * FROM pg_temp.cr_partitions())));
+SELECT pg_temp.check('014: providers has one policy, SELECT for authenticated',
+    (SELECT count(*) FROM pg_policies WHERE tablename = 'providers') = 1
+    AND EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'providers'
+                 AND cmd = 'SELECT' AND roles = '{authenticated}' AND qual = 'true'));
+SELECT pg_temp.check('014: anon/authenticated hold no privileges on any partition',
+    NOT EXISTS (SELECT 1 FROM pg_temp.cr_partitions() p, unnest(ARRAY['anon','authenticated']) r
+                 WHERE has_table_privilege(r, p, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')));
+SELECT pg_temp.check('014: anon holds no privileges on providers, app_settings or the rollups; authenticated none on app_settings',
+    NOT has_table_privilege('anon', 'public.providers', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+    AND NOT has_table_privilege('anon', 'public.app_settings', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+    AND NOT has_table_privilege('anon', 'public.cost_records_daily', 'SELECT,INSERT,UPDATE,DELETE')
+    AND NOT has_table_privilege('anon', 'public.cost_records_daily_attributed', 'SELECT,INSERT,UPDATE,DELETE')
+    AND NOT has_table_privilege('authenticated', 'public.app_settings', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'));
+SELECT pg_temp.check('014: authenticated can only SELECT providers',
+    has_table_privilege('authenticated', 'public.providers', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'public.providers', 'INSERT,UPDATE,DELETE,TRUNCATE'));
+SELECT pg_temp.check('014: PUBLIC holds no ACL entry on providers, app_settings, partitions or rollups',
+    NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
+                 WHERE a.grantee = 0
+                   AND (c.oid IN ('public.providers'::regclass, 'public.app_settings'::regclass,
+                                  'public.cost_records_daily'::regclass,
+                                  'public.cost_records_daily_attributed'::regclass)
+                        OR c.oid IN (SELECT * FROM pg_temp.cr_partitions()))));
+SELECT pg_temp.check('014: service_role keeps table access and EXECUTE on service functions',
+    has_table_privilege('service_role', 'public.app_settings', 'SELECT,INSERT,UPDATE,DELETE')
+    AND has_table_privilege('service_role', 'public.providers', 'SELECT')
+    AND has_function_privilege('service_role', 'public.refresh_cost_records_daily()', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.create_monthly_partition(integer,integer)', 'EXECUTE')
+    AND has_function_privilege('service_role', 'public.get_user_total_spend(uuid,timestamptz,timestamptz)', 'EXECUTE'));
+SELECT pg_temp.check('014: EXECUTE revoked from PUBLIC/anon (and authenticated where service-only)',
+    NOT EXISTS (
+        SELECT 1 FROM (VALUES
+            ('anon', 'public.get_user_total_spend(uuid,timestamptz,timestamptz)'),
+            ('anon', 'public.get_top_models_by_spend(uuid,timestamptz,timestamptz,integer)'),
+            ('anon', 'public.initialize_user_preferences()'),
+            ('anon', 'public.refresh_cost_records_daily()'),
+            ('anon', 'public.create_monthly_partition(integer,integer)'),
+            ('authenticated', 'public.initialize_user_preferences()'),
+            ('authenticated', 'public.refresh_cost_records_daily()'),
+            ('authenticated', 'public.create_monthly_partition(integer,integer)'),
+            ('auth_admin_stub', 'public.initialize_user_preferences()')
+        ) v(r, f) WHERE has_function_privilege(r, f, 'EXECUTE'))
+    AND has_function_privilege('authenticated', 'public.get_user_total_spend(uuid,timestamptz,timestamptz)', 'EXECUTE')
+    AND has_function_privilege('authenticated', 'public.get_top_models_by_spend(uuid,timestamptz,timestamptz,integer)', 'EXECUTE'));
+SELECT pg_temp.check('014: search_path pinned on the advisor-flagged functions',
+    (SELECT count(*) FROM pg_proc
+      WHERE pronamespace = 'public'::regnamespace
+        AND proname IN ('update_updated_at_column', 'get_user_total_spend', 'get_top_models_by_spend',
+                        'create_monthly_partition', 'refresh_cost_records_daily', 'initialize_user_preferences')
+        AND 'search_path=public, pg_temp' = ANY (proconfig)) = 6);
+SELECT pg_temp.check('014: spend RPCs are SECURITY INVOKER; signup trigger stays SECURITY DEFINER',
+    NOT (SELECT bool_or(prosecdef) FROM pg_proc
+          WHERE pronamespace = 'public'::regnamespace
+            AND proname IN ('get_user_total_spend', 'get_top_models_by_spend'))
+    AND (SELECT prosecdef FROM pg_proc WHERE oid = 'public.initialize_user_preferences()'::regprocedure));
+
+-- Behaviour as anon: every read and call is refused.
+SET ROLE anon;
+DO $$
+DECLARE
+    stmt TEXT;
+    n INT := 0;
+BEGIN
+    FOR stmt IN
+        SELECT format('SELECT 1 FROM %s LIMIT 1', rel) FROM unnest(ARRAY[
+            'public.providers', 'public.app_settings',
+            'public.cost_records_daily', 'public.cost_records_daily_attributed']) rel
+        UNION ALL
+        SELECT format('SELECT 1 FROM %s LIMIT 1', p::regclass) FROM (
+            WITH RECURSIVE tree AS (
+                SELECT inhrelid FROM pg_inherits WHERE inhparent = 'public.cost_records'::regclass
+                UNION ALL
+                SELECT i.inhrelid FROM pg_inherits i JOIN tree t ON i.inhparent = t.inhrelid
+            ) SELECT inhrelid AS p FROM tree) parts
+        UNION ALL
+        SELECT unnest(ARRAY[
+            'SELECT public.get_user_total_spend(''00000000-0000-0000-0000-000000000001'', ''2026-01-01'', ''2027-01-01'')',
+            'SELECT * FROM public.get_top_models_by_spend(''00000000-0000-0000-0000-000000000001'', ''2026-01-01'', ''2027-01-01'')',
+            'SELECT public.initialize_user_preferences()',
+            'SELECT public.refresh_cost_records_daily()',
+            'SELECT public.create_monthly_partition(2027, 8)'])
+    LOOP
+        BEGIN
+            EXECUTE stmt;
+            RAISE EXCEPTION 'FAIL: anon was allowed: %', stmt;
+        EXCEPTION WHEN insufficient_privilege THEN
+            n := n + 1;
+        END;
+    END LOOP;
+    IF n <> 25 THEN
+        RAISE EXCEPTION 'FAIL: expected 25 refused anon statements, got %', n;
+    END IF;
+    RAISE NOTICE 'PASS: 014: anon cannot read providers, app_settings, partitions or rollups, or call the five functions';
+END $$;
+RESET ROLE;
+
+-- Behaviour as authenticated: dashboard reads and manual import still work.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+SELECT pg_temp.check('014: authenticated can read providers, cost_records (parent) and both rollups',
+    (SELECT count(*) FROM providers) > 0
+    AND (SELECT count(*) FROM cost_records) > 0
+    AND (SELECT count(*) FROM cost_records_daily) > 0
+    AND (SELECT count(*) FROM cost_records_daily_attributed) > 0);
+SELECT pg_temp.check('014: get_user_total_spend runs as the caller and sees cost_records via its RLS',
+    get_user_total_spend('00000000-0000-0000-0000-000000000001', '2025-11-01', '2027-07-01')
+        = (SELECT sum(cost_usd) FROM cost_records));
+-- get_top_models_by_spend has been broken since 009 (SUM over the BIGINT token
+-- columns returns NUMERIC, its result columns say BIGINT); not fixed here.
+-- This only proves authenticated still gets past the EXECUTE check.
+DO $$
+BEGIN
+    PERFORM * FROM get_top_models_by_spend('00000000-0000-0000-0000-000000000001',
+                                           '2025-11-01', '2027-07-01', 3);
+    RAISE NOTICE 'PASS: 014: authenticated can execute get_top_models_by_spend';
+EXCEPTION WHEN datatype_mismatch THEN
+    RAISE NOTICE 'PASS: 014: authenticated can execute get_top_models_by_spend (pre-existing 009 type mismatch)';
+END $$;
+INSERT INTO cost_records (user_id, provider_id, timestamp, model_name, cost_usd, collection_method)
+SELECT '00000000-0000-0000-0000-000000000001', id, '2026-11-03 12:00+00', 'manual_014', 1.00, 'manual_entry'
+FROM providers WHERE name = 'openai';
+SELECT pg_temp.check('014: authenticated manual import inserts through the parent',
+    EXISTS (SELECT 1 FROM cost_records WHERE model_name = 'manual_014'));
+DO $$
+DECLARE
+    stmt TEXT;
+BEGIN
+    FOREACH stmt IN ARRAY ARRAY[
+        'SELECT 1 FROM public.app_settings LIMIT 1',
+        'SELECT 1 FROM public.cost_records_2026_11 LIMIT 1',
+        'SELECT 1 FROM public.cost_records_2027_07 LIMIT 1',
+        'INSERT INTO public.providers (name, display_name) VALUES (''sneaky'', ''Sneaky'')',
+        'SELECT public.refresh_cost_records_daily()',
+        'SELECT public.create_monthly_partition(2027, 8)']
+    LOOP
+        BEGIN
+            EXECUTE stmt;
+            RAISE EXCEPTION 'FAIL: authenticated was allowed: %', stmt;
+        EXCEPTION WHEN insufficient_privilege THEN
+            NULL;
+        END;
+    END LOOP;
+    RAISE NOTICE 'PASS: 014: authenticated cannot read app_settings or partitions, write providers, or call service functions';
+END $$;
+RESET ROLE;
+DELETE FROM cost_records WHERE model_name = 'manual_014';
+
+-- Signup trigger: the inserting role holds no EXECUTE on the function.
+SET ROLE auth_admin_stub;
+INSERT INTO auth.users (id, email) VALUES ('00000000-0000-0000-0000-000000000014', 'signup@example.com');
+RESET ROLE;
+SELECT pg_temp.check('014: signup trigger still creates user_preferences',
+    EXISTS (SELECT 1 FROM user_preferences WHERE user_id = '00000000-0000-0000-0000-000000000014'));

@@ -374,17 +374,31 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   org_api_keys, `cost_records_daily_attributed`; refresh function covers both views
 - **011_org_projects.sql**: `org_projects` (project -> team) and the project team
   fallback in `cost_records_daily_attributed`
+- **012, 013**: unused (reserved numbers that were never taken)
+- **014_security_hardening.sql**: Supabase security advisor fixes (#17). RLS on
+  `providers` (authenticated SELECT only), `app_settings` (service role only) and
+  every `cost_records` partition (no direct API access; `create_monthly_partition`
+  does the same for new partitions); pinned `search_path` on the trigger, RPC,
+  refresh and partition functions; `get_user_total_spend` /
+  `get_top_models_by_spend` are SECURITY INVOKER with no anon EXECUTE;
+  `initialize_user_preferences`, `refresh_cost_records_daily` and
+  `create_monthly_partition` are not callable by anon/authenticated; the daily
+  rollups are not readable by anon. Re-apply it after re-running 010 or 011.
 
 ### Testing migrations locally
 
 `scripts/test-migrations.sh` starts a throwaway PostgreSQL 15 on a unix socket
 in a temp dir, applies `scripts/migration-tests/auth_stub.sql` (roles `anon`,
-`authenticated`, `service_role`, `auth.users`, `auth.uid()`), then 001-011,
-re-applies 010 and 011, seeds `fixtures.sql` and runs `assertions.sql` (precedence
-rules, Unassigned, per-date reconciliation with `cost_records_daily`, both
-views refreshed by `refresh_cost_records_daily()`, project team fallback,
-RLS/grants), then re-applies 010 and 011 over the data. 011 must always follow
-010, because 010 recreates the view without the project fallback. Server binaries come from `PG_BIN`, an installed
+`authenticated`, `service_role`, `auth.users`, `auth.uid()`, and Supabase's
+default grants on `public`), then 001-011, re-applies 010 and 011, seeds
+`fixtures.sql`, applies 014 twice over that data (checking `cost_records` row
+count and `SUM(cost_usd)` are unchanged), applies any later migrations and runs
+`assertions.sql` (precedence rules, Unassigned, per-date reconciliation with
+`cost_records_daily`, both views refreshed by `refresh_cost_records_daily()`,
+project team fallback, RLS/grants, and the 014 hardening as `anon`,
+`authenticated` and `service_role`), then re-applies 010, 011 and 014 over the
+data. 011 must always follow 010, because 010 recreates the view without the
+project fallback, and 014 must follow both. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.
 
