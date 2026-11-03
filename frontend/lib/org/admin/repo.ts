@@ -61,7 +61,7 @@ export interface ScanOptions {
   start?: string
   end?: string
   /** Only rows whose metadata.attribution.<field> is present. */
-  requireField?: "person_email" | "api_key_id" | "project_id"
+  requireField?: "person_email" | "api_key_id" | "project_id" | "workspace_id"
 }
 
 /**

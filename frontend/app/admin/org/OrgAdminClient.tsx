@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, ArrowLeft, Loader2, Plus, RefreshCw, Trash2, UserPlus } from "lucide-react"
 
@@ -11,8 +11,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
-import type { OrgSnapshot } from "@/lib/org/admin/schemas"
 import { unassignedGatewayKeys, type ImportPreview, type KeyRow, type ProjectRow, type UnassignedQueue } from "@/lib/org/admin/observed"
+import { GatewayKeySyncButton } from "@/components/admin/gateway-key-sync"
+import { KeysByProjectCard } from "./keys-by-project"
+import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const API = "/api/admin/org"
 
@@ -26,60 +28,6 @@ async function api<T = unknown>(path: string, method = "GET", body?: unknown): P
   })
   const data = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, data }
-}
-
-const usd = (n: number) =>
-  n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-const selectClass =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-
-type Org = OrgSnapshot
-
-/** Team <select> grouped by department; "" = none. */
-function TeamSelect({
-  org,
-  value,
-  onChange,
-  noneLabel = "Unassigned",
-  ariaLabel = "Team",
-}: {
-  org: Org
-  value: string | null
-  onChange: (teamId: string | null) => void
-  noneLabel?: string
-  ariaLabel?: string
-}) {
-  const groups = useMemo(() => {
-    const byDept = new Map<string, { label: string; teams: Org["teams"] }>()
-    for (const t of org.teams) {
-      const key = t.department_id ?? ""
-      const label = org.departments.find((d) => d.id === t.department_id)?.name ?? "No department"
-      const g = byDept.get(key) ?? { label, teams: [] }
-      g.teams.push(t)
-      byDept.set(key, g)
-    }
-    return [...byDept.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [org])
-  return (
-    <select
-      aria-label={ariaLabel}
-      className={selectClass}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-    >
-      <option value="">{noneLabel}</option>
-      {groups.map((g) => (
-        <optgroup key={g.label} label={g.label}>
-          {g.teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  )
 }
 
 function Message({ msg }: { msg: { ok: boolean; text: string } | null }) {
@@ -183,7 +131,7 @@ export function OrgAdminClient() {
               <PeopleTab org={org} mutate={mutate} />
             </TabsContent>
             <TabsContent value="keys">
-              <KeysTab org={org} mutate={mutate} reloadKey={reloadKey} />
+              <KeysTab org={org} mutate={mutate} reload={reload} reloadKey={reloadKey} />
             </TabsContent>
             <TabsContent value="import">
               <ImportTab org={org} mutate={mutate} />
@@ -195,7 +143,6 @@ export function OrgAdminClient() {
   )
 }
 
-type Mutate = (path: string, method: string, body?: unknown, okText?: string) => Promise<boolean>
 
 // ---------------------------------------------------------------------------
 // Departments & teams
@@ -483,7 +430,7 @@ function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
 // API keys and projects
 // ---------------------------------------------------------------------------
 
-function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadKey: number }) {
+function KeysTab({ org, mutate, reload, reloadKey }: { org: Org; mutate: Mutate; reload: () => Promise<void>; reloadKey: number }) {
   const [keys, setKeys] = useState<KeyRow[] | null>(null)
   const [projects, setProjects] = useState<ProjectRow[] | null>(null)
 
@@ -507,83 +454,17 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
 
   return (
     <div className="space-y-4">
-      <GatewayKeysCard org={org} mutate={mutate} keys={keys} gatewayId={gatewayId} />
+      <GatewayKeysCard org={org} mutate={mutate} reload={reload} keys={keys} gatewayId={gatewayId} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>API keys</CardTitle>
-          <CardDescription>
-            Every key seen in collected data plus registered keys. A key&apos;s team wins over its owner&apos;s team, which wins over its project&apos;s team. Key ids only; secrets are never stored.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="divide-y divide-border/50">
-          {!keys && <Loader2 className="h-4 w-4 animate-spin" />}
-          {keys?.length === 0 && <p className="text-sm text-muted-foreground">No keys observed yet.</p>}
-          {keys?.map((k) => {
-            const save = (patch: Record<string, unknown>) =>
-              mutate("/keys", "POST", { provider_id: k.provider_id, external_key_id: k.external_key_id, name: k.name, ...patch }, "Key updated")
-            return (
-              <div key={`${k.provider_id}:${k.external_key_id}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <div>
-                  <span className="font-medium">{k.name || k.external_key_id}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {providerName(k.provider_id)} · <code>{k.external_key_id}</code> · {usd(k.total_cost_usd)}
-                  </span>
-                  {!k.id && (
-                    <Badge variant="outline" className="ml-2">
-                      unregistered
-                    </Badge>
-                  )}
-                  <SourceBadge source={k.assignment_source} />
-                </div>
-                <div className="flex items-center gap-1">
-                  <select
-                    aria-label={`Owner of ${k.external_key_id}`}
-                    className={selectClass}
-                    value={k.owner_person_id ?? ""}
-                    onChange={(e) => save({ owner_person_id: e.target.value || null })}
-                  >
-                    <option value="">No owner</option>
-                    {org.people.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.display_name || p.email}
-                      </option>
-                    ))}
-                  </select>
-                  {org.projects.some((p) => p.provider_id === k.provider_id) && (
-                    <select
-                      aria-label={`Project for ${k.external_key_id}`}
-                      className={selectClass}
-                      value={k.org_project_id ?? ""}
-                      onChange={(e) => save({ org_project_id: e.target.value || null })}
-                    >
-                      <option value="">No project</option>
-                      {org.projects
-                        .filter((p) => p.provider_id === k.provider_id)
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name || p.external_project_id}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                  <TeamSelect org={org} value={k.team_id} noneLabel="No team" ariaLabel={`Team for ${k.external_key_id}`} onChange={(teamId) => save({ team_id: teamId })} />
-                  {k.id && (
-                    <Button variant="ghost" size="sm" aria-label="Unregister key" onClick={() => mutate(`/keys/${k.id}`, "DELETE", undefined, "Key unregistered")}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
+      <KeysByProjectCard org={org} mutate={mutate} keys={keys} projects={projects} />
 
       <Card>
         <CardHeader>
           <CardTitle>Projects</CardTitle>
-          <CardDescription>OpenAI / Vercel projects. A project&apos;s team applies only when neither the key nor the person has one.</CardDescription>
+          <CardDescription>
+            OpenAI and Vercel projects, and Anthropic workspaces. A project&apos;s team applies only when neither the key nor the person has one. Workspace
+            teams don&apos;t feed the rollup yet, so only their names can be set here.
+          </CardDescription>
         </CardHeader>
         <CardContent className="divide-y divide-border/50">
           {!projects && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -593,19 +474,33 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
               <div>
                 <span className="font-medium">{p.name || p.external_project_id}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {providerName(p.provider_id)} · <code>{p.external_project_id}</code> · {usd(p.total_cost_usd)}
+                  {providerName(p.provider_id)} · {p.kind === "workspace" ? "workspace" : "project"} · <code>{p.external_project_id}</code> · {usd(p.total_cost_usd)}
                 </span>
               </div>
               <div className="flex items-center gap-1">
-                <TeamSelect
-                  org={org}
-                  value={p.team_id}
-                  noneLabel="No team"
-                  ariaLabel={`Team for ${p.external_project_id}`}
-                  onChange={(teamId) =>
-                    mutate("/projects", "POST", { provider_id: p.provider_id, external_project_id: p.external_project_id, name: p.name, team_id: teamId }, "Project updated")
-                  }
+                <Input
+                  key={`${p.external_project_id}:${p.name ?? ""}`}
+                  aria-label={`Name for ${p.external_project_id}`}
+                  className="h-9 w-40"
+                  placeholder="Name"
+                  defaultValue={p.name ?? ""}
+                  onBlur={(e) => {
+                    const name = e.target.value.trim()
+                    if (name && name !== (p.name ?? ""))
+                      mutate("/projects", "POST", { provider_id: p.provider_id, external_project_id: p.external_project_id, name }, "Project renamed")
+                  }}
                 />
+                {p.kind !== "workspace" && (
+                  <TeamSelect
+                    org={org}
+                    value={p.team_id}
+                    noneLabel="No team"
+                    ariaLabel={`Team for ${p.external_project_id}`}
+                    onChange={(teamId) =>
+                      mutate("/projects", "POST", { provider_id: p.provider_id, external_project_id: p.external_project_id, name: p.name, team_id: teamId }, "Project updated")
+                    }
+                  />
+                )}
                 {p.id && (
                   <Button variant="ghost" size="sm" aria-label="Unregister project" onClick={() => mutate(`/projects/${p.id}`, "DELETE", undefined, "Project unregistered")}>
                     <Trash2 className="h-4 w-4" />
@@ -620,27 +515,24 @@ function KeysTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadK
   )
 }
 
-/** auto = set by the AI Gateway key sync; manual = set by an admin (the sync never overwrites it). */
-function SourceBadge({ source }: { source: KeyRow["assignment_source"] }) {
-  if (!source) return null
-  return (
-    <Badge
-      variant={source === "manual" ? "secondary" : "outline"}
-      className="ml-2"
-      title={source === "manual" ? "Set by an admin; the key sync never overwrites it" : "Set by the AI Gateway key sync from the key's creator or project"}
-    >
-      {source}
-    </Badge>
-  )
-}
-
 /**
  * AI Gateway keys with no owner, team or project: their spend is Unassigned
  * until assigned here (or until the key sync maps them). Assigning marks the
  * key "manual".
  */
-function GatewayKeysCard({ org, mutate, keys, gatewayId }: { org: Org; mutate: Mutate; keys: KeyRow[] | null; gatewayId: string | null }) {
-  const [syncing, setSyncing] = useState(false)
+function GatewayKeysCard({
+  org,
+  mutate,
+  reload,
+  keys,
+  gatewayId,
+}: {
+  org: Org
+  mutate: Mutate
+  reload: () => Promise<void>
+  keys: KeyRow[] | null
+  gatewayId: string | null
+}) {
   if (!gatewayId) return null
   const pending = keys ? unassignedGatewayKeys(keys, gatewayId) : null
   const projects = org.projects.filter((p) => p.provider_id === gatewayId)
@@ -648,15 +540,6 @@ function GatewayKeysCard({ org, mutate, keys, gatewayId }: { org: Org; mutate: M
     const id = k.org_project_id ?? null
     const pr = id ? org.projects.find((p) => p.id === id) : org.projects.find((p) => p.provider_id === k.provider_id && p.external_project_id === k.observed_project_id)
     return pr?.name || pr?.external_project_id || k.observed_project_id || "No project"
-  }
-
-  async function sync() {
-    setSyncing(true)
-    try {
-      await mutate("/keys/sync-gateway", "POST", undefined, "Gateway keys synced")
-    } finally {
-      setSyncing(false)
-    }
   }
 
   return (
@@ -670,10 +553,7 @@ function GatewayKeysCard({ org, mutate, keys, gatewayId }: { org: Org; mutate: M
               project automatically on every collection. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" className="gap-2" disabled={syncing} onClick={sync}>
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync gateway keys
-          </Button>
+          <GatewayKeySyncButton onSynced={reload} />
         </div>
       </CardHeader>
       <CardContent className="divide-y divide-border/50">

@@ -52,7 +52,7 @@ describe("resolveDateRange", () => {
   })
 
   test("unsupported provider", () => {
-    expect(err("cursor", "2026-03-01", "2026-03-02")).toMatch(/does not support.*anthropic, claude-ai, openai/)
+    expect(err("cursor", "2026-03-01", "2026-03-02")).toMatch(/does not support.*anthropic, claude-ai, openai, vercel-ai-gateway/)
   })
 
   test("valid range -> [start, end + 1 day)", () => {
@@ -86,6 +86,18 @@ describe("resolveDateRange", () => {
     expect(r.clamped).toBe(true)
     // 2025-12-15 is before Anthropic's floor but within OpenAI's window.
     expect(ok("openai", "2025-12-15", "2025-12-20")!.clamped).toBe(false)
+  })
+})
+
+describe("resolveDateRange: vercel-ai-gateway (issue #28)", () => {
+  test("accepts a range and never clamps it", () => {
+    const r = ok("vercel-ai-gateway", "2025-06-01", "2025-06-30")!
+    expect(r.start_date).toBe("2025-06-01")
+    expect(r.clamped).toBe(false)
+    expect(r.end.toISOString()).toBe("2025-07-01T00:00:00.000Z")
+  })
+  test("keeps the 31-day limit", () => {
+    expect(err("vercel-ai-gateway", "2026-01-01", "2026-02-01")).toMatch(/maximum is 31/)
   })
 })
 

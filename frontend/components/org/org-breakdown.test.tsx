@@ -4,8 +4,10 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable, ProjectsTable } from "./org-breakdown"
 import { computeBreakdown } from "@/lib/org/breakdown"
-import { EMPTY_ORG, PROVIDERS, attributedRows } from "@/lib/org/dashboard-fixtures"
-import { D, PE, T, orgData } from "@/lib/org/test-fixtures"
+import { EMPTY_ORG, PROVIDERS, RECORDS, attributedRows } from "@/lib/org/dashboard-fixtures"
+import { D, P, PE, T, orgData } from "@/lib/org/test-fixtures"
+import { buildOrgIndex } from "@/lib/org/attribution"
+import { toAttributedDailyRows, type CostRecordLike } from "@/lib/org/rollup"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
 
 const NOW = new Date("2026-11-15T00:00:00Z")
@@ -98,7 +100,9 @@ describe("ApiKeysTable", () => {
     render(<ApiKeysTable data={breakdown()} onFiltersChange={onChange} />)
     const table = screen.getByRole("table", { name: "API keys" })
     const rows = within(table).getAllByTestId("key-row")
-    expect(rows).toHaveLength(3)
+    // 3 registered keys (key_owner has no spend this month but is still listed, issue #28) + Unassigned.
+    expect(rows).toHaveLength(4)
+    expect(within(rowOf(table, "key_owner")).getByText("$0.00")).toBeInTheDocument()
     const team = rowOf(table, "Data pipeline key")
     for (const text of ["OpenAI API", "Alice", "Data", "$40.00"]) expect(within(team).getByText(text)).toBeInTheDocument()
     const bare = rowOf(table, "Unowned key")
@@ -207,5 +211,157 @@ describe("ProjectsTable (issue #24)", () => {
     expect(within(rowOf(table, "Unassigned (no project)")).getByText("$240.00")).toBeInTheDocument()
     await user.click(within(table).getByRole("button", { name: "Sales tools" }))
     expect(changes).toEqual([{ project: "proj_2" }])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #28: workspaces in the Projects table, keys under projects
+// ---------------------------------------------------------------------------
+
+describe("Projects and keys under projects (issue #28)", () => {
+  const WS_KEY = "k-ws"
+  const wsOrg = () => {
+    const org = orgData()
+    // No registered projects, so nothing but the rows can turn the table on.
+    org.projects = []
+    org.apiKeys = [
+      ...org.apiKeys,
+      { id: WS_KEY, provider_id: P.anthropic, external_key_id: "ant_key_research", name: "Research key", owner_person_id: PE.carol, team_id: null },
+    ]
+    return org
+  }
+  const wsRecord = (cost: number, ws: string, key?: string): CostRecordLike => ({
+    provider_id: P.anthropic,
+    timestamp: "2026-11-03T10:00:00Z",
+    model_name: "claude-opus",
+    cost_usd: cost,
+    tokens_used: 10,
+    request_count: 1,
+    metadata: { attribution: { workspace_id: ws, ...(key ? { api_key_id: key } : {}), granularity: key ? "api_key" : "workspace" } },
+  })
+  const wsBreakdown = (filters: DashboardFilters = {}) => {
+    const org = wsOrg()
+    const records = [...RECORDS, wsRecord(25, "wrk_research", "ant_key_research"), wsRecord(5, "wrk_ops")]
+    return computeBreakdown({
+      rows: toAttributedDailyRows(records, buildOrgIndex(org)),
+      org,
+      providers: PROVIDERS,
+      filters,
+      params: { month: "2026-11" },
+      now: NOW,
+    })
+  }
+
+  function WsHarness({ onChange }: { onChange?: (f: DashboardFilters) => void }) {
+    const [filters, setFilters] = useState<DashboardFilters>({})
+    return (
+      <OrgBreakdown
+        data={wsBreakdown(filters)}
+        onFiltersChange={(f) => {
+          onChange?.(f)
+          setFilters(f)
+        }}
+      />
+    )
+  }
+
+  it("shows the Projects table when only Anthropic workspaces are reported", () => {
+    render(<ProjectsTable data={wsBreakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "Projects" })
+    expect(within(rowOf(table, "wrk_research")).getByText("workspace")).toBeInTheDocument()
+    expect(within(rowOf(table, "wrk_research")).getByText("$25.00")).toBeInTheDocument()
+    expect(within(rowOf(table, "wrk_ops")).getByText("$5.00")).toBeInTheDocument()
+  })
+
+  it("nests keys under their workspace / project, $0 keys included", () => {
+    render(<ApiKeysTable data={wsBreakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    const headings = within(table).getAllByTestId("key-group-row").map((r) => r.textContent)
+    expect(headings.some((h) => /Anthropic.*Workspace: wrk_research/.test(h ?? ""))).toBe(true)
+    expect(headings.some((h) => /OpenAI API · Project: No project/.test(h ?? ""))).toBe(true)
+    expect(within(rowOf(table, "Research key")).getByText("$25.00")).toBeInTheDocument()
+    expect(within(rowOf(table, "key_owner")).getByText("$0.00")).toBeInTheDocument()
+  })
+
+  it("clicking a project filters the keys to that project", async () => {
+    const user = userEvent.setup()
+    const changes: DashboardFilters[] = []
+    render(<WsHarness onChange={(f) => changes.push(f)} />)
+    const projects = screen.getByRole("table", { name: "Projects" })
+    await user.click(within(projects).getByRole("button", { name: "wrk_research" }))
+    expect(changes.at(-1)).toEqual({ project: "wrk_research" })
+
+    const keys = screen.getByRole("table", { name: "API keys" })
+    const names = within(keys)
+      .getAllByTestId("key-row")
+      .map((r) => within(r).getAllByRole("cell")[1].textContent)
+    expect(names.some((n) => n?.startsWith("Research key"))).toBe(true)
+    expect(names.some((n) => n?.startsWith("Data pipeline key") || n?.startsWith("key_owner") || n?.startsWith("Unowned key"))).toBe(false)
+    // The filter reaches the totals too: only the workspace's $25.
+    const depts = screen.getByRole("table", { name: "Departments" })
+    expect(within(rowOf(depts, "Unassigned")).getByText("$25.00")).toBeInTheDocument()
+  })
+
+  it("a key group heading filters by its project", async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+    render(<ApiKeysTable data={wsBreakdown()} onFiltersChange={onChange} />)
+    await user.click(screen.getByRole("button", { name: "Filter by workspace wrk_research" }))
+    expect(onChange).toHaveBeenCalledWith({ project: "wrk_research" })
+    await user.click(screen.getAllByRole("button", { name: "Filter by project No project" })[0])
+    expect(onChange).toHaveBeenLastCalledWith({ project: "unassigned" })
+  })
+
+  it("lists observed workspaces in the Project filter options (Bugbot)", () => {
+    const ids = wsBreakdown().options.projects.map((p) => p.id)
+    expect(ids).toEqual(expect.arrayContaining(["wrk_research", "wrk_ops"]))
+  })
+
+  it("under a project filter, only that project's keys are listed, even when a key's spend there is only in the comparison period (Bugbot)", () => {
+    const org = wsOrg()
+    const records = [
+      ...RECORDS,
+      // October: the key spent in wrk_research; November: more in wrk_other.
+      { ...wsRecord(4, "wrk_research", "ant_key_research"), timestamp: "2026-10-03T10:00:00Z" },
+      wsRecord(90, "wrk_other", "ant_key_research"),
+    ]
+    const data = computeBreakdown({
+      rows: toAttributedDailyRows(records, buildOrgIndex(org)),
+      org,
+      providers: PROVIDERS,
+      filters: { project: "wrk_research" },
+      params: { month: "2026-11" },
+      now: NOW,
+    })
+    const groups = data.key_groups.flatMap((g) => g.projects.map((p) => ({ id: p.external_id, keys: p.keys.map((k) => k.label) })))
+    expect(groups).toEqual([{ id: "wrk_research", keys: ["Research key"] }])
+  })
+
+  it("places a $0 key under its assigned project (Bugbot)", () => {
+    const org = wsOrg()
+    org.projects = [{ id: "op-site", provider_id: P.openai, external_project_id: "proj_site", name: "Site", team_id: null }]
+    org.apiKeys = org.apiKeys.map((k) => (k.external_key_id === "key_owner" ? { ...k, org_project_id: "op-site" } : k))
+    const data = computeBreakdown({ rows: attributedRows(org), org, providers: PROVIDERS, filters: {}, params: { month: "2026-11" }, now: NOW })
+    const site = data.key_groups.flatMap((g) => g.projects).find((p) => p.external_id === "proj_site")
+    expect(site?.keys.map((k) => k.external_key_id)).toEqual(["key_owner"])
+  })
+
+  it("without a filter, a key is placed by this period's project, not a bigger comparison-period one (Bugbot)", () => {
+    const org = wsOrg()
+    const records = [
+      ...RECORDS,
+      { ...wsRecord(80, "wrk_old", "ant_key_research"), timestamp: "2026-10-03T10:00:00Z" },
+      wsRecord(10, "wrk_new", "ant_key_research"),
+    ]
+    const data = computeBreakdown({
+      rows: toAttributedDailyRows(records, buildOrgIndex(org)),
+      org,
+      providers: PROVIDERS,
+      filters: {},
+      params: { month: "2026-11" },
+      now: NOW,
+    })
+    const owner = data.key_groups.flatMap((g) => g.projects).find((p) => p.keys.some((k) => k.label === "Research key"))
+    expect(owner?.external_id).toBe("wrk_new")
   })
 })

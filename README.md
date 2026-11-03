@@ -178,14 +178,16 @@ idempotent, seeds fixtures and runs the attribution/rollup assertions. See
 ## Re-pulling history
 
 `POST /api/admin/collect` can re-fetch an explicit range of UTC days for `anthropic`,
-`claude-ai` and `openai`, e.g. to replace old org-level rows with attributed ones or
-fill a missing day.
+`claude-ai`, `openai` and `vercel-ai-gateway`, e.g. to replace old org-level rows with
+attributed ones or fill a missing day. The `/admin` pull card has the same start/end
+inputs; the range applies to those providers, and Cursor keeps the backfill toggle.
 
 Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
 `end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today
 (UTC). A `start_date` before the provider's earliest data is clamped to it (2026-01-01 for
 Anthropic and Claude.ai analytics; 366 days back for OpenAI) and the response reports
-`range.clamped: true`. Without the dates the old `{ provider, backfill, backfill_days }`
+`range.clamped: true`. AI Gateway is never clamped: Vercel documents no earliest date
+for `/v1/report`, and days before the first gateway request just return no rows. Without the dates the old `{ provider, backfill, backfill_days }`
 behaviour is unchanged; with them, `backfill` is ignored. The response includes the
 effective `range`, `records_stored` and a per-day `days` list (`date`, `records`,
 `cost_usd`, zeros for days the provider returned nothing for), and the daily rollup is
@@ -222,13 +224,18 @@ done
 ### Re-pulling AI Gateway history
 
 Vercel AI Gateway spend collected before the per-key collector was deployed has no
-`metadata.attribution`, so it is all org-level. The explicit-range path above doesn't
-cover `vercel-ai-gateway`; use the cron route's trailing backfill instead (one report
-call for the whole window plus one per gateway key, inside the 300 s function limit).
-It needs the same `VERCEL_TOKEN` as the daily run to split per key, replaces each
-re-pulled day's rows as a set (same rules as below), and runs the gateway key sync
-afterwards. **Operator step after deploying migration 015 and this code; not run as
-part of the change.**
+`metadata.attribution`, so it is all org-level. Re-pull it with the explicit-range path
+above (31-day chunks with `"provider":"vercel-ai-gateway"`), or with the cron route's
+trailing backfill in one call (one report call for the whole window plus one per
+gateway key, inside the 300 s function limit). Either way it needs the same
+`VERCEL_TOKEN` as the daily run to split per key, replaces each re-pulled day's rows as
+a set (same rules as below), and runs the gateway key sync afterwards. **Operator step
+after deploying migration 015 and this code; not run as part of the change.**
+
+To register every gateway key (keys with no spend included) without collecting, use
+**Sync keys now** on `/admin` (pull card) or `/admin/org` ("API keys & projects"). It
+reports created / updated / unchanged / manual-kept counts; a failed Vercel key list is
+an error and changes nothing.
 
 ```bash
 BASE=https://your-deployment.example.com
@@ -242,7 +249,8 @@ curl -sS "$BASE/api/cron/vercel-ai-gateway?backfill=true&days=310" \
 
 Then refresh the rollups (`/admin` → Refresh, or wait for the 15-minute
 refresh-aggregates cron) and assign the keys listed under "Unassigned gateway keys"
-on `/admin/org`.
+on `/admin/org`. "API keys by project" there shows every key under its OpenAI project,
+Anthropic workspace or Vercel project.
 
 What a re-pull does to existing rows (`storeRecords()` in `frontend/lib/collectors/runner.ts`):
 

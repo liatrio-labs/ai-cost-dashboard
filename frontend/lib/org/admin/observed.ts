@@ -12,6 +12,8 @@ import type { OrgSnapshot } from "./schemas"
 
 /** The slice of a cost_records row these summaries need. */
 export interface ObservedRecord {
+  /** cost_records.id, when selected (used to de-duplicate overlapping scans). */
+  id?: string
   provider_id: string
   timestamp?: string
   cost_usd: number | string
@@ -169,6 +171,8 @@ export interface KeyRow {
   org_project_id: string | null
   /** The key's project from collected rows (attribution.project_id), when scoped. */
   observed_project_id: string | null
+  /** The key's Anthropic workspace from collected rows (attribution.workspace_id), issue #28. */
+  observed_workspace_id: string | null
   external_created_by_email: string | null
   spend_attribution: string | null
   assignment_source: "auto" | "manual" | null
@@ -181,6 +185,8 @@ export interface KeyRow {
 export interface ProjectRow {
   provider_id: string
   external_project_id: string
+  /** "workspace" for Anthropic workspaces (attribution.workspace_id, issue #28), else "project". */
+  kind: "project" | "workspace"
   name: string | null
   id: string | null
   team_id: string | null
@@ -213,11 +219,13 @@ const bySpend = <T extends { total_cost_usd: number; provider_id: string }>(a: T
 export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): KeyRow[] {
   const seen = new Map<string, Seen>()
   const keyProject = new Map<string, string>()
+  const keyWorkspace = new Map<string, string>()
   for (const r of records) {
     const a = attributionOf(r)
     if (!a?.api_key_id) continue
     bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
     if (a.project_id) keyProject.set(pkey(r.provider_id, a.api_key_id), a.project_id)
+    if (a.workspace_id) keyWorkspace.set(pkey(r.provider_id, a.api_key_id), a.workspace_id)
   }
   const rows = new Map<string, KeyRow>()
   for (const k of registered) {
@@ -231,6 +239,7 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       team_id: k.team_id,
       org_project_id: k.org_project_id ?? null,
       observed_project_id: keyProject.get(pkey(k.provider_id, k.external_key_id)) ?? null,
+      observed_workspace_id: keyWorkspace.get(pkey(k.provider_id, k.external_key_id)) ?? null,
       external_created_by_email: k.external_created_by_email ?? null,
       spend_attribution: k.spend_attribution ?? null,
       assignment_source: k.assignment_source ?? null,
@@ -252,6 +261,7 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       team_id: null,
       org_project_id: null,
       observed_project_id: keyProject.get(key) ?? null,
+      observed_workspace_id: keyWorkspace.get(key) ?? null,
       external_created_by_email: null,
       spend_attribution: null,
       assignment_source: null,
@@ -281,12 +291,22 @@ export function unassignedGatewayKeys(keys: KeyRow[], gatewayProviderId: string 
   )
 }
 
-/** Every project seen in attribution.project_id, merged with registered org_projects. */
+/**
+ * Every project seen in attribution.project_id, plus every Anthropic workspace
+ * seen in attribution.workspace_id (issue #28, kind "workspace"; they share
+ * org_projects, keyed by provider + external id), merged with registered
+ * org_projects.
+ */
 export function listProjects(records: ObservedRecord[], registered: OrgProject[]): ProjectRow[] {
   const seen = new Map<string, Seen>()
+  const workspaces = new Set<string>()
   for (const r of records) {
     const a = attributionOf(r)
     if (a?.project_id) bump(seen, pkey(r.provider_id, a.project_id), r, a.project_name)
+    else if (a?.workspace_id) {
+      bump(seen, pkey(r.provider_id, a.workspace_id), r, null)
+      workspaces.add(pkey(r.provider_id, a.workspace_id))
+    }
   }
   const rows = new Map<string, ProjectRow>()
   for (const p of registered) {
@@ -294,6 +314,7 @@ export function listProjects(records: ObservedRecord[], registered: OrgProject[]
     rows.set(pkey(p.provider_id, p.external_project_id), {
       provider_id: p.provider_id,
       external_project_id: p.external_project_id,
+      kind: workspaces.has(pkey(p.provider_id, p.external_project_id)) ? "workspace" : "project",
       name: p.name ?? s?.name ?? null,
       id: p.id,
       team_id: p.team_id,
@@ -309,6 +330,7 @@ export function listProjects(records: ObservedRecord[], registered: OrgProject[]
     rows.set(key, {
       provider_id,
       external_project_id,
+      kind: workspaces.has(key) ? "workspace" : "project",
       name: s.name,
       id: null,
       team_id: null,

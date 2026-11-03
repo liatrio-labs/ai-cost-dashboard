@@ -15,17 +15,24 @@
  *   (Anthropic / Claude.ai analytics: MIN_DATA_MS; OpenAI: today minus
  *   MAX_HISTORICAL_DAYS) and the clamp is reported. A range that ends before
  *   the earliest data is rejected.
+ *
+ * Vercel AI Gateway (issue #28): /v1/report takes inclusive start_date /
+ * end_date, so a range maps straight onto it. Vercel documents no earliest
+ * date or retention window for the report API, so the gateway is never
+ * clamped: days before the team's first gateway request just return no rows
+ * (the runner then leaves those days untouched). Prod data starts 2025-12-28.
  */
 
 import { DAY_MS, isoDate, startOfUTCDay } from "./http"
 import { MIN_DATA_MS } from "./anthropic-analytics"
 import { MAX_HISTORICAL_DAYS } from "./openai"
 
-/** Longest accepted range, in days, end inclusive. Matches the analytics API span limit. */
-export const MAX_RANGE_DAYS = 31
+import { MAX_RANGE_DAYS, RANGE_PROVIDERS } from "./range-providers"
 
-/** Providers whose collectors honour CollectOptions.range. */
-export const RANGE_PROVIDERS = ["anthropic", "claude-ai", "openai"] as const
+export { MAX_RANGE_DAYS, RANGE_PROVIDERS }
+
+/** Providers whose start_date is never clamped (no documented earliest data). */
+const UNCLAMPED_PROVIDERS = new Set(["vercel-ai-gateway"])
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -58,6 +65,7 @@ export function parseIsoDay(value: unknown): number | null {
 
 /** Earliest UTC day (ms) the provider can return data for. */
 export function earliestDataMs(provider: string, now: Date = new Date()): number {
+  if (UNCLAMPED_PROVIDERS.has(provider)) return 0
   if (provider === "openai") {
     return startOfUTCDay(now).getTime() - MAX_HISTORICAL_DAYS * DAY_MS
   }

@@ -266,53 +266,91 @@ async function fetchReport(
   return json?.results ?? []
 }
 
+/** A Vercel API call the key sync depends on failed (issue #28). Message never includes secrets. */
+export class GatewayApiError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "GatewayApiError"
+  }
+}
+
+/** Appends to `keys` as pages arrive, so a caller that catches keeps the pages already read. */
+async function fetchGatewayKeys(
+  vercelToken: string,
+  teamId: string | undefined,
+  strict: boolean,
+  keys: GatewayKey[] = []
+): Promise<GatewayKey[]> {
+  const seen = new Set<string>()
+  let until: string | null = null
+  while (keys.length < MAX_KEYS) {
+    const params = new URLSearchParams({ purpose: "ai-gateway", limit: "100" })
+    if (teamId) params.set("teamId", teamId)
+    if (until) params.set("until", until)
+    let res: Response
+    try {
+      res = await fetchWithRetry(`${API_KEYS_URL}?${params}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${vercelToken}` },
+      })
+    } catch (e) {
+      throw new GatewayApiError(`Vercel API key list request failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    if (!res.ok) {
+      if (!strict) break
+      throw new GatewayApiError(`Vercel API key list request failed: HTTP ${res.status}`)
+    }
+    const json: any = await res.json().catch(() => {
+      throw new GatewayApiError("Vercel API key list returned invalid JSON")
+    })
+    const items: any[] = json?.apiKeys ?? json?.keys ?? json?.data ?? []
+    let added = 0
+    for (const k of items) {
+      if (!k || typeof k.id !== "string" || seen.has(k.id) || keys.length >= MAX_KEYS) continue
+      seen.add(k.id)
+      // Optional settings are only set when present, keeping the key compact.
+      const key: GatewayKey = { id: k.id, name: str(k.name) }
+      const projectId = str(k.projectId)
+      const createdBy = str(k.createdBy)
+      const spendAttribution = parseSpendAttribution(k.metadata?.spendAttribution ?? k.spendAttribution)
+      if (projectId) key.projectId = projectId
+      if (createdBy) key.createdBy = createdBy
+      if (spendAttribution) key.spendAttribution = spendAttribution
+      keys.push(key)
+      added++
+    }
+    const next = json?.pagination?.next
+    // Stop when there is no cursor, or the cursor stopped producing new keys.
+    if (next === null || next === undefined || added === 0) break
+    until = String(next)
+  }
+  return keys
+}
+
 /**
  * List the team's AI Gateway keys (ids + names, never secrets) with a Vercel
  * token, following Vercel's `pagination.next` cursor (sent back as `until`) up
  * to MAX_KEYS. Never throws: a failed first page yields [], a failed later
- * page keeps the keys already listed. A partial list is still safe because
- * unlisted keys' spend lands in the org remainder row.
+ * page keeps the keys already listed. A partial list is still safe for
+ * collection because unlisted keys' spend lands in the org remainder row.
  */
 export async function listGatewayKeys(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
   const keys: GatewayKey[] = []
-  const seen = new Set<string>()
-  let until: string | null = null
   try {
-    while (keys.length < MAX_KEYS) {
-      const params = new URLSearchParams({ purpose: "ai-gateway", limit: "100" })
-      if (teamId) params.set("teamId", teamId)
-      if (until) params.set("until", until)
-      const res = await fetchWithRetry(`${API_KEYS_URL}?${params}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${vercelToken}` },
-      })
-      if (!res.ok) break
-      const json: any = await res.json()
-      const items: any[] = json?.apiKeys ?? json?.keys ?? json?.data ?? []
-      let added = 0
-      for (const k of items) {
-        if (!k || typeof k.id !== "string" || seen.has(k.id) || keys.length >= MAX_KEYS) continue
-        seen.add(k.id)
-        // Optional settings are only set when present, keeping the key compact.
-        const key: GatewayKey = { id: k.id, name: str(k.name) }
-        const projectId = str(k.projectId)
-        const createdBy = str(k.createdBy)
-        const spendAttribution = parseSpendAttribution(k.metadata?.spendAttribution ?? k.spendAttribution)
-        if (projectId) key.projectId = projectId
-        if (createdBy) key.createdBy = createdBy
-        if (spendAttribution) key.spendAttribution = spendAttribution
-        keys.push(key)
-        added++
-      }
-      const next = json?.pagination?.next
-      // Stop when there is no cursor, or the cursor stopped producing new keys.
-      if (next === null || next === undefined || added === 0) break
-      until = String(next)
-    }
+    await fetchGatewayKeys(vercelToken, teamId, false, keys)
   } catch {
     // keep what was listed
   }
   return keys
+}
+
+/**
+ * Like listGatewayKeys, but throws GatewayApiError when any page fails. The
+ * key sync uses this so a Vercel outage reports an error instead of
+ * "0 keys synced" and writes nothing (issue #28).
+ */
+export async function listGatewayKeysStrict(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
+  return fetchGatewayKeys(vercelToken, teamId, true)
 }
 
 /**
@@ -350,22 +388,40 @@ export async function lookupProjectNames(
   return out
 }
 
-/** List keys and attach best-effort project names. Never throws (see listGatewayKeys). */
-export async function listGatewayKeysWithProjects(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
-  const keys = await listGatewayKeys(vercelToken, teamId)
+/**
+ * List keys and attach best-effort project names. Never throws (see
+ * listGatewayKeys) unless `strict`, when a failed key list throws
+ * GatewayApiError (project-name lookups stay best-effort either way).
+ */
+export async function listGatewayKeysWithProjects(
+  vercelToken: string,
+  teamId?: string,
+  opts: { strict?: boolean } = {}
+): Promise<GatewayKey[]> {
+  const keys = opts.strict ? await listGatewayKeysStrict(vercelToken, teamId) : await listGatewayKeys(vercelToken, teamId)
   const projectIds = keys.map((k) => k.projectId).filter((p): p is string => !!p)
   if (!projectIds.length) return keys
   const names = await lookupProjectNames(vercelToken, projectIds, teamId)
   return keys.map((k) => (k.projectId ? { ...k, projectName: names.get(k.projectId) ?? null } : k))
 }
 
-async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
-  const today = startOfUTCDay(new Date())
-  // Daily run: cover the prior 2 days + today (results can lag a few minutes);
-  // backfill: the requested window. Dates are inclusive YYYY-MM-DD in UTC.
+/**
+ * Inclusive YYYY-MM-DD report dates (UTC). An explicit range [start, end)
+ * (issue #28) maps to start .. end - 1 day; otherwise the daily run covers the
+ * prior 2 days + today (results can lag a few minutes) and backfill the
+ * requested number of days.
+ */
+export function reportWindow(opts: CollectOptions = {}, now: Date = new Date()): { startDate: string; endDate: string } {
+  if (opts.range) {
+    return { startDate: isoDate(opts.range.start), endDate: isoDate(new Date(opts.range.end.getTime() - DAY_MS)) }
+  }
+  const today = startOfUTCDay(now)
   const days = opts.backfill ? opts.backfillDays ?? 90 : 2
-  const startDate = isoDate(new Date(today.getTime() - days * DAY_MS))
-  const endDate = isoDate(today)
+  return { startDate: isoDate(new Date(today.getTime() - days * DAY_MS)), endDate: isoDate(today) }
+}
+
+async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
+  const { startDate, endDate } = reportWindow(opts)
   const tctx = { userId: ctx.userId, providerId: ctx.providerId, teamId: ctx.teamId }
 
   const rows = await fetchReport(ctx.apiKey, startDate, endDate)

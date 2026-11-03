@@ -170,6 +170,16 @@ export async function listTeamMembers(vercelToken: string, teamId: string): Prom
 
 export interface GatewaySyncSummary {
   status: "success" | "error"
+  /**
+   * "Sync keys now" counts (issue #28). created = new org_api_keys rows (keys
+   * with no spend included), updated = existing rows changed, unchanged =
+   * existing rows left as they were, manual_kept = keys whose admin-set owner /
+   * team / project was kept (they are also counted as updated or unchanged).
+   */
+  created: number
+  updated: number
+  unchanged: number
+  manual_kept: number
   keys_listed: number
   keys_inserted: number
   keys_updated: number
@@ -203,6 +213,10 @@ export async function applyGatewayKeySync(
 ): Promise<GatewaySyncSummary> {
   const summary: GatewaySyncSummary = {
     status: "success",
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    manual_kept: 0,
     keys_listed: keys.length,
     keys_inserted: 0,
     keys_updated: 0,
@@ -213,6 +227,13 @@ export async function applyGatewayKeySync(
     unresolved_creators: 0,
   }
   if (!keys.length) return summary
+  const finish = () => {
+    summary.created = summary.keys_inserted
+    summary.updated = summary.keys_updated
+    summary.unchanged = summary.keys_unchanged
+    summary.manual_kept = summary.keys_manual
+    return summary
+  }
 
   // People: creators of user-attributed keys, matched by email, else created (no team).
   const creatorEmail = (k: GatewayKey) => (k.createdBy ? (members.get(k.createdBy)?.email ?? null) : null)
@@ -322,7 +343,7 @@ export async function applyGatewayKeySync(
       summary.keys_unchanged++
     }
   }
-  return summary
+  return finish()
 }
 
 export interface GatewaySyncOptions {
@@ -335,11 +356,16 @@ export interface GatewaySyncOptions {
 
 /**
  * List gateway keys (and team members when any key is user-attributed), then
- * apply the sync. Throws only on database errors; Vercel API failures yield
- * fewer keys / unresolved creators.
+ * apply the sync. Every listed key is upserted, whether or not it has spend.
+ *
+ * The key list is strict (issue #28): if Vercel's key list fails, this throws
+ * GatewayApiError before writing anything, so a Vercel outage is an error, not
+ * "0 keys synced". Team-member and project-name lookups stay best-effort: a
+ * failure there leaves creators unresolved (existing auto owners are kept) or
+ * project names null (existing names are kept). Database errors throw too.
  */
 export async function syncGatewayKeys(admin: SupabaseClient, opts: GatewaySyncOptions): Promise<GatewaySyncSummary> {
-  const keys = opts.keys ?? (await listGatewayKeysWithProjects(opts.vercelToken, opts.teamId))
+  const keys = opts.keys ?? (await listGatewayKeysWithProjects(opts.vercelToken, opts.teamId, { strict: true }))
   const needMembers = keys.some((k) => k.spendAttribution === "user" && k.createdBy)
   const members = needMembers && opts.teamId ? await listTeamMembers(opts.vercelToken, opts.teamId) : new Map<string, TeamMember>()
   return applyGatewayKeySync(admin, opts.providerId, keys, members)
