@@ -341,6 +341,17 @@ by provider, then project (OpenAI `project_id`), workspace (Anthropic
 `org_project_id` or its rows' `project_id`, else "No project"), via
 `frontend/lib/org/key-groups.ts`. Registered keys with no spend are listed.
 
+#### Keys a filter owns (issue #35)
+
+On the dashboard, a person, team or department filter lists the keys that
+selection owns, even with $0 in the period: person = `owner_person_id`; team =
+the key's `team_id` or its owner's team; department = those teams'
+department. Keys with spend in the filtered rows (for example someone else's
+key used by this person) are listed too. A key filter lists that key. An
+`unassigned` filter value owns nothing, so it lists only keys with spend.
+Provider and project filters apply on top. This is display only: totals and
+the department / team / person / key tables don't change.
+
 On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project_id`: the Projects table shows workspaces (marked "workspace") and the
 `project` filter matches either column. The table shows whenever any loaded row
