@@ -18,7 +18,11 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
   breakdown by tool, breakdown by model, and a monthly trend chart.
 - 🔮 **Forecast** — a saturating, **headcount-driven** projection to year-end (closes a
   fixed fraction of the gap to a plateau each month; the plateau scales with employee
-  count). Editable from the admin area.
+  count). Editable from the admin area. Filtering the dashboard to a team or department
+  projects that unit: its plateau is the org plateau times its trailing 3-month share of
+  attributed spend (Unassigned is its own unit, so units sum to the org forecast), with
+  optional per-unit plateau or headcount overrides in the admin area. Person and API-key
+  views show a trailing 3-month average instead.
 - 🗂️ **Tools table** — per-tool spend, description, a link to the provider's billing
   console, and a "Last updated" timestamp.
 - 🔁 **Automated daily collection** — Vercel Cron triggers in-process TypeScript

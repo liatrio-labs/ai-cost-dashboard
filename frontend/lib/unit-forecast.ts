@@ -26,11 +26,18 @@
  * a trailing average instead (trailingAverage below).
  */
 
-import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
-import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import {
+  plateauForEmployees,
+  unitOverrideKey,
+  type ForecastSettings,
+  type UnitLevel,
+  type UnitOverride,
+  type UnitOverrides,
+} from "@/lib/forecast-settings"
 
-export type UnitLevel = "department" | "team"
-export const UNIT_LEVELS: readonly UnitLevel[] = ["department", "team"]
+export { UNIT_LEVELS, coerceUnitOverrides, serializeUnitOverrides, unitOverrideKey } from "@/lib/forecast-settings"
+export type { UnitLevel, UnitOverride, UnitOverrides } from "@/lib/forecast-settings"
+import { UNASSIGNED_KEY } from "@/lib/org/rollup"
 
 /** Fraction of the remaining gap to the plateau closed each month. */
 export const FORECAST_APPROACH = 0.45
@@ -40,16 +47,6 @@ export interface MonthTotal {
   month: string // YYYY-MM
   total: number
 }
-
-export interface UnitOverride {
-  plateauUsd?: number | null
-  headcount?: number | null
-}
-
-/** Keyed by unitOverrideKey(level, key). */
-export type UnitOverrides = Record<string, UnitOverride>
-
-export const unitOverrideKey = (level: UnitLevel, key: string) => `${level}:${key}`
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -289,36 +286,4 @@ export function forecastUnitForFilters(f: {
   if (f.team) return { level: "team", key: f.team }
   if (f.department) return { level: "department", key: f.department }
   return null
-}
-
-/** Normalize a stored overrides blob (app_settings value) into UnitOverrides. */
-export function coerceUnitOverrides(raw: unknown): UnitOverrides {
-  const out: UnitOverrides = {}
-  const src = (raw as { overrides?: unknown } | null)?.overrides
-  if (!src || typeof src !== "object") return out
-  for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
-    const [level, ...rest] = k.split(":")
-    if (!UNIT_LEVELS.includes(level as UnitLevel) || !rest.join(":")) continue
-    const num = (x: unknown) => {
-      if (x === null || x === undefined || x === "") return null
-      const n = Number(x)
-      return Number.isFinite(n) && n >= 0 ? n : null
-    }
-    const o = v as { plateau_usd?: unknown; headcount?: unknown } | null
-    const plateauUsd = num(o?.plateau_usd)
-    const headcount = num(o?.headcount)
-    if (plateauUsd === null && headcount === null) continue
-    out[k] = { plateauUsd, headcount }
-  }
-  return out
-}
-
-/** Inverse of coerceUnitOverrides (snake_case for app_settings). */
-export function serializeUnitOverrides(o: UnitOverrides): { overrides: Record<string, { plateau_usd: number | null; headcount: number | null }> } {
-  const overrides: Record<string, { plateau_usd: number | null; headcount: number | null }> = {}
-  for (const [k, v] of Object.entries(o)) {
-    if (v.plateauUsd == null && v.headcount == null) continue
-    overrides[k] = { plateau_usd: v.plateauUsd ?? null, headcount: v.headcount ?? null }
-  }
-  return { overrides }
 }

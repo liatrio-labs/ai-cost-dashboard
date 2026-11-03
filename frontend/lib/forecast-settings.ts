@@ -6,14 +6,6 @@
  */
 
 import { createAdminClient } from "@/lib/supabase/admin"
-import {
-  coerceUnitOverrides,
-  serializeUnitOverrides,
-  unitOverrideKey,
-  type UnitLevel,
-  type UnitOverride,
-  type UnitOverrides,
-} from "@/lib/unit-forecast"
 
 export interface ForecastSettings {
   employees: number
@@ -36,7 +28,14 @@ export function plateauForEmployees(s: ForecastSettings): number {
   return Math.max(0, plateau)
 }
 
-function coerce(raw: any): ForecastSettings {
+interface StoredForecast {
+  employees?: unknown
+  baseline_employees?: unknown
+  baseline_plateau_usd?: unknown
+  per_person_pct?: unknown
+}
+
+function coerce(raw: StoredForecast | null | undefined): ForecastSettings {
   const num = (v: unknown, d: number) => {
     const n = typeof v === "number" ? v : Number(v)
     return Number.isFinite(n) ? n : d
@@ -59,7 +58,7 @@ export async function getForecastSettings(): Promise<ForecastSettings> {
       .eq("key", "forecast")
       .maybeSingle()
     if (error || !data) return { ...FORECAST_DEFAULTS }
-    return coerce((data as { value: unknown }).value)
+    return coerce((data as { value: StoredForecast | null }).value)
   } catch {
     return { ...FORECAST_DEFAULTS }
   }
@@ -80,7 +79,7 @@ export async function setForecastEmployees(employees: number): Promise<ForecastS
         per_person_pct: next.perPersonPct,
       },
       updated_at: new Date().toISOString(),
-    } as any,
+    } as never, // app_settings is not in the generated Database types
     { onConflict: "key" }
   )
   if (error) throw new Error(`Failed to save forecast settings: ${error.message}`)
@@ -94,6 +93,51 @@ export async function setForecastEmployees(employees: number): Promise<ForecastS
 // ---------------------------------------------------------------------------
 
 export const FORECAST_UNITS_KEY = "forecast_units"
+
+export type UnitLevel = "department" | "team"
+export const UNIT_LEVELS: readonly UnitLevel[] = ["department", "team"]
+
+export interface UnitOverride {
+  plateauUsd?: number | null
+  headcount?: number | null
+}
+
+/** Keyed by unitOverrideKey(level, key). */
+export type UnitOverrides = Record<string, UnitOverride>
+
+export const unitOverrideKey = (level: UnitLevel, key: string) => `${level}:${key}`
+
+/** Normalize a stored overrides blob (app_settings value) into UnitOverrides. */
+export function coerceUnitOverrides(raw: unknown): UnitOverrides {
+  const out: UnitOverrides = {}
+  const src = (raw as { overrides?: unknown } | null)?.overrides
+  if (!src || typeof src !== "object") return out
+  for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+    const [level, ...rest] = k.split(":")
+    if (!UNIT_LEVELS.includes(level as UnitLevel) || !rest.join(":")) continue
+    const num = (x: unknown) => {
+      if (x === null || x === undefined || x === "") return null
+      const n = Number(x)
+      return Number.isFinite(n) && n >= 0 ? n : null
+    }
+    const o = v as { plateau_usd?: unknown; headcount?: unknown } | null
+    const plateauUsd = num(o?.plateau_usd)
+    const headcount = num(o?.headcount)
+    if (plateauUsd === null && headcount === null) continue
+    out[k] = { plateauUsd, headcount }
+  }
+  return out
+}
+
+/** Inverse of coerceUnitOverrides (snake_case for app_settings). */
+export function serializeUnitOverrides(o: UnitOverrides): { overrides: Record<string, { plateau_usd: number | null; headcount: number | null }> } {
+  const overrides: Record<string, { plateau_usd: number | null; headcount: number | null }> = {}
+  for (const [k, v] of Object.entries(o)) {
+    if (v.plateauUsd == null && v.headcount == null) continue
+    overrides[k] = { plateau_usd: v.plateauUsd ?? null, headcount: v.headcount ?? null }
+  }
+  return { overrides }
+}
 
 /** Read the per-unit overrides (service-role; {} on any error). */
 export async function getForecastUnitOverrides(): Promise<UnitOverrides> {
@@ -124,7 +168,7 @@ export async function setForecastUnitOverride(
   else next[k] = { plateauUsd: override.plateauUsd ?? null, headcount: override.headcount ?? null }
   const admin = createAdminClient()
   const { error } = await admin.from("app_settings").upsert(
-    { key: FORECAST_UNITS_KEY, value: serializeUnitOverrides(next), updated_at: new Date().toISOString() } as any,
+    { key: FORECAST_UNITS_KEY, value: serializeUnitOverrides(next), updated_at: new Date().toISOString() } as never,
     { onConflict: "key" }
   )
   if (error) throw new Error(`Failed to save forecast overrides: ${error.message}`)

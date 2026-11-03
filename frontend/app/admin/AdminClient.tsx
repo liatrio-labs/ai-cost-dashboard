@@ -14,6 +14,7 @@ import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
+import { ForecastUnitsCard } from "@/components/admin/forecast-units"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 
@@ -352,6 +353,20 @@ export function AdminClient() {
           </CardHeader>
           <CardContent>
             <ForecastSettingsCard />
+          </CardContent>
+        </Card>
+
+        {/* Team / department forecasts (issue #9) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Team and department forecasts</CardTitle>
+            <CardDescription>
+              The org plateau is split across teams and departments by trailing spend, with
+              Unassigned as its own unit. Override a unit&apos;s plateau or headcount here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ForecastUnitsCard />
           </CardContent>
         </Card>
 
