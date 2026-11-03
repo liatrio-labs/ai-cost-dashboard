@@ -1,7 +1,7 @@
 import { buildOrgIndex } from "../attribution"
 import { rollup, toAttributedDailyRows } from "../rollup"
 import { P, PE, orgData } from "../test-fixtures"
-import { buildUnassignedQueue, currentMonth, listKeys, monthRange, previewPeopleImport, type ObservedRecord } from "./observed"
+import { buildUnassignedQueue, currentMonth, listKeys, monthRange, previewPeopleImport, unassignedGatewayKeys, type ObservedRecord } from "./observed"
 import type { OrgSnapshot } from "./schemas"
 import { MONTH, costRecords } from "./testing/seed"
 
@@ -107,5 +107,25 @@ describe("helpers", () => {
     expect(rows).toEqual([
       expect.objectContaining({ external_key_id: "k", name: "new", total_cost_usd: 3.5, record_count: 2, last_seen: "2026-11-03T00:00:00Z" }),
     ])
+  })
+
+  it("unassignedGatewayKeys: gateway keys with no owner, team or project (key or row)", () => {
+    const rows = listKeys(
+      [
+        { provider_id: "gw", timestamp: "2026-11-01T00:00:00Z", cost_usd: 5, attribution: { api_key_id: "k_free", granularity: "api_key" } },
+        { provider_id: "gw", timestamp: "2026-11-01T00:00:00Z", cost_usd: 2, attribution: { api_key_id: "k_scoped", project_id: "prj", granularity: "api_key" } },
+        { provider_id: "gw", timestamp: "2026-11-01T00:00:00Z", cost_usd: 1, attribution: { api_key_id: "k_owned", granularity: "api_key" } },
+        { provider_id: "openai", timestamp: "2026-11-01T00:00:00Z", cost_usd: 9, attribution: { api_key_id: "k_other", granularity: "api_key" } },
+      ],
+      [
+        { id: "r1", provider_id: "gw", external_key_id: "k_owned", owner_person_id: "p", team_id: null, assignment_source: "auto" },
+        { id: "r2", provider_id: "gw", external_key_id: "k_reg", owner_person_id: null, team_id: null, external_created_by_email: "a@x.com", spend_attribution: "team" },
+      ]
+    )
+    const out = unassignedGatewayKeys(rows, "gw")
+    expect(out.map((k) => k.external_key_id).sort()).toEqual(["k_free", "k_reg"])
+    expect(out.find((k) => k.external_key_id === "k_reg")).toMatchObject({ external_created_by_email: "a@x.com", spend_attribution: "team", assignment_source: null })
+    expect(rows.find((k) => k.external_key_id === "k_scoped")!.observed_project_id).toBe("prj")
+    expect(unassignedGatewayKeys(rows, null)).toEqual([])
   })
 })

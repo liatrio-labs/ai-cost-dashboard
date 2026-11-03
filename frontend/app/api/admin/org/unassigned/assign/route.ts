@@ -3,13 +3,14 @@
  *   { kind: "person",  email, display_name?, team_id }
  *       sets the person's team, creating the person if the email is new
  *   { kind: "api_key", provider_id, external_key_id, name?, team_id }
- *       registers the key if needed and sets its team
+ *       registers the key if needed and sets its team (assignment_source
+ *       "manual", so the AI Gateway key sync never overwrites it)
  *   { kind: "project", provider_id, external_project_id, name?, team_id }
  *       registers the project if needed and sets its team
  */
 
 import { adminRoute, json, must, parseBody } from "@/lib/org/admin/http"
-import { loadOrg, refreshRollups } from "@/lib/org/admin/repo"
+import { KEY_COLUMNS, loadOrg, refreshRollups } from "@/lib/org/admin/repo"
 import { unassignedAssignSchema } from "@/lib/org/admin/schemas"
 
 export const runtime = "nodejs"
@@ -44,12 +45,19 @@ export const POST = adminRoute(async (request, _params, admin) => {
     const existing = org.apiKeys.find(
       (k) => k.provider_id === body.provider_id && k.external_key_id === body.external_key_id
     )
-    const select = "id, provider_id, external_key_id, name, owner_person_id, team_id"
+    const select = KEY_COLUMNS
     result = existing
       ? {
           kind: "api_key",
           created: false,
-          row: must(await admin.from("org_api_keys").update({ team_id: body.team_id }).eq("id", existing.id).select(select).single()),
+          row: must(
+            await admin
+              .from("org_api_keys")
+              .update({ team_id: body.team_id, assignment_source: "manual" })
+              .eq("id", existing.id)
+              .select(select)
+              .single()
+          ),
         }
       : {
           kind: "api_key",
@@ -62,6 +70,7 @@ export const POST = adminRoute(async (request, _params, admin) => {
                 external_key_id: body.external_key_id,
                 name: body.name ?? null,
                 team_id: body.team_id,
+                assignment_source: "manual",
               })
               .select(select)
               .single()

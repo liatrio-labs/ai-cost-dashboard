@@ -34,6 +34,17 @@
  * whole total). Per-user attribution would need apps to send `user` and a
  * separate group_by=user query; not done here.
  *
+ * Key metadata (issue #24): the key list also returns `projectId` (set when
+ * the key is scoped to one project), `createdBy` (Vercel user id) and
+ * `metadata.spendAttribution` ("user" | "team"; unset counts as team). Each
+ * per-key row carries them in `metadata.gateway_key`, and a project-scoped
+ * key's rows set `attribution.project_id` plus `project_name` from a
+ * best-effort GET api.vercel.com/v9/projects/{id} (a failed lookup leaves the
+ * name null and never fails collection). `api_key_id` stays the primary
+ * dimension (`granularity: "api_key"`). Mapping keys to people / projects in
+ * org_api_keys is the key sync's job (lib/org/gateway-sync.ts), run after
+ * collection via `collector.sync`.
+ *
  * model_name is "ai-gateway"; per-day UTC-midnight timestamps keep re-pulls
  * idempotent (runner delete-then-insert-by-timestamp replaces every row of a day).
  */
@@ -50,6 +61,8 @@ import { buildAttribution, orgAttribution, str } from "./attribution"
 
 const REPORT_URL = "https://ai-gateway.vercel.sh/v1/report"
 const API_KEYS_URL = "https://api.vercel.com/v1/api-keys"
+const PROJECTS_URL = "https://api.vercel.com/v9/projects"
+const MAX_PROJECT_LOOKUPS = 50
 const MAX_KEYS = 200 // each key costs one report query
 
 interface ReportRow {
@@ -70,9 +83,49 @@ interface TransformCtx {
   teamId?: string
 }
 
+export type SpendAttribution = "user" | "team"
+
 export interface GatewayKey {
   id: string
   name?: string | null
+  /** Vercel project id when the key is scoped to one project. */
+  projectId?: string | null
+  /** Resolved project name (best-effort /v9/projects lookup). */
+  projectName?: string | null
+  /** Vercel user id that created the key. */
+  createdBy?: string | null
+  /** metadata.spendAttribution; null when unset (Vercel treats unset as team). */
+  spendAttribution?: SpendAttribution | null
+}
+
+/** "user" | "team" from Vercel's metadata.spendAttribution, else null. */
+export function parseSpendAttribution(value: unknown): SpendAttribution | null {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : ""
+  return v === "user" || v === "team" ? v : null
+}
+
+/** Attribution for one key's rows: the key, plus its project when scoped. */
+export function keyAttribution(key: GatewayKey): Attribution {
+  return buildAttribution(
+    {
+      api_key_id: key.id,
+      api_key_name: str(key.name),
+      project_id: str(key.projectId),
+      project_name: str(key.projectId) ? str(key.projectName) : null,
+    },
+    "api_key"
+  )
+}
+
+/** metadata.gateway_key: the key's raw Vercel settings, kept for the sync and audits. */
+function keyMetadata(key: GatewayKey): Record<string, unknown> {
+  return {
+    gateway_key: {
+      project_id: str(key.projectId),
+      created_by: str(key.createdBy),
+      spend_attribution: key.spendAttribution ?? null,
+    },
+  }
 }
 
 export interface KeyReport {
@@ -165,9 +218,7 @@ export function transform(
       const sum = keyed.get(ts) ?? totalsOf({})
       for (const f of NUM_FIELDS) sum[f] += t[f]
       keyed.set(ts, sum)
-      records.push(
-        toRecord(ts, t, ctx, buildAttribution({ api_key_id: key.id, api_key_name: str(key.name) }, "api_key"))
-      )
+      records.push(toRecord(ts, t, ctx, keyAttribution(key), keyMetadata(key)))
     }
   }
 
@@ -242,7 +293,15 @@ export async function listGatewayKeys(vercelToken: string, teamId?: string): Pro
       for (const k of items) {
         if (!k || typeof k.id !== "string" || seen.has(k.id) || keys.length >= MAX_KEYS) continue
         seen.add(k.id)
-        keys.push({ id: k.id, name: str(k.name) })
+        // Optional settings are only set when present, keeping the key compact.
+        const key: GatewayKey = { id: k.id, name: str(k.name) }
+        const projectId = str(k.projectId)
+        const createdBy = str(k.createdBy)
+        const spendAttribution = parseSpendAttribution(k.metadata?.spendAttribution ?? k.spendAttribution)
+        if (projectId) key.projectId = projectId
+        if (createdBy) key.createdBy = createdBy
+        if (spendAttribution) key.spendAttribution = spendAttribution
+        keys.push(key)
         added++
       }
       const next = json?.pagination?.next
@@ -256,6 +315,50 @@ export async function listGatewayKeys(vercelToken: string, teamId?: string): Pro
   return keys
 }
 
+/**
+ * Best-effort project names for project-scoped keys via GET /v9/projects/{id}.
+ * Never throws; a failed lookup leaves that project's name null. At most
+ * MAX_PROJECT_LOOKUPS distinct projects.
+ */
+export async function lookupProjectNames(
+  vercelToken: string,
+  projectIds: string[],
+  teamId?: string
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>()
+  const ids = Array.from(new Set(projectIds.filter(Boolean))).slice(0, MAX_PROJECT_LOOKUPS)
+  await Promise.all(
+    ids.map(async (id) => {
+      out.set(id, null)
+      try {
+        const params = new URLSearchParams()
+        if (teamId) params.set("teamId", teamId)
+        const qs = params.toString()
+        const res = await fetchWithRetry(
+          `${PROJECTS_URL}/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`,
+          { method: "GET", headers: { Authorization: `Bearer ${vercelToken}` } },
+          { maxRetries: 1, baseDelayMs: 200 }
+        )
+        if (!res.ok) return
+        const json: any = await res.json()
+        out.set(id, str(json?.name))
+      } catch {
+        // name stays null
+      }
+    })
+  )
+  return out
+}
+
+/** List keys and attach best-effort project names. Never throws (see listGatewayKeys). */
+export async function listGatewayKeysWithProjects(vercelToken: string, teamId?: string): Promise<GatewayKey[]> {
+  const keys = await listGatewayKeys(vercelToken, teamId)
+  const projectIds = keys.map((k) => k.projectId).filter((p): p is string => !!p)
+  if (!projectIds.length) return keys
+  const names = await lookupProjectNames(vercelToken, projectIds, teamId)
+  return keys.map((k) => (k.projectId ? { ...k, projectName: names.get(k.projectId) ?? null } : k))
+}
+
 async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const today = startOfUTCDay(new Date())
   // Daily run: cover the prior 2 days + today (results can lag a few minutes);
@@ -267,7 +370,7 @@ async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promis
 
   const rows = await fetchReport(ctx.apiKey, startDate, endDate)
 
-  const keys = ctx.auxApiKey ? await listGatewayKeys(ctx.auxApiKey, ctx.teamId) : []
+  const keys = ctx.auxApiKey ? await listGatewayKeysWithProjects(ctx.auxApiKey, ctx.teamId) : []
   let keyReports: KeyReport[] = []
   try {
     keyReports = await Promise.all(

@@ -45,6 +45,7 @@ import * as projects from "@/app/api/admin/org/projects/route"
 import * as projectRoute from "@/app/api/admin/org/projects/[id]/route"
 import * as unassigned from "@/app/api/admin/org/unassigned/route"
 import * as assign from "@/app/api/admin/org/unassigned/assign/route"
+import * as syncGateway from "@/app/api/admin/org/keys/sync-gateway/route"
 
 const ADMIN = { id: "u-admin", email: "admin@example.com" }
 const OUTSIDER = { id: "u-out", email: "someone@elsewhere.test" }
@@ -108,6 +109,7 @@ const EVERY_HANDLER: [string, unknown, string, string, Record<string, string>][]
   ["DELETE project", projectRoute.DELETE, "DELETE", "/api/admin/org/projects/x", { id: PR.sales }],
   ["GET unassigned", unassigned.GET, "GET", "/api/admin/org/unassigned", {}],
   ["POST assign", assign.POST, "POST", "/api/admin/org/unassigned/assign", {}],
+  ["POST sync-gateway", syncGateway.POST, "POST", "/api/admin/org/keys/sync-gateway", {}],
 ]
 
 describe("auth", () => {
@@ -581,5 +583,97 @@ describe("database errors", () => {
     const res = await call(departments.POST, "POST", "/x", { name: "Racing" })
     expect(res.status).toBe(409)
     expect(res.body.error).toBe("That already exists")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #24: manual source flag and the AI Gateway key sync
+// ---------------------------------------------------------------------------
+
+describe("gateway key attribution (#24)", () => {
+  const GW = "prov-aigw"
+  const keyByExt = (ext: string) => rows("org_api_keys").find((k) => k.external_key_id === ext) as Record<string, unknown>
+
+  it("POST keys: setting owner, team or project marks the key manual; a rename alone does not", async () => {
+    const renamed = await call(keys.POST, "POST", "/x", { provider_id: P.openai, external_key_id: "key_new", name: "Only a name" })
+    expect(renamed.status).toBe(201)
+    expect(keyByExt("key_new").assignment_source).toBeUndefined()
+
+    const owned = await call(keys.POST, "POST", "/x", { provider_id: P.openai, external_key_id: "key_bare", owner_person_id: PE.carol })
+    expect(owned.status).toBe(200)
+    expect(keyByExt("key_bare")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+
+    const projected = await call(keys.POST, "POST", "/x", { provider_id: P.openai, external_key_id: "key_new", org_project_id: PR.sales })
+    expect(projected.status).toBe(200)
+    expect(keyByExt("key_new")).toMatchObject({ org_project_id: PR.sales, assignment_source: "manual" })
+  })
+
+  it("POST keys: a project from another provider or an unknown project is a 400", async () => {
+    const cross = await call(keys.POST, "POST", "/x", { provider_id: P.anthropic, external_key_id: "k", org_project_id: PR.sales })
+    expect(cross.status).toBe(400)
+    expect(cross.body.error).toMatch(/different provider/)
+    const unknown = await call(keys.POST, "POST", "/x", { provider_id: P.openai, external_key_id: "k", org_project_id: "nope" })
+    expect(unknown.status).toBe(400)
+  })
+
+  it("Unassigned queue assign marks an API key manual", async () => {
+    const res = await call(assign.POST, "POST", "/x", { kind: "api_key", provider_id: P.openai, external_key_id: "key_bare", team_id: T.data })
+    expect(res.status).toBe(200)
+    expect(keyByExt("key_bare")).toMatchObject({ team_id: T.data, assignment_source: "manual" })
+    const created = await call(assign.POST, "POST", "/x", { kind: "api_key", provider_id: P.openai, external_key_id: "key_unknown", team_id: T.data })
+    expect(created.status).toBe(201)
+    expect(keyByExt("key_unknown").assignment_source).toBe("manual")
+  })
+
+  describe("POST /keys/sync-gateway", () => {
+    const realFetch = global.fetch
+    const savedToken = process.env.VERCEL_TOKEN
+    const savedTeam = process.env.VERCEL_TEAM_ID
+    afterEach(() => {
+      global.fetch = realFetch
+      if (savedToken === undefined) delete process.env.VERCEL_TOKEN
+      else process.env.VERCEL_TOKEN = savedToken
+      if (savedTeam === undefined) delete process.env.VERCEL_TEAM_ID
+      else process.env.VERCEL_TEAM_ID = savedTeam
+    })
+    const res = (body: unknown, status = 200) =>
+      ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+
+    it("400 without VERCEL_TOKEN", async () => {
+      delete process.env.VERCEL_TOKEN
+      const r = await call(syncGateway.POST, "POST", "/x")
+      expect(r.status).toBe(400)
+      expect(JSON.stringify(r.body)).not.toMatch(/test-vercel-token/)
+    })
+
+    it("syncs keys, keeps manual assignments and refreshes the rollups", async () => {
+      process.env.VERCEL_TOKEN = "test-vercel-token"
+      process.env.VERCEL_TEAM_ID = "team_x"
+      rows("providers").push({ id: GW, name: "vercel-ai-gateway", display_name: "Vercel AI Gateway" })
+      rows("org_api_keys").push({
+        id: "gk-manual", provider_id: GW, external_key_id: "k_manual", name: "manual", owner_person_id: null,
+        team_id: T.field, org_project_id: null, assignment_source: "manual",
+      })
+      global.fetch = jest.fn(async (url: unknown) => {
+        const u = new URL(String(url))
+        if (u.pathname === "/v1/api-keys") {
+          return res({
+            apiKeys: [
+              { id: "k_alice", name: "alice", createdBy: "uid_alice", metadata: { spendAttribution: "user" } },
+              { id: "k_manual", name: "manual", createdBy: "uid_alice", metadata: { spendAttribution: "user" } },
+            ],
+          })
+        }
+        if (u.pathname === "/v3/teams/team_x/members") return res({ members: [{ uid: "uid_alice", email: "alice@liatrio.com" }] })
+        throw new Error(`unexpected fetch ${u}`)
+      }) as unknown as typeof fetch
+
+      const r = await call(syncGateway.POST, "POST", "/x")
+      expect(r.status).toBe(200)
+      expect(r.body).toMatchObject({ status: "success", keys_listed: 2, keys_inserted: 1, keys_manual: 1 })
+      expect(keyByExt("k_alice")).toMatchObject({ owner_person_id: PE.alice, assignment_source: "auto" })
+      expect(keyByExt("k_manual")).toMatchObject({ owner_person_id: null, team_id: T.field, assignment_source: "manual" })
+      expect(mockState.refreshes).toBe(1)
+    })
   })
 })

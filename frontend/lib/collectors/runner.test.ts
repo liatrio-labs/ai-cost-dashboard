@@ -111,3 +111,31 @@ describe("storeRecords idempotency", () => {
     expect(rows.filter((r) => r.timestamp === D2)).toHaveLength(2)
   })
 })
+
+describe("runPostCollectSync (issue #24)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { runPostCollectSync, POST_COLLECT_SYNC } = require("./runner") as typeof import("./runner")
+  const admin = {} as SupabaseClient
+
+  test("providers without a sync, and the gateway without VERCEL_TOKEN, report nothing", async () => {
+    expect(await runPostCollectSync("anthropic", admin, { providerId: "p" })).toBeUndefined()
+    expect(await runPostCollectSync("vercel-ai-gateway", admin, { providerId: "p" })).toBeUndefined()
+  })
+
+  test("a failing sync is reported, never thrown", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    const original = POST_COLLECT_SYNC["vercel-ai-gateway"]
+    POST_COLLECT_SYNC["vercel-ai-gateway"] = async () => {
+      throw new Error("Failed to read org_api_keys: column does not exist")
+    }
+    try {
+      await expect(runPostCollectSync("vercel-ai-gateway", admin, { providerId: "p", auxApiKey: "t" })).resolves.toEqual({
+        status: "error",
+        error: "Failed to read org_api_keys: column does not exist",
+      })
+    } finally {
+      POST_COLLECT_SYNC["vercel-ai-gateway"] = original
+      warn.mockRestore()
+    }
+  })
+})

@@ -8,13 +8,30 @@ import { HttpError, must } from "./http"
 import type { ObservedRecord } from "./observed"
 import type { OrgSnapshot } from "./schemas"
 
+/** org_api_keys columns; the 015 ones are dropped when the migration isn't applied yet. */
+export const KEY_COLUMNS_BASE = "id, provider_id, external_key_id, name, owner_person_id, team_id"
+export const KEY_COLUMNS_015 =
+  "org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
+export const KEY_COLUMNS = `${KEY_COLUMNS_BASE}, ${KEY_COLUMNS_015}`
+
+/** True for PostgREST / Postgres "column does not exist" (migration 015 not applied). */
+export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && (error.code === "42703" || error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? ""))
+}
+
+async function loadKeys(admin: SupabaseClient) {
+  const res = await admin.from("org_api_keys").select(KEY_COLUMNS)
+  if (isMissingColumn(res.error)) return admin.from("org_api_keys").select(KEY_COLUMNS_BASE)
+  return res
+}
+
 export async function loadOrg(admin: SupabaseClient): Promise<OrgSnapshot> {
   const [departments, teams, people, identities, apiKeys, projects, providers] = await Promise.all([
     admin.from("departments").select("id, name, description, created_at, updated_at").order("name"),
     admin.from("teams").select("id, name, department_id, created_at, updated_at").order("name"),
     admin.from("people").select("id, email, display_name, team_id, active, created_at, updated_at").order("email"),
     admin.from("person_identities").select("id, person_id, provider_id, external_id"),
-    admin.from("org_api_keys").select("id, provider_id, external_key_id, name, owner_person_id, team_id"),
+    loadKeys(admin),
     admin.from("org_projects").select("id, provider_id, external_project_id, name, team_id"),
     admin.from("providers").select("id, name, display_name").order("name"),
   ])

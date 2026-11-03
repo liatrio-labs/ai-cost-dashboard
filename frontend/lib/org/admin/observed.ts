@@ -165,6 +165,13 @@ export interface KeyRow {
   id: string | null
   owner_person_id: string | null
   team_id: string | null
+  /** Migration 015 (AI Gateway keys): project, creator, spendAttribution and assignment source. */
+  org_project_id: string | null
+  /** The key's project from collected rows (attribution.project_id), when scoped. */
+  observed_project_id: string | null
+  external_created_by_email: string | null
+  spend_attribution: string | null
+  assignment_source: "auto" | "manual" | null
   observed: boolean
   total_cost_usd: number
   record_count: number
@@ -205,9 +212,12 @@ const bySpend = <T extends { total_cost_usd: number; provider_id: string }>(a: T
 /** Every key seen in attribution.api_key_id, merged with registered org_api_keys. */
 export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): KeyRow[] {
   const seen = new Map<string, Seen>()
+  const keyProject = new Map<string, string>()
   for (const r of records) {
     const a = attributionOf(r)
-    if (a?.api_key_id) bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
+    if (!a?.api_key_id) continue
+    bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
+    if (a.project_id) keyProject.set(pkey(r.provider_id, a.api_key_id), a.project_id)
   }
   const rows = new Map<string, KeyRow>()
   for (const k of registered) {
@@ -219,6 +229,11 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       id: k.id,
       owner_person_id: k.owner_person_id,
       team_id: k.team_id,
+      org_project_id: k.org_project_id ?? null,
+      observed_project_id: keyProject.get(pkey(k.provider_id, k.external_key_id)) ?? null,
+      external_created_by_email: k.external_created_by_email ?? null,
+      spend_attribution: k.spend_attribution ?? null,
+      assignment_source: k.assignment_source ?? null,
       observed: !!s,
       total_cost_usd: round6(s?.total ?? 0),
       record_count: s?.count ?? 0,
@@ -235,6 +250,11 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       id: null,
       owner_person_id: null,
       team_id: null,
+      org_project_id: null,
+      observed_project_id: keyProject.get(key) ?? null,
+      external_created_by_email: null,
+      spend_attribution: null,
+      assignment_source: null,
       observed: true,
       total_cost_usd: round6(s.total),
       record_count: s.count,
@@ -242,6 +262,23 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
     })
   }
   return [...rows.values()].sort(bySpend)
+}
+
+/**
+ * AI Gateway keys nobody has assigned yet: no owner, no team and no project
+ * (neither on the key nor from a project-scoped key's rows). Their spend sits
+ * in Unassigned until an admin assigns a person, project or team.
+ */
+export function unassignedGatewayKeys(keys: KeyRow[], gatewayProviderId: string | null | undefined): KeyRow[] {
+  if (!gatewayProviderId) return []
+  return keys.filter(
+    (k) =>
+      k.provider_id === gatewayProviderId &&
+      !k.owner_person_id &&
+      !k.team_id &&
+      !k.org_project_id &&
+      !k.observed_project_id
+  )
 }
 
 /** Every project seen in attribution.project_id, merged with registered org_projects. */

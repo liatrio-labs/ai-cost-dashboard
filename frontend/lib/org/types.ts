@@ -72,6 +72,15 @@ export interface OrgApiKey {
   name?: string | null
   owner_person_id: string | null
   team_id: string | null
+  /** Project this key's spend belongs to (migration 015). Optional so pre-015 callers keep working. */
+  org_project_id?: string | null
+  /** Provider user id that created the key (AI Gateway createdBy, 015). */
+  external_created_by?: string | null
+  external_created_by_email?: string | null
+  /** AI Gateway spendAttribution: "user" | "team"; null = unset (team). */
+  spend_attribution?: string | null
+  /** auto = set by the key sync; manual = set by an admin (never overwritten); null = nothing assigned. */
+  assignment_source?: "auto" | "manual" | null
 }
 
 /** Provider project metadata (migration 011) with the team that owns its spend. */
@@ -106,6 +115,8 @@ export interface OrgIndex {
   apiKeysById: Map<string, OrgApiKey>
   /** key: providerId + "\u0000" + external_project_id (011; optional for hand-built indexes) */
   projects?: Map<string, OrgProject>
+  /** org_projects.id -> project (015 key projects; optional for hand-built indexes) */
+  projectsById?: Map<string, OrgProject>
 }
 
 /** The parts of a cost_records row attribution needs. */
