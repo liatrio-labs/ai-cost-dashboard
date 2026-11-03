@@ -509,9 +509,11 @@ function keyGroups(input: {
     for (const [k, m] of acc) out.set(k, [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0])
     return out
   }
-  // Filtered rows (period and comparison) first, so under a project filter an
-  // active key is always placed in that project.
-  const inPeriod = projectByKey([...cur, ...prev])
+  // This period's filtered rows first, then the comparison period's (so under
+  // a project filter an active key is always placed in that project), then
+  // any loaded row.
+  const inPeriod = projectByKey(cur)
+  const inCompare = projectByKey(prev)
   const anyTime = projectByKey(providerScoped)
   const entityById = new Map(api_key.filter((e) => e.id).map((e) => [e.id!, e]))
   const onlyProjectFilter = !filters.department && !filters.team && !filters.person && !filters.key
@@ -541,7 +543,7 @@ function keyGroups(input: {
       team: k.team_id ? (index.teamsById.get(k.team_id)?.name ?? null) : null,
       provider_id: k.provider_id,
       external_key_id: k.external_key_id,
-      observed_project_id: inPeriod.get(k.id) ?? anyTime.get(k.id) ?? null,
+      observed_project_id: inPeriod.get(k.id) ?? inCompare.get(k.id) ?? anyTime.get(k.id) ?? null,
       org_project_id: k.org_project_id ?? null,
       total_cost_usd: e?.cost ?? 0,
       name: k.name ?? null,

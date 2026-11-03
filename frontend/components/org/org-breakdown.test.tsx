@@ -345,4 +345,23 @@ describe("Projects and keys under projects (issue #28)", () => {
     const site = data.key_groups.flatMap((g) => g.projects).find((p) => p.external_id === "proj_site")
     expect(site?.keys.map((k) => k.external_key_id)).toEqual(["key_owner"])
   })
+
+  it("without a filter, a key is placed by this period's project, not a bigger comparison-period one (Bugbot)", () => {
+    const org = wsOrg()
+    const records = [
+      ...RECORDS,
+      { ...wsRecord(80, "wrk_old", "ant_key_research"), timestamp: "2026-10-03T10:00:00Z" },
+      wsRecord(10, "wrk_new", "ant_key_research"),
+    ]
+    const data = computeBreakdown({
+      rows: toAttributedDailyRows(records, buildOrgIndex(org)),
+      org,
+      providers: PROVIDERS,
+      filters: {},
+      params: { month: "2026-11" },
+      now: NOW,
+    })
+    const owner = data.key_groups.flatMap((g) => g.projects).find((p) => p.keys.some((k) => k.label === "Research key"))
+    expect(owner?.external_id).toBe("wrk_new")
+  })
 })
