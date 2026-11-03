@@ -138,6 +138,12 @@ describe("formatSyncSummary", () => {
       "1 key: 1 created, 0 updated, 0 unchanged, 0 manual kept; 1 people created; 2 creators unresolved (no owner)"
     )
   })
+
+  it("issue #34: reports team / unset keys assigned to their creator", () => {
+    expect(formatSyncSummary({ created: 0, updated: 14, unchanged: 2, manual_kept: 1, keys_listed: 16, creator_default_assigned: 14 })).toBe(
+      "16 keys: 0 created, 14 updated, 2 unchanged, 1 manual kept; 14 assigned to their creator"
+    )
+  })
 })
 
 describe("formatKeySyncResponse", () => {

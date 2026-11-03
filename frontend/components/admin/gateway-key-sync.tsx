@@ -28,6 +28,8 @@ export interface GatewaySyncCounts {
   people_created?: number
   projects_created?: number
   unresolved_creators?: number
+  /** AI Gateway (issue #34): team / unset keys given their creator as owner this run. */
+  creator_default_assigned?: number
 }
 
 /** "4 keys: 2 created, 1 updated, 1 unchanged, 1 manual kept" plus optional extras. */
@@ -39,6 +41,7 @@ export function formatSyncSummary(s: GatewaySyncCounts): string {
   ]
   if (n(s.people_created)) parts.push(`${s.people_created} people created`)
   if (n(s.projects_created)) parts.push(`${s.projects_created} projects created`)
+  if (n(s.creator_default_assigned)) parts.push(`${s.creator_default_assigned} assigned to their creator`)
   if (n(s.unresolved_creators)) parts.push(`${s.unresolved_creators} creator${s.unresolved_creators === 1 ? "" : "s"} unresolved (no owner)`)
   return parts.join("; ")
 }

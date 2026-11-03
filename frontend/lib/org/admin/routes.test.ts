@@ -752,6 +752,9 @@ describe("gateway key attribution (#24)", () => {
       expect(r.status).toBe(200)
       expect(r.body.providers.anthropic).toMatchObject({ status: "success", created: 2, updated: 0, unchanged: 0, manual_kept: 0, unresolved_creators: 1 })
       expect(r.body.providers["vercel-ai-gateway"]).toMatchObject({ status: "success", created: 3, updated: 0, unchanged: 0, manual_kept: 0, unresolved_creators: 0 })
+      // Issue #34: the creator is every gateway key's default owner (team and unset included).
+      expect(r.body.providers["vercel-ai-gateway"]).toMatchObject({ creator_default_assigned: 2 })
+      for (const ext of ["gk_team", "gk_unset", "gk_user"]) expect(keyByExt(ext)).toMatchObject({ owner_person_id: PE.carol, assignment_source: "auto" })
       expect(keyByExt("an_alice")).toMatchObject({ owner_person_id: PE.alice, assignment_source: "auto" })
       expect(keyByExt("an_svc")).toMatchObject({ owner_person_id: null, unresolved_reason: "service_account", external_status: "archived" })
       expect(JSON.stringify(r.body)).not.toMatch(/test-admin-key|test-vercel-token/)
@@ -784,24 +787,39 @@ describe("gateway key attribution (#24)", () => {
       expect(named.status).toBe(400)
     })
 
-    it("Assign to creator: team / unset keys only, sets a manual owner that a later sync keeps", async () => {
+    it("Assign to creator (issue #34): an override for keys not owned by their creator, sets a manual owner that a later sync keeps", async () => {
       global.fetch = providerFetch()
       await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
-      expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: null, external_created_by_email: "carol@liatrio.com" })
+      expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "auto", external_created_by_email: "carol@liatrio.com" })
+      // Already owned by the creator (auto): not eligible, whatever the spend attribution.
+      for (const ext of ["gk_team", "gk_unset", "gk_user"]) {
+        expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: ext })).status).toBe(409)
+      }
 
+      // An admin handed gk_team to Alice: the override hands it back to the creator, manual.
+      Object.assign(keyByExt("gk_team"), { owner_person_id: PE.alice, assignment_source: "manual" })
       const ok = await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_team" })
       expect(ok.status).toBe(200)
       expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
-      // Already owned: no longer eligible.
       expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_team" })).status).toBe(409)
-      // User-attributed keys are the sync's job, not this action's.
-      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_user" })).status).toBe(409)
+
+      // An unowned user key (owner cleared by hand) is eligible too.
+      Object.assign(keyByExt("gk_user"), { owner_person_id: null, assignment_source: "manual" })
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_user" })).status).toBe(200)
+      expect(keyByExt("gk_user")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+
       // Unregistered key.
       expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "nope" })).status).toBe(404)
+      // No creator email.
+      Object.assign(keyByExt("gk_unset"), { owner_person_id: null, external_created_by_email: null, assignment_source: "manual" })
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_unset" })).status).toBe(409)
 
       const resync = await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
-      expect(resync.body.providers["vercel-ai-gateway"]).toMatchObject({ manual_kept: 1 })
+      expect(resync.body.providers["vercel-ai-gateway"]).toMatchObject({ manual_kept: 3 })
       expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual", spend_attribution: "team" })
+      expect(keyByExt("gk_user")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+      const third = await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
+      expect(third.body.providers["vercel-ai-gateway"]).toMatchObject({ updated: 0, unchanged: 3 })
     })
 
     it("Assign to creator creates the creator's person when there is none (no team)", async () => {

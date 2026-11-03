@@ -113,14 +113,34 @@ describe("KeysByProjectCard (issue #32)", () => {
     expect(within(anthropic).queryByRole("button", { name: /to creator/ })).toBeNull()
   })
 
-  it("shows Assign to creator only for gateway keys with team / unset spend, a creator email and no owner", async () => {
+  it("issue #34: shows Assign to creator for any gateway key with a creator email whose owner isn't the creator", async () => {
     const mutate = jest.fn(async () => true)
-    render(<KeysByProjectCard org={anOrg} mutate={mutate} keys={listKeys([], gwKeys)} projects={[]} />)
+    const keys: OrgApiKey[] = [
+      ...gwKeys,
+      // Owned by its creator (Alice): no button, whatever the spend attribution.
+      { id: "g6", provider_id: GW, external_key_id: "gw_mine", name: "mine", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "Alice@liatrio.com", assignment_source: "auto" },
+      { id: "g7", provider_id: GW, external_key_id: "gw_mine_user", name: "mine too", owner_person_id: "p-alice", team_id: null, spend_attribution: "user", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
+    ]
+    render(<KeysByProjectCard org={anOrg} mutate={mutate} keys={listKeys([], keys)} projects={[]} />)
     const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
     const buttons = within(gateway).getAllByRole("button", { name: /to creator/ }).map((b) => b.getAttribute("aria-label"))
-    expect(buttons.sort()).toEqual(["Assign gw_team to creator", "Assign gw_unset to creator"])
+    // Unowned keys (team, unset, user) and gw_owned (owned by Alice, created by Bob); not gw_nocreator, gw_mine or gw_mine_user.
+    expect(buttons.sort()).toEqual(["Assign gw_owned to creator", "Assign gw_team to creator", "Assign gw_unset to creator", "Assign gw_user to creator"])
 
     await userEvent.click(within(gateway).getByRole("button", { name: "Assign gw_team to creator" }))
     expect(mutate).toHaveBeenCalledWith("/keys/assign-creator", "POST", { provider_id: GW, external_key_id: "gw_team" }, "Assigned to bob@liatrio.com")
+  })
+
+  it("issue #34: lists gateway keys with no owner under Unassigned keys with the same reason labels", () => {
+    const keys: OrgApiKey[] = [
+      { id: "u1", provider_id: GW, external_key_id: "gw_nc", name: "no creator key", owner_person_id: null, team_id: null, spend_attribution: "team", unresolved_reason: "no_creator" },
+      { id: "u2", provider_id: GW, external_key_id: "gw_um", name: "unmatched key", owner_person_id: null, team_id: null, spend_attribution: null, external_created_by: "uid_x", unresolved_reason: "unmatched_creator" },
+      { id: "u3", provider_id: GW, external_key_id: "gw_ok", name: "owned key", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
+    ]
+    render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys([], keys)} projects={[]} />)
+    const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
+    const unassigned = within(gateway).getByRole("group", { name: "Unassigned keys" })
+    const items = within(unassigned).getAllByTestId("unassigned-key").map((li) => li.textContent?.replace(/\s+/g, " "))
+    expect(items.sort()).toEqual(["no creator key: no creator recorded · $0.00", "unmatched key: creator has no email to match · $0.00"])
   })
 })

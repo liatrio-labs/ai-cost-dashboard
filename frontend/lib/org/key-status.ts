@@ -30,15 +30,19 @@ export interface AssignableKey {
 }
 
 /**
- * Vercel "Assign to creator": a gateway key whose spend attribution is team
- * or unset, with a creator email and no owner. User-attributed keys are the
- * sync's job and never show it.
+ * Vercel "Assign to creator" (issues #32, #34): an override for any gateway
+ * key (any spend attribution) that has a creator email and whose owner isn't
+ * that creator's person, i.e. an unowned key or one handed to someone else.
+ * `ownerEmail` is the current owner's email (people.email); a key already
+ * owned by its creator never shows it.
  */
-export function canAssignToCreator(k: AssignableKey, providerSlug: string | null | undefined): boolean {
-  return (
-    providerSlug === GATEWAY_PROVIDER &&
-    (k.spend_attribution == null || k.spend_attribution === "team") &&
-    !!normalizeEmail(k.external_created_by_email) &&
-    !k.owner_person_id
-  )
+export function canAssignToCreator(
+  k: AssignableKey,
+  providerSlug: string | null | undefined,
+  ownerEmail?: string | null
+): boolean {
+  if (providerSlug !== GATEWAY_PROVIDER) return false
+  const creator = normalizeEmail(k.external_created_by_email)
+  if (!creator) return false
+  return !k.owner_person_id || normalizeEmail(ownerEmail) !== creator
 }

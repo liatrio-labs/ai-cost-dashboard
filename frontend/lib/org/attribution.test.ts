@@ -212,6 +212,34 @@ describe("resolveAttribution: issue #32 precedence (Anthropic keys and workspace
   })
 })
 
+describe("resolveAttribution: issue #34 precedence (AI Gateway keys owned by their creator)", () => {
+  const GW = "prov-aigw"
+  // A team-attributed gateway key auto-owned by its creator (Alice, Platform), scoped to a Data project.
+  const data = orgData()
+  data.projects!.push({ id: "pr-gw", provider_id: GW, external_project_id: "prj_gw", name: "Banana", team_id: T.data })
+  data.apiKeys.push({ id: "gk-team", provider_id: GW, external_key_id: "gk_team", owner_person_id: PE.alice, team_id: null, org_project_id: "pr-gw", assignment_source: "auto" })
+  data.apiKeys.push({ id: "gk-none", provider_id: GW, external_key_id: "gk_none", owner_person_id: null, team_id: null, org_project_id: "pr-gw", assignment_source: "auto" })
+  const idx = buildOrgIndex(data)
+  const r = (attribution: Record<string, unknown>) => resolveAttribution({ provider_id: GW, metadata: { attribution } }, idx)
+
+  it("1: a user_actor row on a gateway key owned by its creator resolves to the actor (and the actor's team)", () => {
+    expect(r({ api_key_id: "gk_team", project_id: "prj_gw", person_email: "bob@liatrio.com", granularity: "person" })).toMatchObject({
+      person_id: PE.bob,
+      team_id: T.field,
+      org_api_key_id: "gk-team",
+      project_id: "prj_gw",
+    })
+  })
+
+  it("3: a key-only row resolves to the creator owner, whose team beats the project's", () => {
+    expect(r({ api_key_id: "gk_team", project_id: "prj_gw", granularity: "api_key" })).toMatchObject({ person_id: PE.alice, team_id: T.platform })
+  })
+
+  it("4: an unowned scoped key (unresolved creator) falls back to the project's team", () => {
+    expect(r({ api_key_id: "gk_none", granularity: "api_key" })).toMatchObject({ person_id: null, team_id: T.data, project_id: "prj_gw" })
+  })
+})
+
 describe("resolveAttribution: missing or malformed attribution", () => {
   it.each([
     ["empty metadata", {}],
