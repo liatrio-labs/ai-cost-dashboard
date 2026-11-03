@@ -25,9 +25,6 @@ const PROVIDERS: { id: string; name: string }[] = [
   { id: "claude-ai", name: "Claude.ai (Enterprise Analytics)" },
   { id: "openai", name: "OpenAI API (platform.openai.com)" },
   { id: "cursor", name: "Cursor (Admin API)" },
-  { id: "vercel", name: "Vercel (Usage API)" },
-  { id: "apify", name: "Apify (Usage API)" },
-  { id: "windsurf", name: "Windsurf (CascadeAnalytics + seats)" },
 ]
 
 interface ProviderOption {

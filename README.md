@@ -45,17 +45,16 @@ org-level API token in environment variables. Missing key → that provider is s
 | **Claude.ai (Enterprise)** | Enterprise Analytics API | per-user + org cost reports |
 | **OpenAI API** | `/v1/organization/costs` | requires `OPENAI_ORG_ID` |
 | **Cursor** | Admin `filtered-usage-events` | per-day × member × model |
-| **Vercel** | Billing charges (FOCUS) | infra/seats |
 | **Vercel AI Gateway** | Custom Reporting API | separate from Vercel billing |
-| **Apify** | Monthly usage API | account-scoped token |
-| **Windsurf** | Seat subscription (quota plan) | usage from CascadeAnalytics |
 | **ChatGPT / Lovable / other** | Manual entry / CSV import | no usable cost API |
 
 Rows carry `metadata.attribution` (person / API key / project / workspace, or
 `org` when the provider exposes nothing finer). See
 [docs/attribution.md](docs/attribution.md) for what each provider supports and
 which endpoints are used. The AI Gateway collector also uses `VERCEL_TOKEN`
-(optional) to list gateway keys for per-key rows.
+(optional) to list gateway keys for per-key rows. The Vercel (hosting usage),
+Apify and Windsurf collectors were removed in #27 after those tools were
+deleted from the dashboard.
 
 ### Daily refetch windows and coverage
 
@@ -151,7 +150,8 @@ npm run dev                         # http://localhost:3000
 Useful env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, the provider tokens (e.g.
 `ANTHROPIC_ADMIN_KEY`, `OPENAI_ADMIN_KEY` + `OPENAI_ORG_ID`, `CURSOR_ADMIN_KEY`,
-`VERCEL_TOKEN`, `AI_GATEWAY_API_KEY`, `APIFY_TOKEN`), and optionally `ADMIN_DOMAINS`.
+`AI_GATEWAY_API_KEY`, plus `VERCEL_TOKEN` and `VERCEL_TEAM_ID` for the AI Gateway
+key sync), and optionally `ADMIN_DOMAINS`.
 Set `NEXT_PUBLIC_SKIP_AUTH=true` to bypass auth in local dev.
 
 ```bash

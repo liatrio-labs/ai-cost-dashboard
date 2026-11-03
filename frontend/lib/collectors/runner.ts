@@ -16,9 +16,6 @@ import { collector as anthropic } from "./anthropic"
 import { collector as claudeAi } from "./claude-ai"
 import { collector as openai } from "./openai"
 import { collector as cursor } from "./cursor"
-import { collector as vercel } from "./vercel"
-import { collector as apify } from "./apify"
-import { collector as windsurf } from "./windsurf"
 import { collector as vercelAiGateway } from "./vercel-ai-gateway"
 import { syncGatewayKeys } from "@/lib/org/gateway-sync"
 
@@ -27,9 +24,6 @@ export const COLLECTORS: Record<string, Collector> = {
   "claude-ai": claudeAi,
   openai,
   cursor,
-  vercel,
-  apify,
-  windsurf,
   "vercel-ai-gateway": vercelAiGateway,
 }
 
@@ -42,9 +36,6 @@ export const PROVIDER_ENV: Record<
   "claude-ai": { apiKey: "CLAUDE_AI_ANALYTICS_KEY", orgId: "CLAUDE_AI_ORG_ID" },
   openai: { apiKey: "OPENAI_ADMIN_KEY", orgId: "OPENAI_ORG_ID" },
   cursor: { apiKey: "CURSOR_ADMIN_KEY", teamId: "CURSOR_TEAM_ID" },
-  vercel: { apiKey: "VERCEL_TOKEN", teamId: "VERCEL_TEAM_ID" },
-  apify: { apiKey: "APIFY_TOKEN" },
-  windsurf: { apiKey: "WINDSURF_SERVICE_KEY", teamId: "WINDSURF_TEAM_ID" },
   "vercel-ai-gateway": {
     apiKey: "AI_GATEWAY_API_KEY",
     teamId: "VERCEL_TEAM_ID",

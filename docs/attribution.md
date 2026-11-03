@@ -47,9 +47,6 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 | OpenAI API | no on cost (see gaps); usage `user_id` kept as a hint | yes | project | line_item × project × api key | `GET /v1/organization/costs` `group_by=line_item,project_id,api_key_id` (retries without `api_key_id` on 400); `/usage/completions` `group_by=model,project_id,api_key_id,user_id`; names from `/organization/projects` and `/projects/{id}/api_keys` |
 | Cursor | yes (member email) | n/a | n/a | member × model | `POST /teams/filtered-usage-events` (unchanged) |
 | Vercel AI Gateway | via the key: creator when `spendAttribution = user`, or an admin-set owner | yes | project, for project-scoped keys (tags not collected) | one per key with spend, plus an org remainder | `GET ai-gateway.vercel.sh/v1/report?group_by=day` once unfiltered and once per key with `api_key_id=<id>`; keys from `GET api.vercel.com/v1/api-keys?purpose=ai-gateway`, project names from `GET /v9/projects/{id}`, creator emails from `GET /v3/teams/{teamId}/members` |
-| Vercel (billing) | no | no | project (FOCUS `Tags.ProjectId/ProjectName`) | one per charge | `GET /v1/billing/charges` (unchanged) |
-| Windsurf | no (usage only; cost is flat seats) | no | no | one org row | unchanged |
-| Apify | no | no | no | one org row | unchanged (account-scoped) |
 | Manual / ChatGPT | no | no | no | n/a | manual entry, no `attribution` (counts as org) |
 
 ## Provider notes
@@ -175,17 +172,14 @@ History collected before the per-key collector has no attribution. After
 deploying, re-pull it with the backfill command in the README ("Re-pulling AI
 Gateway history").
 
-### Cursor, Vercel billing, Windsurf, Apify
+### Cursor
 
 - Cursor: `member_email` is lower-cased into `person_email` with
   `granularity: "person"`. Events with no email stay `org`.
-- Vercel billing: FOCUS `Tags.ProjectId` / `ProjectName` become `project`.
-  Team-level charges such as plan fees and seats stay `org`.
-- Windsurf: cost is a flat seat subscription split evenly per day, so no cost
-  belongs to any one person or key. Usage per member exists, but attributing a
-  seat fee by usage would invent numbers. Rows are `org`.
-- Apify: the token and usage API are account-scoped, with no user, key or
-  project dimension. Rows are `org`.
+
+The Vercel (hosting usage), Apify and Windsurf collectors were removed in #27
+after those tools were deleted from the dashboard. They had no attribution
+finer than `project` (Vercel billing) or `org` (Apify, Windsurf).
 
 ## Gaps and follow-ups
 
