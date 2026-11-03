@@ -69,3 +69,78 @@ describe("KeysByProjectCard (issue #28)", () => {
     expect(mutate).toHaveBeenLastCalledWith("/keys", "POST", expect.objectContaining({ team_id: "team-web" }), "Key updated")
   })
 })
+
+describe("KeysByProjectCard (issue #32)", () => {
+  const anOrg = {
+    ...org,
+    projects: [
+      ...org.projects,
+      { id: "an-r", provider_id: AN, external_project_id: "wrk_r", name: "Research", team_id: null },
+      { id: "an-d", provider_id: AN, external_project_id: "default", name: "Default", team_id: null },
+    ],
+  } as unknown as Org
+  const anKeys: OrgApiKey[] = [
+    { id: "a1", provider_id: AN, external_key_id: "an_a", name: "alice key", owner_person_id: "p-alice", team_id: null, org_project_id: "an-r", assignment_source: "auto", external_created_by: "user_alice", external_created_by_email: "alice@liatrio.com", external_status: "active" },
+    { id: "a2", provider_id: AN, external_key_id: "an_svc", name: "ci key", owner_person_id: null, team_id: null, org_project_id: "an-d", assignment_source: "auto", external_created_by: "service_account:sa_1", external_status: "archived", unresolved_reason: "service_account" },
+    { id: "a3", provider_id: AN, external_key_id: "an_gone", name: "old key", owner_person_id: null, team_id: null, org_project_id: "an-r", assignment_source: "auto", external_created_by: "user_gone", external_status: "inactive", unresolved_reason: "deleted_user" },
+  ]
+  const gwKeys: OrgApiKey[] = [
+    { id: "g1", provider_id: GW, external_key_id: "gw_team", name: "team key", owner_person_id: null, team_id: null, spend_attribution: "team", external_created_by_email: "bob@liatrio.com" },
+    { id: "g2", provider_id: GW, external_key_id: "gw_unset", name: "unset key", owner_person_id: null, team_id: null, spend_attribution: null, external_created_by_email: "bob@liatrio.com" },
+    { id: "g3", provider_id: GW, external_key_id: "gw_user", name: "user key", owner_person_id: null, team_id: null, spend_attribution: "user", external_created_by_email: "bob@liatrio.com" },
+    { id: "g4", provider_id: GW, external_key_id: "gw_owned", name: "owned key", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "bob@liatrio.com", assignment_source: "manual" },
+    { id: "g5", provider_id: GW, external_key_id: "gw_nocreator", name: "no creator", owner_person_id: null, team_id: null, spend_attribution: "team" },
+  ]
+
+  it("lists Anthropic keys under workspace projects with status, creator and owner; unresolved ones with their reason", () => {
+    render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys(records, anKeys)} projects={[]} />)
+    const anthropic = screen.getByRole("region", { name: "Anthropic API" })
+    const research = within(anthropic).getByRole("group", { name: "Workspace: Research" })
+    expect(research).toHaveTextContent("alice key")
+    expect(research).toHaveTextContent("active")
+    expect(research).toHaveTextContent("owner Alice")
+    expect(research).toHaveTextContent("created by alice@liatrio.com")
+    expect(research).toHaveTextContent("$30.00")
+    const def = within(anthropic).getByRole("group", { name: "Workspace: Default" })
+    expect(def).toHaveTextContent("ci key")
+    expect(def).toHaveTextContent("archived")
+    expect(def).toHaveTextContent("owner none (created by a service account)")
+    expect(def).toHaveTextContent("created by service_account:sa_1")
+
+    const unassigned = within(anthropic).getByRole("group", { name: "Unassigned keys" })
+    const items = within(unassigned).getAllByTestId("unassigned-key").map((li) => li.textContent?.replace(/\s+/g, " "))
+    expect(items.sort()).toEqual(["ci key: created by a service account · $0.00", "old key: creator is no longer in the organization · $0.00"])
+    expect(within(anthropic).queryByRole("button", { name: /to creator/ })).toBeNull()
+  })
+
+  it("issue #34: shows Assign to creator for any gateway key with a creator email whose owner isn't the creator", async () => {
+    const mutate = jest.fn(async () => true)
+    const keys: OrgApiKey[] = [
+      ...gwKeys,
+      // Owned by its creator (Alice): no button, whatever the spend attribution.
+      { id: "g6", provider_id: GW, external_key_id: "gw_mine", name: "mine", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "Alice@liatrio.com", assignment_source: "auto" },
+      { id: "g7", provider_id: GW, external_key_id: "gw_mine_user", name: "mine too", owner_person_id: "p-alice", team_id: null, spend_attribution: "user", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
+    ]
+    render(<KeysByProjectCard org={anOrg} mutate={mutate} keys={listKeys([], keys)} projects={[]} />)
+    const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
+    const buttons = within(gateway).getAllByRole("button", { name: /to creator/ }).map((b) => b.getAttribute("aria-label"))
+    // Unowned keys (team, unset, user) and gw_owned (owned by Alice, created by Bob); not gw_nocreator, gw_mine or gw_mine_user.
+    expect(buttons.sort()).toEqual(["Assign gw_owned to creator", "Assign gw_team to creator", "Assign gw_unset to creator", "Assign gw_user to creator"])
+
+    await userEvent.click(within(gateway).getByRole("button", { name: "Assign gw_team to creator" }))
+    expect(mutate).toHaveBeenCalledWith("/keys/assign-creator", "POST", { provider_id: GW, external_key_id: "gw_team" }, "Assigned to bob@liatrio.com")
+  })
+
+  it("issue #34: lists gateway keys with no owner under Unassigned keys with the same reason labels", () => {
+    const keys: OrgApiKey[] = [
+      { id: "u1", provider_id: GW, external_key_id: "gw_nc", name: "no creator key", owner_person_id: null, team_id: null, spend_attribution: "team", unresolved_reason: "no_creator" },
+      { id: "u2", provider_id: GW, external_key_id: "gw_um", name: "unmatched key", owner_person_id: null, team_id: null, spend_attribution: null, external_created_by: "uid_x", unresolved_reason: "unmatched_creator" },
+      { id: "u3", provider_id: GW, external_key_id: "gw_ok", name: "owned key", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
+    ]
+    render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys([], keys)} projects={[]} />)
+    const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
+    const unassigned = within(gateway).getByRole("group", { name: "Unassigned keys" })
+    const items = within(unassigned).getAllByTestId("unassigned-key").map((li) => li.textContent?.replace(/\s+/g, " "))
+    expect(items.sort()).toEqual(["no creator key: no creator recorded · $0.00", "unmatched key: creator has no email to match · $0.00"])
+  })
+})

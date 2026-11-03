@@ -12,8 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import { unassignedGatewayKeys, type ImportPreview, type KeyRow, type ProjectRow, type UnassignedQueue } from "@/lib/org/admin/observed"
-import { GatewayKeySyncButton } from "@/components/admin/gateway-key-sync"
-import { KeysByProjectCard } from "./keys-by-project"
+import { KeySyncButton } from "@/components/admin/gateway-key-sync"
+import { AssignToCreatorButton, KeysByProjectCard } from "./keys-by-project"
+import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const API = "/api/admin/org"
@@ -549,11 +550,11 @@ function GatewayKeysCard({
           <div>
             <CardTitle>Unassigned gateway keys</CardTitle>
             <CardDescription>
-              Vercel AI Gateway keys with no owner, project or team. Keys set to &quot;user&quot; spend attribution map to their creator and project-scoped keys to their
-              project automatically on every collection. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
+              Vercel AI Gateway keys with no owner, project or team. Every key&apos;s creator becomes its owner and project-scoped keys map to their project
+              automatically on every collection and &quot;Sync keys now&quot;, whatever the spend attribution. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
             </CardDescription>
           </div>
-          <GatewayKeySyncButton onSynced={reload} />
+          <KeySyncButton onSynced={reload} />
         </div>
       </CardHeader>
       <CardContent className="divide-y divide-border/50">
@@ -572,6 +573,7 @@ function GatewayKeysCard({
                 <SourceBadge source={k.assignment_source} />
               </div>
               <div className="flex items-center gap-1">
+                {canAssignToCreator(k, "vercel-ai-gateway") && <AssignToCreatorButton k={k} mutate={mutate} />}
                 <select
                   aria-label={`Assign ${k.external_key_id} to a person`}
                   className={selectClass}

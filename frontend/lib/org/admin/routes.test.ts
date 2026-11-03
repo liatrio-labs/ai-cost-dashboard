@@ -46,6 +46,8 @@ import * as projectRoute from "@/app/api/admin/org/projects/[id]/route"
 import * as unassigned from "@/app/api/admin/org/unassigned/route"
 import * as assign from "@/app/api/admin/org/unassigned/assign/route"
 import * as syncGateway from "@/app/api/admin/org/keys/sync-gateway/route"
+import * as syncKeys from "@/app/api/admin/org/keys/sync/route"
+import * as assignCreator from "@/app/api/admin/org/keys/assign-creator/route"
 
 const ADMIN = { id: "u-admin", email: "admin@example.com" }
 const OUTSIDER = { id: "u-out", email: "someone@elsewhere.test" }
@@ -110,6 +112,8 @@ const EVERY_HANDLER: [string, unknown, string, string, Record<string, string>][]
   ["GET unassigned", unassigned.GET, "GET", "/api/admin/org/unassigned", {}],
   ["POST assign", assign.POST, "POST", "/api/admin/org/unassigned/assign", {}],
   ["POST sync-gateway", syncGateway.POST, "POST", "/api/admin/org/keys/sync-gateway", {}],
+  ["POST keys/sync", syncKeys.POST, "POST", "/api/admin/org/keys/sync", {}],
+  ["POST keys/assign-creator", assignCreator.POST, "POST", "/api/admin/org/keys/assign-creator", {}],
 ]
 
 describe("auth", () => {
@@ -690,6 +694,150 @@ describe("gateway key attribution (#24)", () => {
       expect(JSON.stringify(r.body)).not.toMatch(/test-vercel-token/)
       expect(mockState.db.writes.length).toBe(before)
       expect(mockState.refreshes).toBe(0)
+    })
+  })
+
+  describe("issue #32: POST /keys/sync (Anthropic + Vercel) and /keys/assign-creator", () => {
+    const realFetch = global.fetch
+    const saved = { an: process.env.ANTHROPIC_ADMIN_KEY, vt: process.env.VERCEL_TOKEN, team: process.env.VERCEL_TEAM_ID }
+    const restore = (k: string, v: string | undefined) => (v === undefined ? delete process.env[k] : (process.env[k] = v))
+    afterEach(() => {
+      global.fetch = realFetch
+      restore("ANTHROPIC_ADMIN_KEY", saved.an)
+      restore("VERCEL_TOKEN", saved.vt)
+      restore("VERCEL_TEAM_ID", saved.team)
+    })
+    beforeEach(() => {
+      process.env.ANTHROPIC_ADMIN_KEY = "test-admin-key"
+      process.env.VERCEL_TOKEN = "test-vercel-token"
+      process.env.VERCEL_TEAM_ID = "team_x"
+      rows("providers").push({ id: GW, name: "vercel-ai-gateway", display_name: "Vercel AI Gateway" })
+    })
+    const res = (body: unknown, status = 200) =>
+      ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+
+    const providerFetch = (opts: { anthropicFails?: boolean } = {}) =>
+      jest.fn(async (url: unknown) => {
+        const u = new URL(String(url))
+        if (u.hostname === "api.anthropic.com") {
+          if (u.pathname === "/v1/organizations/api_keys") {
+            if (opts.anthropicFails) return res({ error: { type: "permission_error" } }, 403)
+            return res({
+              data: [
+                { id: "an_alice", name: "alice key", status: "active", workspace_id: "wrk_1", created_by: { id: "user_alice", type: "user" } },
+                { id: "an_svc", name: "ci", status: "archived", workspace_id: null, created_by: { id: "sa_1", type: "service_account" } },
+              ],
+              has_more: false,
+            })
+          }
+          if (u.pathname === "/v1/organizations/users") return res({ data: [{ id: "user_alice", email: "alice@liatrio.com", name: "Alice" }], has_more: false })
+          if (u.pathname === "/v1/organizations/workspaces") return res({ data: [{ id: "wrk_1", name: "Workspace One" }], has_more: false })
+        }
+        if (u.pathname === "/v1/api-keys") {
+          return res({
+            apiKeys: [
+              { id: "gk_team", name: "shared", createdBy: "uid_carol", metadata: { spendAttribution: "team" } },
+              { id: "gk_unset", name: "legacy", createdBy: "uid_carol" },
+              { id: "gk_user", name: "mine", createdBy: "uid_carol", metadata: { spendAttribution: "user" } },
+            ],
+          })
+        }
+        if (u.pathname === "/v3/teams/team_x/members") return res({ members: [{ uid: "uid_carol", email: "carol@liatrio.com" }] })
+        throw new Error(`unexpected fetch ${u}`)
+      }) as unknown as typeof fetch
+
+    it("syncs both providers and returns per-provider counts", async () => {
+      global.fetch = providerFetch()
+      const r = await call(syncKeys.POST, "POST", "/x")
+      expect(r.status).toBe(200)
+      expect(r.body.providers.anthropic).toMatchObject({ status: "success", created: 2, updated: 0, unchanged: 0, manual_kept: 0, unresolved_creators: 1 })
+      expect(r.body.providers["vercel-ai-gateway"]).toMatchObject({ status: "success", created: 3, updated: 0, unchanged: 0, manual_kept: 0, unresolved_creators: 0 })
+      // Issue #34: the creator is every gateway key's default owner (team and unset included).
+      expect(r.body.providers["vercel-ai-gateway"]).toMatchObject({ creator_default_assigned: 2 })
+      for (const ext of ["gk_team", "gk_unset", "gk_user"]) expect(keyByExt(ext)).toMatchObject({ owner_person_id: PE.carol, assignment_source: "auto" })
+      expect(keyByExt("an_alice")).toMatchObject({ owner_person_id: PE.alice, assignment_source: "auto" })
+      expect(keyByExt("an_svc")).toMatchObject({ owner_person_id: null, unresolved_reason: "service_account", external_status: "archived" })
+      expect(JSON.stringify(r.body)).not.toMatch(/test-admin-key|test-vercel-token/)
+      expect(mockState.refreshes).toBe(1)
+
+      const again = await call(syncKeys.POST, "POST", "/x")
+      expect(again.body.providers.anthropic).toMatchObject({ created: 0, updated: 0, unchanged: 2 })
+      expect(again.body.providers["vercel-ai-gateway"]).toMatchObject({ created: 0, updated: 0, unchanged: 3 })
+    })
+
+    it("an Anthropic Admin API error is a 502 and nothing is written (Vercel included)", async () => {
+      global.fetch = providerFetch({ anthropicFails: true })
+      const before = mockState.db.writes.length
+      const r = await call(syncKeys.POST, "POST", "/x")
+      expect(r.status).toBe(502)
+      expect(r.body.error).toMatch(/Anthropic key sync failed, nothing was changed.*HTTP 403/)
+      expect(JSON.stringify(r.body)).not.toMatch(/test-admin-key/)
+      expect(mockState.db.writes.length).toBe(before)
+      expect(mockState.refreshes).toBe(0)
+    })
+
+    it("skips an unconfigured provider, and 400s when it is asked for by name", async () => {
+      delete process.env.ANTHROPIC_ADMIN_KEY
+      global.fetch = providerFetch()
+      const r = await call(syncKeys.POST, "POST", "/x")
+      expect(r.status).toBe(200)
+      expect(r.body.providers.anthropic).toEqual({ status: "skipped", reason: "ANTHROPIC_ADMIN_KEY is not configured" })
+      expect(r.body.providers["vercel-ai-gateway"]).toMatchObject({ created: 3 })
+      const named = await call(syncKeys.POST, "POST", "/x", { providers: ["anthropic"] })
+      expect(named.status).toBe(400)
+    })
+
+    it("Assign to creator (issue #34): an override for keys not owned by their creator, sets a manual owner that a later sync keeps", async () => {
+      global.fetch = providerFetch()
+      await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
+      expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "auto", external_created_by_email: "carol@liatrio.com" })
+      // Already owned by the creator (auto): not eligible, whatever the spend attribution.
+      for (const ext of ["gk_team", "gk_unset", "gk_user"]) {
+        expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: ext })).status).toBe(409)
+      }
+
+      // An admin handed gk_team to Alice: the override hands it back to the creator, manual.
+      Object.assign(keyByExt("gk_team"), { owner_person_id: PE.alice, assignment_source: "manual" })
+      const ok = await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_team" })
+      expect(ok.status).toBe(200)
+      expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_team" })).status).toBe(409)
+
+      // An unowned user key (owner cleared by hand) is eligible too.
+      Object.assign(keyByExt("gk_user"), { owner_person_id: null, assignment_source: "manual" })
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_user" })).status).toBe(200)
+      expect(keyByExt("gk_user")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+
+      // Unregistered key.
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "nope" })).status).toBe(404)
+      // No creator email.
+      Object.assign(keyByExt("gk_unset"), { owner_person_id: null, external_created_by_email: null, assignment_source: "manual" })
+      expect((await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_unset" })).status).toBe(409)
+
+      const resync = await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
+      expect(resync.body.providers["vercel-ai-gateway"]).toMatchObject({ manual_kept: 3 })
+      expect(keyByExt("gk_team")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual", spend_attribution: "team" })
+      expect(keyByExt("gk_user")).toMatchObject({ owner_person_id: PE.carol, assignment_source: "manual" })
+      const third = await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
+      expect(third.body.providers["vercel-ai-gateway"]).toMatchObject({ updated: 0, unchanged: 3 })
+    })
+
+    it("Assign to creator creates the creator's person when there is none (no team)", async () => {
+      global.fetch = providerFetch()
+      await call(syncKeys.POST, "POST", "/x", { providers: ["vercel-ai-gateway"] })
+      Object.assign(keyByExt("gk_unset"), { external_created_by_email: "Fresh.Person@liatrio.com" })
+      const r = await call(assignCreator.POST, "POST", "/x", { provider_id: GW, external_key_id: "gk_unset" })
+      expect(r).toMatchObject({ status: 200, body: { person_created: true } })
+      const p = rows("people").find((x) => x.email === "fresh.person@liatrio.com") as Record<string, unknown>
+      expect(p).toBeTruthy()
+      expect(p.team_id ?? null).toBeNull()
+      expect(keyByExt("gk_unset")).toMatchObject({ owner_person_id: p.id, assignment_source: "manual" })
+    })
+
+    it("Assign to creator rejects non-gateway keys", async () => {
+      rows("org_api_keys").push({ id: "an-1", provider_id: P.anthropic, external_key_id: "an_x", name: "x", owner_person_id: null, team_id: null, external_created_by_email: "carol@liatrio.com", spend_attribution: null })
+      const r = await call(assignCreator.POST, "POST", "/x", { provider_id: P.anthropic, external_key_id: "an_x" })
+      expect(r.status).toBe(409)
     })
   })
 })

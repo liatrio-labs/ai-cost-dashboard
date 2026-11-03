@@ -118,9 +118,14 @@ const res = (body: unknown, status = 200) =>
   ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
 
 /** Mock the analytics API: `/cost` serves `costRows` filtered to the requested window. */
-function mockAnalytics(costRows: any[], opts: { failUsage?: boolean } = {}) {
+function mockAnalytics(costRows: any[], opts: { failUsage?: boolean; failKeySync?: boolean } = {}) {
   global.fetch = jest.fn(async (url: any) => {
     const u = new URL(String(url))
+    // Issue #32: the Anthropic key sync runs after collection (no keys here).
+    if (/\/organizations\/(api_keys|users|workspaces)$/.test(u.pathname)) {
+      if (opts.failKeySync) return res({ error: { type: "permission_error" } }, 403)
+      return res({ data: [], has_more: false })
+    }
     const lo = Date.parse(u.searchParams.get("starting_at")!)
     const hi = Date.parse(u.searchParams.get("ending_at")!)
     if (u.pathname.endsWith("/analytics/cost")) {
@@ -199,6 +204,27 @@ describe("runCollectionForProvider with an explicit range", () => {
       { date: "2026-07-23", records: 3, cost_usd: 6 },
       { date: "2026-07-24", records: 0, cost_usd: 0 },
     ])
+  })
+
+  test("issue #32: collection still succeeds when the Anthropic key sync fails", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+    const rows = seed()
+    mockDb.client = fakeAdmin(rows)
+    mockAnalytics(provider, { failKeySync: true })
+    const result = await runCollectionForProvider("anthropic", { range: RANGE })
+    expect(result.status).toBe("success")
+    expect(result.records_stored).toBe(6)
+    expect(result.key_sync).toMatchObject({ status: "error", error: expect.stringMatching(/api_keys failed: HTTP 403/) })
+    expect(JSON.stringify(result)).not.toMatch(/test-admin-key/)
+    expect(warn).toHaveBeenCalled()
+  })
+
+  test("issue #32: a successful collection reports the Anthropic key sync as key_sync", async () => {
+    mockDb.client = fakeAdmin(seed())
+    mockAnalytics(provider)
+    const result = await runCollectionForProvider("anthropic", { range: RANGE })
+    expect(result.status).toBe("success")
+    expect(result.key_sync).toMatchObject({ status: "success", keys_listed: 0, created: 0 })
   })
 
   test("in-range days with no buckets, out-of-range days and manual/CSV rows are untouched", async () => {

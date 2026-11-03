@@ -2,7 +2,7 @@ import "@testing-library/jest-dom"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { PULL_PROVIDERS, ProviderPullCard, pullRequestBody, rangeProblem } from "./provider-pull"
-import { formatSyncSummary } from "./gateway-key-sync"
+import { formatKeySyncResponse, formatSyncSummary } from "./gateway-key-sync"
 
 const json = (body: unknown, status = 200) =>
   ({ ok: status < 300, status, json: async () => body }) as unknown as Response
@@ -97,22 +97,62 @@ describe("ProviderPullCard", () => {
   it("Sync keys now shows counts, and shows a sync error clearly", async () => {
     global.fetch = jest
       .fn()
-      .mockResolvedValueOnce(json({ status: "success", created: 3, updated: 0, unchanged: 0, manual_kept: 0, keys_listed: 3 }))
+      .mockResolvedValueOnce(json({ providers: { "vercel-ai-gateway": { status: "success", created: 3, updated: 0, unchanged: 0, manual_kept: 0, keys_listed: 3 } } }))
       .mockResolvedValueOnce(json({ error: "Gateway key sync failed, nothing was changed: HTTP 403" }, 502)) as unknown as typeof fetch
     render(<ProviderPullCard />)
-    const button = screen.getByRole("button", { name: "Sync keys now" })
+    const row = screen.getByTestId("pull-vercel-ai-gateway")
+    const button = within(row).getByRole("button", { name: "Sync keys now" })
     await userEvent.click(button)
-    expect(await screen.findByRole("status")).toHaveTextContent("Synced 3 keys: 3 created, 0 updated, 0 unchanged, 0 manual kept")
-    expect((global.fetch as jest.Mock).mock.calls[0]).toEqual(["/api/admin/org/keys/sync-gateway", { method: "POST" }])
+    expect(await within(row).findByRole("status")).toHaveTextContent("Synced Vercel AI Gateway: 3 keys: 3 created, 0 updated, 0 unchanged, 0 manual kept")
+    expect((global.fetch as jest.Mock).mock.calls[0]).toEqual([
+      "/api/admin/org/keys/sync",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ providers: ["vercel-ai-gateway"] }) },
+    ])
     await userEvent.click(button)
-    expect(await screen.findByRole("status")).toHaveTextContent("Gateway key sync failed, nothing was changed: HTTP 403")
+    expect(await within(row).findByRole("status")).toHaveTextContent("Gateway key sync failed, nothing was changed: HTTP 403")
+  })
+
+  it("issue #32: the Anthropic row syncs Anthropic keys and shows unresolved creators", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(
+        json({ providers: { anthropic: { status: "success", created: 2, updated: 1, unchanged: 0, manual_kept: 1, keys_listed: 3, unresolved_creators: 1 } } })
+      )
+      .mockResolvedValueOnce(json({ error: "Anthropic key sync failed, nothing was changed: Anthropic Admin API /api_keys failed: HTTP 401" }, 502)) as unknown as typeof fetch
+    render(<ProviderPullCard />)
+    const row = screen.getByTestId("pull-anthropic")
+    const button = within(row).getByRole("button", { name: "Sync keys now" })
+    await userEvent.click(button)
+    expect(await within(row).findByRole("status")).toHaveTextContent(
+      "Synced Anthropic: 3 keys: 2 created, 1 updated, 0 unchanged, 1 manual kept; 1 creator unresolved (no owner)"
+    )
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).toEqual({ providers: ["anthropic"] })
+    await userEvent.click(button)
+    expect(await within(row).findByRole("status")).toHaveTextContent(/Anthropic key sync failed, nothing was changed/)
   })
 })
 
 describe("formatSyncSummary", () => {
   it("adds people / projects / unresolved creators when non-zero", () => {
     expect(formatSyncSummary({ created: 1, updated: 0, unchanged: 0, manual_kept: 0, keys_listed: 1, people_created: 1, unresolved_creators: 2 })).toBe(
-      "1 key: 1 created, 0 updated, 0 unchanged, 0 manual kept; 1 people created; 2 creators not matched to an email"
+      "1 key: 1 created, 0 updated, 0 unchanged, 0 manual kept; 1 people created; 2 creators unresolved (no owner)"
     )
+  })
+
+  it("issue #34: reports team / unset keys assigned to their creator", () => {
+    expect(formatSyncSummary({ created: 0, updated: 14, unchanged: 2, manual_kept: 1, keys_listed: 16, creator_default_assigned: 14 })).toBe(
+      "16 keys: 0 created, 14 updated, 2 unchanged, 1 manual kept; 14 assigned to their creator"
+    )
+  })
+})
+
+describe("formatKeySyncResponse", () => {
+  it("lists each provider, including skipped ones", () => {
+    expect(
+      formatKeySyncResponse({
+        anthropic: { status: "skipped", reason: "ANTHROPIC_ADMIN_KEY is not configured" },
+        "vercel-ai-gateway": { created: 0, updated: 0, unchanged: 2, manual_kept: 1, keys_listed: 2 },
+      })
+    ).toBe("Anthropic: skipped (ANTHROPIC_ADMIN_KEY is not configured) · Vercel AI Gateway: 2 keys: 0 created, 0 updated, 2 unchanged, 1 manual kept")
   })
 })

@@ -1,36 +1,46 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- untyped provider JSON is parsed defensively */
 /**
- * Vercel AI Gateway key sync (issue #24).
+ * Vercel AI Gateway key sync (issues #24, #34).
  *
- * Runs after vercel-ai-gateway collection (runner.ts) and as an admin action
- * (POST /api/admin/org/keys/sync-gateway). For every gateway key listed by
- * GET api.vercel.com/v1/api-keys?purpose=ai-gateway it:
+ * Runs after vercel-ai-gateway collection (runner.ts) and from "Sync keys now"
+ * (POST /api/admin/org/keys/sync, /keys/sync-gateway). For every gateway key
+ * listed by GET api.vercel.com/v1/api-keys?purpose=ai-gateway it:
  *
  * - upserts org_api_keys (provider + key id) with the key's name, creator
- *   (createdBy, plus email from team members) and spendAttribution;
- * - spendAttribution = "user": maps createdBy -> email via
- *   GET /v3/teams/{teamId}/members -> people (existing by email, else created
- *   with no team) and sets owner_person_id;
- * - spendAttribution = "team" or unset: no owner (the key stays unassigned
- *   until an admin assigns it);
- * - project-scoped keys: upserts org_projects (provider + projectId, best-effort
- *   name) and sets org_project_id.
+ *   (createdBy, plus email from GET /v3/teams/{teamId}/members) and
+ *   spendAttribution;
+ * - creator is the default owner, whatever the spend attribution (user, team
+ *   or unset; issue #34): createdBy -> email -> people (existing by email,
+ *   else created with no team) -> owner_person_id, assignment_source 'auto'.
+ *   When the members list doesn't have the creator, the creator email already
+ *   stored on the key is used;
+ * - no createdBy -> no owner, unresolved_reason 'no_creator'; a createdBy
+ *   with no email -> no owner, 'unmatched_creator' (migration 017; both are
+ *   counted in unresolved_creators);
+ * - project-scoped keys: upserts org_projects (provider + projectId,
+ *   best-effort name) and sets org_project_id, next to the owner.
  *
  * Manual assignments are never overwritten. org_api_keys.assignment_source
  * (migration 015) is "manual" once an admin set an owner, team or project by
- * hand; the sync then only refreshes the creator / spendAttribution metadata.
- * A key with no source but an owner, team or project already set counts as
- * manual too. The sync never sets or clears team_id, and never changes an
- * org_projects team.
+ * hand (or used "Assign to creator"); the sync then only refreshes the
+ * creator / spendAttribution metadata. A key with no source but an owner, team
+ * or project already set counts as manual too. The sync never sets or clears
+ * team_id, and never changes an org_projects team.
  *
- * Transient gaps never clear an auto assignment: if the creator's email can't
- * be resolved (members call failed) the existing auto owner is kept.
+ * Transient gaps never clear an auto assignment: if the team members list
+ * couldn't be read completely, a creator that isn't in it keeps the key's
+ * existing auto owner, creator email and reason.
+ *
+ * Migration 017 (unresolved_reason) is optional at runtime: without it the
+ * reason isn't stored and everything else works.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { fetchWithRetry } from "@/lib/collectors/http"
 import { listGatewayKeysWithProjects, type GatewayKey } from "@/lib/collectors/vercel-ai-gateway"
 import { normalizeEmail } from "./attribution"
+import type { UnresolvedReason } from "./key-status"
+import { ensurePeople, ensureProjects, isMissingColumn, must } from "./sync-helpers"
 
 const TEAM_MEMBERS_URL = "https://api.vercel.com/v3/teams"
 const MAX_MEMBERS = 2000
@@ -50,6 +60,8 @@ export interface SyncKeyRow {
   external_created_by_email?: string | null
   spend_attribution?: string | null
   assignment_source: AssignmentSource | null
+  /** Migration 017; absent when it isn't applied. */
+  unresolved_reason?: string | null
 }
 
 export interface TeamMember {
@@ -65,12 +77,20 @@ export function isManual(row: Pick<SyncKeyRow, "assignment_source" | "owner_pers
 }
 
 export interface KeyPlanContext {
-  /** Creator email for this key (lower-cased), or null when unknown. */
+  /** Creator email from this run's team members (lower-cased), or null when not found. */
   creatorEmail: string | null
-  /** people.id for creatorEmail, when the key is user-attributed. */
+  /** people.id for the key's creator email (this run's, else the one stored on the key). */
   ownerPersonId: string | null
   /** org_projects.id for the key's projectId. */
   orgProjectId: string | null
+  /**
+   * The team members list was read completely (default true). When false, a
+   * creator missing from it is a transient gap: the existing auto owner and
+   * reason are kept.
+   */
+  membersComplete?: boolean
+  /** Migration 017 (unresolved_reason) is applied (default false). */
+  has017?: boolean
 }
 
 export type KeyPlan =
@@ -78,68 +98,90 @@ export type KeyPlan =
   | { op: "update"; id: string; patch: Record<string, unknown> }
   | { op: "none"; id: string }
 
+/** Why a non-manual key ends up with no owner, or null when it has one / the gap is transient. */
+function ownerlessReason(key: GatewayKey, transient: boolean, existingReason: string | null): UnresolvedReason | null {
+  if (!key.createdBy) return "no_creator"
+  if (transient) return (existingReason as UnresolvedReason | null) ?? null
+  return "unmatched_creator"
+}
+
 /**
  * Pure: what to write for one gateway key, given the existing org_api_keys row
- * (if any) and the resolved owner / project.
+ * (if any) and the resolved owner / project. The owner is the creator's
+ * person for every spend attribution (issue #34).
  */
 export function planKey(key: GatewayKey, existing: SyncKeyRow | undefined, ctx: KeyPlanContext, providerId: string): KeyPlan {
+  const membersComplete = ctx.membersComplete ?? true
+  const has017 = ctx.has017 ?? false
+  // A creator missing from an incomplete members list is a transient gap.
+  const transient = !!key.createdBy && !ctx.creatorEmail && !membersComplete
   const meta = {
     external_created_by: key.createdBy ?? null,
-    external_created_by_email: ctx.creatorEmail,
+    // Keep the creator email we already had if team members don't have it this time.
+    external_created_by_email: ctx.creatorEmail ?? existing?.external_created_by_email ?? null,
     spend_attribution: key.spendAttribution ?? null,
   }
-  const userAttributed = key.spendAttribution === "user"
 
   if (!existing) {
-    const owner = userAttributed ? ctx.ownerPersonId : null
+    const owner = ctx.ownerPersonId
     const project = key.projectId ? ctx.orgProjectId : null
-    return {
-      op: "insert",
-      row: {
-        provider_id: providerId,
-        external_key_id: key.id,
-        name: key.name ?? null,
-        ...meta,
-        owner_person_id: owner,
-        team_id: null, // the sync never assigns teams
-        org_project_id: project,
-        assignment_source: owner || project ? "auto" : null,
-      },
+    const row: Record<string, unknown> = {
+      provider_id: providerId,
+      external_key_id: key.id,
+      name: key.name ?? null,
+      ...meta,
+      owner_person_id: owner,
+      team_id: null, // the sync never assigns teams
+      org_project_id: project,
+      assignment_source: owner || project ? "auto" : null,
     }
+    if (has017) row.unresolved_reason = owner ? null : ownerlessReason(key, transient, null)
+    return { op: "insert", row }
   }
 
   const patch: Record<string, unknown> = {}
-  // Keep the creator email we already had if team members couldn't be read this time.
-  const next = { ...meta, external_created_by_email: meta.external_created_by_email ?? existing.external_created_by_email ?? null }
-  for (const [k, v] of Object.entries(next)) {
-    if ((existing as unknown as Record<string, unknown>)[k] !== v) patch[k] = v
+  const cur = existing as unknown as Record<string, unknown>
+  for (const [k, v] of Object.entries(meta)) {
+    if (cur[k] !== v) patch[k] = v
   }
 
+  let reason: string | null
   if (!isManual(existing)) {
     if (key.name && existing.name !== key.name) patch.name = key.name
-    // Owner: user-attributed -> creator's person (kept when unresolved this run);
-    // team / unset -> none.
-    const owner = userAttributed ? (ctx.ownerPersonId ?? existing.owner_person_id) : null
+    // Owner: the creator's person; a transient gap keeps the existing auto owner.
+    const owner = ctx.ownerPersonId ?? (transient ? existing.owner_person_id : null)
     // Project: scoped -> its org_projects row (kept when unresolved); unscoped -> none.
     const project = key.projectId ? (ctx.orgProjectId ?? existing.org_project_id) : null
     if (owner !== existing.owner_person_id) patch.owner_person_id = owner
     if (project !== existing.org_project_id) patch.org_project_id = project
     const source: AssignmentSource | null = owner || project ? "auto" : null
     if (source !== existing.assignment_source) patch.assignment_source = source
-  } else if (!existing.name && key.name) {
-    patch.name = key.name
+    reason = owner ? null : ownerlessReason(key, transient, existing.unresolved_reason ?? null)
+  } else {
+    if (!existing.name && key.name) patch.name = key.name
+    // An admin owns this key's assignment: nothing left for the sync to explain.
+    reason = null
   }
+  if (has017 && (existing.unresolved_reason ?? null) !== reason) patch.unresolved_reason = reason
 
   return Object.keys(patch).length ? { op: "update", id: existing.id, patch } : { op: "none", id: existing.id }
 }
 
+export interface TeamMembersResult {
+  members: Map<string, TeamMember>
+  /** False when a page failed, the call threw or the cap was hit: a missing creator is then a transient gap. */
+  complete: boolean
+}
+
 /**
  * Team members (uid -> email, name) via GET /v3/teams/{teamId}/members,
- * following pagination.next as `until`. Never throws: returns what was read.
+ * following pagination.next as `until`. Never throws: returns what was read
+ * and whether that is the whole list.
  */
-export async function listTeamMembers(vercelToken: string, teamId: string): Promise<Map<string, TeamMember>> {
+export async function listTeamMembersResult(vercelToken: string, teamId: string): Promise<TeamMembersResult> {
   const out = new Map<string, TeamMember>()
   let until: string | null = null
+  let complete = false
   try {
     while (out.size < MAX_MEMBERS) {
       const params = new URLSearchParams({ limit: "100" })
@@ -159,13 +201,32 @@ export async function listTeamMembers(vercelToken: string, teamId: string): Prom
         added++
       }
       const next = json?.pagination?.next
-      if (next === null || next === undefined || added === 0) break
+      if (next === null || next === undefined || added === 0) {
+        complete = true
+        break
+      }
       until = String(next)
     }
   } catch {
     // keep what was read
   }
-  return out
+  return { members: out, complete }
+}
+
+/** listTeamMembersResult without the completeness flag. */
+export async function listTeamMembers(vercelToken: string, teamId: string): Promise<Map<string, TeamMember>> {
+  return (await listTeamMembersResult(vercelToken, teamId)).members
+}
+
+/** Team members are needed whenever any key has a creator (issue #34: every spend attribution). */
+export function needsTeamMembers(keys: GatewayKey[]): boolean {
+  return keys.some((k) => !!k.createdBy)
+}
+
+export interface UnresolvedGatewayKey {
+  external_key_id: string
+  name: string | null
+  reason: UnresolvedReason
 }
 
 export interface GatewaySyncSummary {
@@ -188,29 +249,45 @@ export interface GatewaySyncSummary {
   keys_manual: number
   people_created: number
   projects_created: number
-  /** user-attributed keys whose creator couldn't be mapped to an email. */
+  /**
+   * Non-manual keys left with no owner because the creator is missing
+   * (no_creator) or has no email (unmatched_creator), across every spend
+   * attribution (issue #34). Transient member-list gaps aren't counted.
+   */
   unresolved_creators: number
+  unresolved: UnresolvedGatewayKey[]
+  /**
+   * Issue #34: team / unset keys whose owner this run set to their creator
+   * (new keys and the backfill of existing ones). They are also counted in
+   * created or updated.
+   */
+  creator_default_assigned: number
+  /** The team members list couldn't be read completely: existing auto owners were kept. */
+  members_unavailable?: boolean
   error?: string
-}
-
-function must<T>(res: { data: T | null; error: { message: string; code?: string } | null }, what: string): T {
-  if (res.error) throw new Error(`${what}: ${res.error.message}`)
-  return res.data as T
 }
 
 const KEY_COLUMNS =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
+const KEY_COLUMNS_017 = `${KEY_COLUMNS}, unresolved_reason`
+
+export interface ApplyGatewaySyncOptions {
+  /** The members map is the whole team (default: true when it isn't empty). */
+  membersComplete?: boolean
+}
 
 /**
  * Apply the sync for an already-listed set of keys. `members` maps Vercel uid
- * to email. Exported for tests; production calls syncGatewayKeys.
+ * to email. Exported for tests and the strict "Sync keys now" route.
  */
 export async function applyGatewayKeySync(
   admin: SupabaseClient,
   providerId: string,
   keys: GatewayKey[],
-  members: Map<string, TeamMember>
+  members: Map<string, TeamMember>,
+  opts: ApplyGatewaySyncOptions = {}
 ): Promise<GatewaySyncSummary> {
+  const membersComplete = opts.membersComplete ?? members.size > 0
   const summary: GatewaySyncSummary = {
     status: "success",
     created: 0,
@@ -225,8 +302,11 @@ export async function applyGatewayKeySync(
     people_created: 0,
     projects_created: 0,
     unresolved_creators: 0,
+    unresolved: [],
+    creator_default_assigned: 0,
   }
   if (!keys.length) return summary
+  if (!membersComplete && needsTeamMembers(keys)) summary.members_unavailable = true
   const finish = () => {
     summary.created = summary.keys_inserted
     summary.updated = summary.keys_updated
@@ -235,101 +315,56 @@ export async function applyGatewayKeySync(
     return summary
   }
 
-  // People: creators of user-attributed keys, matched by email, else created (no team).
-  const creatorEmail = (k: GatewayKey) => (k.createdBy ? (members.get(k.createdBy)?.email ?? null) : null)
-  const wanted = new Map<string, string | null>() // email -> display name
-  for (const k of keys) {
-    if (k.spendAttribution !== "user") continue
-    const email = creatorEmail(k)
-    if (!email) {
-      summary.unresolved_creators++
-      continue
-    }
-    wanted.set(email, members.get(k.createdBy!)?.name ?? null)
-  }
-  const personByEmail = new Map<string, string>()
-  if (wanted.size) {
-    const emails = [...wanted.keys()]
-    const found = must(await admin.from("people").select("id, email").in("email", emails), "Failed to read people") as {
-      id: string
-      email: string
-    }[]
-    for (const p of found ?? []) personByEmail.set(p.email, p.id)
-    for (const email of emails) {
-      if (personByEmail.has(email)) continue
-      const res = await admin
-        .from("people")
-        .insert({ email, display_name: wanted.get(email) ?? null, team_id: null, active: true })
-        .select("id, email")
-        .single()
-      if (res.error?.code === "23505") {
-        // Created concurrently: read it back.
-        const again = must(await admin.from("people").select("id, email").eq("email", email).single(), "Failed to read person") as { id: string }
-        personByEmail.set(email, again.id)
-        continue
-      }
-      const row = must(res, "Failed to create person") as { id: string }
-      personByEmail.set(email, row.id)
-      summary.people_created++
-    }
-  }
-
   // Projects: one org_projects row per project-scoped key's projectId.
   const projectNames = new Map<string, string | null>()
   for (const k of keys) if (k.projectId) projectNames.set(k.projectId, k.projectName ?? projectNames.get(k.projectId) ?? null)
-  const projectByExternal = new Map<string, string>()
-  if (projectNames.size) {
-    const ids = [...projectNames.keys()]
-    const found = must(
-      await admin.from("org_projects").select("id, external_project_id, name").eq("provider_id", providerId).in("external_project_id", ids),
-      "Failed to read org_projects"
-    ) as { id: string; external_project_id: string; name: string | null }[]
-    for (const p of found ?? []) {
-      projectByExternal.set(p.external_project_id, p.id)
-      const name = projectNames.get(p.external_project_id)
-      // Fill a missing name only; never rename or touch the team.
-      if (!p.name && name) {
-        must(await admin.from("org_projects").update({ name }).eq("id", p.id).select("id"), "Failed to update org_projects")
-      }
-    }
-    for (const id of ids) {
-      if (projectByExternal.has(id)) continue
-      const res = await admin
-        .from("org_projects")
-        .insert({ provider_id: providerId, external_project_id: id, name: projectNames.get(id) ?? null })
-        .select("id")
-        .single()
-      if (res.error?.code === "23505") {
-        const again = must(
-          await admin.from("org_projects").select("id").eq("provider_id", providerId).eq("external_project_id", id).single(),
-          "Failed to read org_projects"
-        ) as { id: string }
-        projectByExternal.set(id, again.id)
-        continue
-      }
-      projectByExternal.set(id, (must(res, "Failed to create org_projects row") as { id: string }).id)
-      summary.projects_created++
-    }
-  }
+  const projects = await ensureProjects(admin, providerId, projectNames)
+  const projectByExternal = projects.projectByExternal
+  summary.projects_created += projects.created
 
-  // Keys.
-  const existingRows = must(
-    await admin.from("org_api_keys").select(KEY_COLUMNS).eq("provider_id", providerId).in("external_key_id", keys.map((k) => k.id)),
-    "Failed to read org_api_keys"
-  ) as SyncKeyRow[]
+  // Existing keys (with 017's unresolved_reason when it's applied).
+  let has017 = true
+  const readKeys = (columns: string) =>
+    admin.from("org_api_keys").select(columns).eq("provider_id", providerId).in("external_key_id", keys.map((k) => k.id))
+  let res = await readKeys(KEY_COLUMNS_017)
+  if (isMissingColumn(res.error)) {
+    has017 = false
+    res = await readKeys(KEY_COLUMNS)
+  }
+  const existingRows = must(res, "Failed to read org_api_keys") as unknown as SyncKeyRow[]
   const existing = new Map((existingRows ?? []).map((r) => [r.external_key_id, r]))
 
+  // People: every creator with an email (this run's, else the one stored on
+  // the key), for keys the sync may assign. Matched by email, else created
+  // with no team. A manual key keeps its owner, so its creator isn't created.
+  const memberEmail = (k: GatewayKey) => (k.createdBy ? (members.get(k.createdBy)?.email ?? null) : null)
+  const ownerEmail = (k: GatewayKey) => (k.createdBy ? (memberEmail(k) ?? normalizeEmail(existing.get(k.id)?.external_created_by_email)) : null)
+  const wanted = new Map<string, string | null>() // email -> display name
   for (const k of keys) {
-    const email = creatorEmail(k)
     const row = existing.get(k.id)
-    if (row && isManual(row)) summary.keys_manual++
+    if (row && isManual(row)) continue
+    const email = ownerEmail(k)
+    if (email) wanted.set(email, wanted.get(email) ?? members.get(k.createdBy!)?.name ?? null)
+  }
+  const people = await ensurePeople(admin, wanted)
+  const personByEmail = people.personByEmail
+  summary.people_created += people.created
+
+  // Keys.
+  for (const k of keys) {
+    const row = existing.get(k.id)
+    const manual = !!row && isManual(row)
+    if (manual) summary.keys_manual++
+    const email = ownerEmail(k)
     const plan = planKey(
       k,
       row,
       {
-        creatorEmail: email,
-        ownerPersonId: k.spendAttribution === "user" && email ? (personByEmail.get(email) ?? null) : null,
+        creatorEmail: memberEmail(k),
+        ownerPersonId: !manual && email ? (personByEmail.get(email) ?? null) : null,
         orgProjectId: k.projectId ? (projectByExternal.get(k.projectId) ?? null) : null,
+        membersComplete,
+        has017,
       },
       providerId
     )
@@ -341,6 +376,19 @@ export async function applyGatewayKeySync(
       summary.keys_updated++
     } else {
       summary.keys_unchanged++
+    }
+    if (manual) continue
+    const written = plan.op === "insert" ? plan.row : plan.op === "update" ? plan.patch : {}
+    const owner = "owner_person_id" in written ? (written.owner_person_id as string | null) : (row?.owner_person_id ?? null)
+    if (owner && "owner_person_id" in written && k.spendAttribution !== "user") summary.creator_default_assigned++
+    if (!owner) {
+      // Same reasons as planKey; a transient members gap isn't counted.
+      const transient = !!k.createdBy && !memberEmail(k) && !membersComplete
+      const reason: UnresolvedReason | null = !k.createdBy ? "no_creator" : transient ? null : "unmatched_creator"
+      if (reason) {
+        summary.unresolved_creators++
+        summary.unresolved.push({ external_key_id: k.id, name: k.name ?? null, reason })
+      }
     }
   }
   return finish()
@@ -355,7 +403,7 @@ export interface GatewaySyncOptions {
 }
 
 /**
- * List gateway keys (and team members when any key is user-attributed), then
+ * List gateway keys (and team members when any key has a creator), then
  * apply the sync. Every listed key is upserted, whether or not it has spend.
  *
  * The key list is strict (issue #28): if Vercel's key list fails, this throws
@@ -366,7 +414,17 @@ export interface GatewaySyncOptions {
  */
 export async function syncGatewayKeys(admin: SupabaseClient, opts: GatewaySyncOptions): Promise<GatewaySyncSummary> {
   const keys = opts.keys ?? (await listGatewayKeysWithProjects(opts.vercelToken, opts.teamId, { strict: true }))
-  const needMembers = keys.some((k) => k.spendAttribution === "user" && k.createdBy)
-  const members = needMembers && opts.teamId ? await listTeamMembers(opts.vercelToken, opts.teamId) : new Map<string, TeamMember>()
-  return applyGatewayKeySync(admin, opts.providerId, keys, members)
+  const { members, complete } = await loadTeamMembers(opts.vercelToken, opts.teamId, keys)
+  return applyGatewayKeySync(admin, opts.providerId, keys, members, { membersComplete: complete })
+}
+
+/**
+ * Team members for a key listing: fetched whenever any key has a creator.
+ * No team id means the members can't be read (complete = false, so existing
+ * auto owners are kept).
+ */
+export async function loadTeamMembers(vercelToken: string, teamId: string | undefined, keys: GatewayKey[]): Promise<TeamMembersResult> {
+  if (!needsTeamMembers(keys)) return { members: new Map(), complete: true }
+  if (!teamId) return { members: new Map(), complete: false }
+  return listTeamMembersResult(vercelToken, teamId)
 }

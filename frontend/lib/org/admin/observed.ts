@@ -173,9 +173,14 @@ export interface KeyRow {
   observed_project_id: string | null
   /** The key's Anthropic workspace from collected rows (attribution.workspace_id), issue #28. */
   observed_workspace_id: string | null
+  external_created_by: string | null
   external_created_by_email: string | null
   spend_attribution: string | null
   assignment_source: "auto" | "manual" | null
+  /** Provider key status (Anthropic, migration 017). */
+  external_status: string | null
+  /** Why the key sync left the key without an owner (migration 017, issue #32). */
+  unresolved_reason: string | null
   observed: boolean
   total_cost_usd: number
   record_count: number
@@ -218,28 +223,14 @@ const bySpend = <T extends { total_cost_usd: number; provider_id: string }>(a: T
 /** Every key seen in attribution.api_key_id, merged with registered org_api_keys. */
 export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): KeyRow[] {
   const seen = new Map<string, Seen>()
-  // A key's project / workspace comes from its most recent row (ties: the
-  // costlier row), never from scan order, which is by row id and changes when
-  // an older range is re-pulled (issue #28).
   const keyProject = new Map<string, string>()
   const keyWorkspace = new Map<string, string>()
-  const latest = new Map<string, { ts: string; cost: number }>()
-  const newer = (map: Map<string, { ts: string; cost: number }>, key: string, r: ObservedRecord) => {
-    const ts = r.timestamp ?? ""
-    const cost = num(r.cost_usd)
-    const cur = map.get(key)
-    if (cur && (ts < cur.ts || (ts === cur.ts && cost <= cur.cost))) return false
-    map.set(key, { ts, cost })
-    return true
-  }
-  const latestWorkspace = new Map<string, { ts: string; cost: number }>()
   for (const r of records) {
     const a = attributionOf(r)
     if (!a?.api_key_id) continue
     bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
-    const k = pkey(r.provider_id, a.api_key_id)
-    if (a.project_id && newer(latest, k, r)) keyProject.set(k, a.project_id)
-    if (a.workspace_id && newer(latestWorkspace, k, r)) keyWorkspace.set(k, a.workspace_id)
+    if (a.project_id) keyProject.set(pkey(r.provider_id, a.api_key_id), a.project_id)
+    if (a.workspace_id) keyWorkspace.set(pkey(r.provider_id, a.api_key_id), a.workspace_id)
   }
   const rows = new Map<string, KeyRow>()
   for (const k of registered) {
@@ -254,9 +245,12 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       org_project_id: k.org_project_id ?? null,
       observed_project_id: keyProject.get(pkey(k.provider_id, k.external_key_id)) ?? null,
       observed_workspace_id: keyWorkspace.get(pkey(k.provider_id, k.external_key_id)) ?? null,
+      external_created_by: k.external_created_by ?? null,
       external_created_by_email: k.external_created_by_email ?? null,
       spend_attribution: k.spend_attribution ?? null,
       assignment_source: k.assignment_source ?? null,
+      external_status: k.external_status ?? null,
+      unresolved_reason: k.unresolved_reason ?? null,
       observed: !!s,
       total_cost_usd: round6(s?.total ?? 0),
       record_count: s?.count ?? 0,
@@ -276,9 +270,12 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       org_project_id: null,
       observed_project_id: keyProject.get(key) ?? null,
       observed_workspace_id: keyWorkspace.get(key) ?? null,
+      external_created_by: null,
       external_created_by_email: null,
       spend_attribution: null,
       assignment_source: null,
+      external_status: null,
+      unresolved_reason: null,
       observed: true,
       total_cost_usd: round6(s.total),
       record_count: s.count,
@@ -316,8 +313,11 @@ export function listProjects(records: ObservedRecord[], registered: OrgProject[]
   const workspaces = new Set<string>()
   for (const r of records) {
     const a = attributionOf(r)
-    if (a?.project_id) bump(seen, pkey(r.provider_id, a.project_id), r, a.project_name)
-    else if (a?.workspace_id) {
+    if (a?.project_id) {
+      bump(seen, pkey(r.provider_id, a.project_id), r, a.project_name)
+      // Anthropic rows name their workspace as the project too (issue #32).
+      if (a.workspace_id === a.project_id) workspaces.add(pkey(r.provider_id, a.project_id))
+    } else if (a?.workspace_id) {
       bump(seen, pkey(r.provider_id, a.workspace_id), r, null)
       workspaces.add(pkey(r.provider_id, a.workspace_id))
     }

@@ -12,7 +12,7 @@
 import type { ProviderRow } from "@/lib/dashboard-compute"
 import { buildOrgIndex } from "./attribution"
 import { toAttributedDailyRows, type CostRecordLike } from "./rollup"
-import { P, orgData } from "./test-fixtures"
+import { P, PE, T, orgData } from "./test-fixtures"
 import type { AttributedDailyRow, OrgData } from "./types"
 
 export const WINDSURF = "prov-windsurf"
@@ -75,4 +75,66 @@ export function plainDailyRows() {
     byKey.set(k, row)
   }
   return [...byKey.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/**
+ * Owned-key fixture (issue #35): the base org plus Anthropic and AI Gateway
+ * keys that their owners should see on a person / team / department filter
+ * even with no spend in the period. Base records are unchanged, so the base
+ * totals above still hold for Nov / Oct; the only extra spend is:
+ *   Nov: gateway gw_bob_used_by_alice 15 (person_email alice, owner bob),
+ *        gateway gw_bob 25 (owner bob, no person on the row).
+ *   Aug: anthropic an_alice_old 12 (owner alice, workspace wrk_eng): outside
+ *        both Nov and the Oct comparison window.
+ */
+export const GATEWAY = "prov-aigw"
+
+export const PROVIDERS_WITH_GATEWAY: ProviderRow[] = [
+  ...PROVIDERS,
+  { id: GATEWAY, name: "vercel-ai-gateway", display_name: "Vercel AI Gateway", metadata: {} },
+]
+
+export const OK = {
+  anZero: "k-an-alice-zero",
+  anOld: "k-an-alice-old",
+  anBobZero: "k-an-bob-zero",
+  anDataTeam: "k-an-data-team",
+  gwZero: "k-gw-alice-zero",
+  gwUsedByAlice: "k-gw-bob-used-by-alice",
+  gwBob: "k-gw-bob",
+} as const
+
+export const OPR = { wrkEng: "pr-wrk-eng", gwApp: "pr-gw-app" } as const
+
+export function ownedKeysOrg(): OrgData {
+  const org = orgData()
+  return {
+    ...org,
+    apiKeys: [
+      ...org.apiKeys,
+      { id: OK.anZero, provider_id: P.anthropic, external_key_id: "an_alice_zero", name: "Alice scratch", owner_person_id: PE.alice, team_id: null, org_project_id: OPR.wrkEng },
+      { id: OK.anOld, provider_id: P.anthropic, external_key_id: "an_alice_old", name: "Alice old", owner_person_id: PE.alice, team_id: null },
+      { id: OK.anBobZero, provider_id: P.anthropic, external_key_id: "an_bob_zero", name: "Bob scratch", owner_person_id: PE.bob, team_id: null, org_project_id: OPR.wrkEng },
+      { id: OK.anDataTeam, provider_id: P.anthropic, external_key_id: "an_data_team", name: "Data team key", owner_person_id: null, team_id: T.data },
+      { id: OK.gwZero, provider_id: GATEWAY, external_key_id: "gw_alice_zero", name: "Alice gateway", owner_person_id: PE.alice, team_id: null, org_project_id: OPR.gwApp },
+      { id: OK.gwUsedByAlice, provider_id: GATEWAY, external_key_id: "gw_bob_used_by_alice", name: "Bob shared gateway", owner_person_id: PE.bob, team_id: null },
+      { id: OK.gwBob, provider_id: GATEWAY, external_key_id: "gw_bob", name: "Bob gateway", owner_person_id: PE.bob, team_id: null },
+    ],
+    projects: [
+      ...(org.projects ?? []),
+      { id: OPR.wrkEng, provider_id: P.anthropic, external_project_id: "wrk_eng", name: "Eng workspace", team_id: null },
+      { id: OPR.gwApp, provider_id: GATEWAY, external_project_id: "prj_app", name: "App", team_id: null },
+    ],
+  }
+}
+
+export const OWNED_KEY_RECORDS: CostRecordLike[] = [
+  ...RECORDS,
+  rec(GATEWAY, "2026-11-03T10:00:00Z", "gpt-5", 15, { api_key_id: "gw_bob_used_by_alice", person_email: "alice@liatrio.com", granularity: "person" }),
+  rec(GATEWAY, "2026-11-03T11:00:00Z", "gpt-5", 25, { api_key_id: "gw_bob", granularity: "api_key" }),
+  rec(P.anthropic, "2026-08-10T10:00:00Z", "claude-sonnet", 12, { api_key_id: "an_alice_old", workspace_id: "wrk_eng", granularity: "api_key" }),
+]
+
+export function ownedKeysRows(org: OrgData = ownedKeysOrg()): AttributedDailyRow[] {
+  return toAttributedDailyRows(OWNED_KEY_RECORDS, buildOrgIndex(org))
 }
