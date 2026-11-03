@@ -21,11 +21,18 @@ import type { OrgData } from "@/lib/org/types"
 import type { BreakdownData } from "@/lib/org/breakdown"
 import type { DashboardData } from "@/lib/dashboard-types"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
+import type { UnitForecastMeta } from "@/lib/dashboard-compute"
+import { computeUnitForecasts, unitOverrideKey, type UnitOverrides } from "@/lib/unit-forecast"
 
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }))
+const mockOverrides: { value: UnitOverrides } = { value: {} }
 jest.mock("@/lib/forecast-settings", () => {
   const actual = jest.requireActual("@/lib/forecast-settings")
-  return { ...actual, getForecastSettings: async () => actual.FORECAST_DEFAULTS }
+  return {
+    ...actual,
+    getForecastSettings: async () => actual.FORECAST_DEFAULTS,
+    getForecastUnitOverrides: async () => mockOverrides.value,
+  }
 })
 
 type Row = Record<string, unknown>
@@ -89,15 +96,22 @@ function seed(org: OrgData) {
 }
 
 const req = (path: string) => new NextRequest(new URL(path, "http://localhost"))
-type DashboardBody = DashboardData & { filters: DashboardFilters; forecastMeta: { employees: number } }
+type DashboardBody = DashboardData & {
+  filters: DashboardFilters
+  forecastMeta: { employees: number; plateau: number; unit?: UnitForecastMeta; trailingAverage?: number }
+}
 const json = async <T,>(res: Response) => ({ status: res.status, body: (await res.json()) as T })
 const dash = async (path: string) => json<DashboardBody>(await getDashboard(req(path)))
 const brk = async (path: string) => json<BreakdownData>(await getBreakdown(req(path)))
 
 beforeEach(() => {
   authed = true
+  mockOverrides.value = {}
   seed(orgData())
 })
+
+const projected = (body: DashboardBody) =>
+  body.forecast.filter((f) => f.projected).map(({ month, total }) => ({ month, total }))
 
 describe("GET /api/dashboard", () => {
   it("without filters reads cost_records_daily and returns the pinned response", async () => {
@@ -147,7 +161,7 @@ describe("GET /api/dashboard", () => {
     expect(computeDashboard({ ...base, daily: attributedRows(orgData()) })).toEqual(plain)
   })
 
-  it("team filter narrows KPIs, tools and trend and drops the org forecast projection", async () => {
+  it("team filter narrows KPIs, tools and trend", async () => {
     const { body } = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
     expect(reads).toContain("cost_records_daily_attributed")
     expect(body.filters).toEqual({ team: T.data })
@@ -157,7 +171,81 @@ describe("GET /api/dashboard", () => {
       ["Cursor (Admin API)", 30],
     ])
     expect(body.trends.find((t) => t.month === "2026-11")?.total).toBe(70)
+  })
+
+  it("team filter returns that team's forecast series", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    const expected = computeUnitForecasts({ rows: attributedRows(orgData()), level: "team", settings: FORECAST_DEFAULTS })
+      .units.find((u) => u.key === T.data)!
+    // Data: $100 of the org's $355 over Sep-Nov, anchored on its Nov spend ($70).
+    const plateau = (58000 * 100) / 355
+    expect(projected(body)).toEqual([{ month: "2026-12", total: Math.round((70 + (plateau - 70) * 0.45) * 100) / 100 }])
+    expect(projected(body)).toEqual(expected.projection)
+    expect(body.forecast.filter((f) => !f.projected)).toEqual([
+      { month: "2026-10", total: 30, projected: false },
+      { month: "2026-11", total: 70, projected: false },
+    ])
+    expect(body.forecastMeta.unit).toMatchObject({ level: "team", key: T.data, override: null, trailingSpend: 100 })
+    expect(body.forecastMeta.unit!.plateau).toBeCloseTo(plateau, 2)
+    // The org plateau is still reported for context.
+    expect(body.forecastMeta.plateau).toBe(58000)
+  })
+
+  it("team forecasts across all teams plus Unassigned sum to the org forecast", async () => {
+    const org = (await dash("/api/dashboard?month=2026-11")).body
+    let sum = 0
+    for (const team of [T.platform, T.data, T.field, T.orphan, "unassigned"]) {
+      sum += projected((await dash(`/api/dashboard?month=2026-11&team=${team}`)).body)[0].total
+    }
+    expect(Math.abs(sum - projected(org)[0].total)).toBeLessThanOrEqual(1)
+  })
+
+  it("department filter returns that department's forecast", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&department=${D.eng}`)
+    const expected = computeUnitForecasts({ rows: attributedRows(orgData()), level: "department", settings: FORECAST_DEFAULTS })
+      .units.find((u) => u.key === D.eng)!
+    expect(projected(body)).toEqual(expected.projection)
+    expect(body.forecastMeta.unit).toMatchObject({ level: "department", key: D.eng })
+  })
+
+  it("a team override changes only that team's forecast", async () => {
+    const before = projected((await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)).body)
+    mockOverrides.value = { [unitOverrideKey("team", T.data)]: { plateauUsd: 1000 } }
+    const data = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    expect(projected(data.body)).toEqual([{ month: "2026-12", total: Math.round((70 + (1000 - 70) * 0.45) * 100) / 100 }])
+    expect(data.body.forecastMeta.unit).toMatchObject({ override: "plateau", plateau: 1000 })
+    expect(projected((await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)).body)).toEqual(before)
+    // The unfiltered org forecast ignores unit overrides.
+    expect(projected((await dash("/api/dashboard?month=2026-11")).body)).toEqual([{ month: "2026-12", total: 26237.5 }])
+  })
+
+  it("a team outside the filtered department gets no projection", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&department=${D.sales}&team=${T.data}`)
     expect(body.forecast.some((f) => f.projected)).toBe(false)
+    expect(body.forecastMeta.unit).toBeUndefined()
+  })
+
+  it("person filter shows a trailing average instead of a forecast", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&person=${PE.alice}`)
+    expect(body.forecast.some((f) => f.projected)).toBe(false)
+    // Alice's Sep-Nov spend over 3 months (missing months count as $0).
+    const alice = attributedRows(orgData()).filter((r) => r.person_id === PE.alice && r.date >= "2026-09-01")
+    const sum = alice.reduce((acc, r) => acc + Number(r.total_cost_usd), 0)
+    expect(sum).toBeGreaterThan(0)
+    expect(body.forecastMeta.trailingAverage).toBe(Math.round((sum / 3) * 100) / 100)
+  })
+
+  it("with no org structure, the unfiltered forecast is unchanged and a team filter is all Unassigned", async () => {
+    seed(EMPTY_ORG)
+    const org = (await dash("/api/dashboard?month=2026-11")).body
+    expect(org.forecast).toEqual([
+      { month: "2026-10", total: 105, projected: false },
+      { month: "2026-11", total: 250, projected: false },
+      { month: "2026-12", total: 26237.5, projected: true },
+    ])
+    expect(org.forecastMeta).toEqual({ employees: 160, plateau: 58000, perPersonPct: 0.02, baselineEmployees: 160 })
+    const un = (await dash("/api/dashboard?month=2026-11&team=unassigned")).body
+    expect(un.forecast).toEqual(org.forecast)
   })
 
   it("person filter returns only that person's spend", async () => {

@@ -160,6 +160,15 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   // filters); otherwise the dashboard looks exactly as it did before #8.
   const showOrg = filtered || !!breakdown?.orgConfigured
   const activeTab: Tab = tab === "org" && !showOrg ? "dashboard" : tab
+  // Name of the team/department whose forecast the chart shows (issue #9).
+  const forecastUnit = data?.forecastMeta?.unit
+  const forecastUnitLabel = forecastUnit
+    ? forecastUnit.unassigned
+      ? "Unassigned"
+      : (forecastUnit.level === "team" ? breakdown?.options.teams : breakdown?.options.departments)?.find(
+          (o) => o.id === forecastUnit.key
+        )?.label
+    : undefined
 
   return (
     <div className="min-h-screen bg-background">
@@ -383,7 +392,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
             <TabsContent value="trends" className="space-y-6">
               <div className="grid gap-6 lg:grid-cols-2">
                 <TrendChart trends={data!.trends} />
-                <ForecastChart forecast={data!.forecast} />
+                <ForecastChart forecast={data!.forecast} meta={data!.forecastMeta} unitLabel={forecastUnitLabel} />
               </div>
               <div className="grid gap-6 lg:grid-cols-2">
                 <SpendBreakdownChart tools={data!.tools} />

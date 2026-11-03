@@ -1,11 +1,12 @@
 /**
  * Pure aggregation behind GET /api/dashboard, moved out of the route so it can
  * be tested with fixture rows. The logic is unchanged from the original route;
- * the only addition is `projectForecast`, which the route turns off when org or
- * provider filters are applied (the forecast plateau is org-wide, see #9).
+ * additions are `projectForecast` (off when filters narrow the data below the
+ * org) and `unitForecast` (#9: a team/department filter projects that unit).
  */
 
 import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
+import { nextMonth, orgProjection, prevMonth, type UnitForecast } from "@/lib/unit-forecast"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -134,6 +135,34 @@ export interface ComputeDashboardInput {
   now?: Date
   /** Default true. Off when filters narrow the data below the org. */
   projectForecast?: boolean
+  /** Team/department filter: project this unit instead of the org (issue #9). */
+  unitForecast?: UnitForecast | null
+  /** Person/key filters: trailing 3-month average shown instead of a forecast. */
+  trailingAverage?: number
+}
+
+export interface UnitForecastMeta {
+  level: UnitForecast["level"]
+  key: string
+  unassigned: boolean
+  share: number
+  trailingSpend: number
+  allocatedPlateau: number
+  plateau: number
+  override: UnitForecast["override"]
+}
+
+function unitForecastMeta(u: UnitForecast): UnitForecastMeta {
+  return {
+    level: u.level,
+    key: u.key,
+    unassigned: u.unassigned,
+    share: Math.round(u.share * 10000) / 10000,
+    trailingSpend: u.trailingSpend,
+    allocatedPlateau: u.allocatedPlateau,
+    plateau: u.plateau,
+    override: u.override,
+  }
 }
 
 export function computeDashboard({
@@ -143,6 +172,8 @@ export function computeDashboard({
   forecastSettings,
   now = new Date(),
   projectForecast = true,
+  unitForecast = null,
+  trailingAverage,
 }: ComputeDashboardInput) {
   const providerById = buildProviderMeta(providers)
 
@@ -271,34 +302,33 @@ export function computeDashboard({
   // plateau is the baseline USD, and each employee above/below scales it by
   // per_person_pct (default 2%). Editable from the admin page (app_settings).
   const FORECAST_CEILING = plateauForEmployees(forecastSettings)
-  const FORECAST_APPROACH = 0.45 // fraction of the remaining gap closed per month
   const history = Array.from(monthTotals.keys()).sort().map((m) => ({
     month: m,
     total: Math.round((monthTotals.get(m) || 0) * 100) / 100,
     projected: false,
   }))
-  const forecast = [...history]
-  if (projectForecast && history.length >= 1) {
-    const lastMonth = history[history.length - 1].month
-    // Anchor on the recent run-rate. The current calendar month is usually
-    // incomplete, so its total understates the run-rate — use the max of the
-    // last two real months so the projection starts from the true level.
-    const anchor =
-      history.length >= 2
-        ? Math.max(history[history.length - 1].total, history[history.length - 2].total)
-        : history[history.length - 1].total
-
-    const endOfYear = `${lastMonth.slice(0, 4)}-12` // December of the last data year
-    let cursor = lastMonth
-    let value = anchor
-    // Safety cap on iterations (max 12 future months).
-    for (let i = 0; i < 12 && cursor < endOfYear; i++) {
-      const [y, mo] = cursor.split("-").map(Number)
-      const d = new Date(Date.UTC(y, mo, 1)) // first of the next month
-      cursor = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
-      value = value + (FORECAST_CEILING - value) * FORECAST_APPROACH
-      forecast.push({ month: cursor, total: Math.round(value * 100) / 100, projected: true })
+  const forecast: { month: string; total: number; projected: boolean }[] = [...history]
+  if (unitForecast) {
+    // A team/department filter: that unit's projection (lib/unit-forecast.ts).
+    // The projection starts after the ORG's last month, so months the unit has
+    // no rows for (e.g. none yet this month) are filled with $0 up to there;
+    // otherwise the chart would jump straight from its last spend to the
+    // projection.
+    const first = unitForecast.projection[0]?.month
+    if (first && forecast.length) {
+      const lastOrgMonth = prevMonth(first)
+      const have = new Set(forecast.map((f) => f.month))
+      for (let m = nextMonth(forecast[0].month); m <= lastOrgMonth; m = nextMonth(m)) {
+        if (!have.has(m)) forecast.push({ month: m, total: 0, projected: false })
+      }
+      forecast.sort((a, b) => a.month.localeCompare(b.month))
     }
+    for (const p of unitForecast.projection) forecast.push({ ...p, projected: true })
+  } else if (projectForecast && history.length >= 1) {
+    // Anchor on the recent run-rate (max of the last two real months) and
+    // close FORECAST_APPROACH of the gap to the ceiling each month through
+    // December. See orgProjection in lib/unit-forecast.ts.
+    for (const p of orgProjection(history, FORECAST_CEILING)) forecast.push({ ...p, projected: true })
   }
 
   return {
@@ -317,6 +347,8 @@ export function computeDashboard({
       plateau: Math.round(FORECAST_CEILING * 100) / 100,
       perPersonPct: forecastSettings.perPersonPct,
       baselineEmployees: forecastSettings.baselineEmployees,
+      ...(unitForecast ? { unit: unitForecastMeta(unitForecast) } : {}),
+      ...(trailingAverage !== undefined ? { trailingAverage } : {}),
     },
   }
 }

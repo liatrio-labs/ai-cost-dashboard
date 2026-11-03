@@ -45,6 +45,27 @@ export interface DashboardForecast {
   projected: boolean
 }
 
+/** Team/department forecast details (issue #9). */
+export interface DashboardUnitForecast {
+  level: "department" | "team"
+  key: string // entity id or "unassigned"
+  unassigned: boolean
+  share: number // trailing 3-month share of org spend (0..1)
+  trailingSpend: number
+  allocatedPlateau: number // org plateau x share
+  plateau: number // effective plateau (override or allocated)
+  override: "plateau" | "headcount" | null
+}
+
+export interface DashboardForecastMeta {
+  employees: number
+  plateau: number // org plateau
+  perPersonPct: number
+  baselineEmployees: number
+  unit?: DashboardUnitForecast // set when a team/department filter is active
+  trailingAverage?: number // person/key filters: trailing 3-month average
+}
+
 export interface DashboardPeriod {
   start: string // YYYY-MM-DD inclusive
   end: string // YYYY-MM-DD inclusive
@@ -62,6 +83,7 @@ export interface DashboardData {
   byModel: DashboardByModel[]
   kpis: DashboardKpis
   forecast: DashboardForecast[]
+  forecastMeta?: DashboardForecastMeta
 }
 
 /** Format a "YYYY-MM-DD" date range into a short label like "Jan 5 – Mar 20, 2026". */
@@ -93,3 +115,20 @@ export function formatMonthLong(ym: string): string {
 
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value)
+
+/** Card subtitle: what the projection is, for the org, a unit, or a person/key view. */
+export function forecastDescription(meta?: DashboardForecastMeta, unitLabel?: string, hasProjection = true): string {
+  const u = meta?.unit
+  if (u) {
+    const name = unitLabel || (u.unassigned ? "Unassigned" : u.level === "team" ? "this team" : "this department")
+    const basis = u.override
+      ? `admin ${u.override} override`
+      : `${(u.share * 100).toFixed(1)}% of trailing 3-month org spend`
+    return `${name}: plateau ${formatCurrency(u.plateau)}/mo (${basis})`
+  }
+  if (meta?.trailingAverage !== undefined) {
+    return `No forecast for this view; trailing 3-month average ${formatCurrency(meta.trailingAverage)}/mo`
+  }
+  if (!hasProjection) return "History only for this view"
+  return "History (solid) with trend projection (dashed)"
+}

@@ -11,16 +11,60 @@ import {
   Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { formatCurrency, formatMonthLabel, type DashboardForecast } from "@/lib/dashboard-types"
+import {
+  forecastDescription,
+  formatCurrency,
+  formatMonthLabel,
+  type DashboardForecast,
+  type DashboardForecastMeta,
+} from "@/lib/dashboard-types"
 
 interface ForecastChartProps {
   forecast: DashboardForecast[]
+  meta?: DashboardForecastMeta
+  /** Display name of the filtered team/department (issue #9). */
+  unitLabel?: string
 }
 
 const ACTUAL_COLOR = "#24AE1D" // Liatrio Primary Green
 const PROJECTED_COLOR = "#C068F9" // Liatrio Violet
 
-export function ForecastChart({ forecast }: ForecastChartProps) {
+function CustomTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number; dataKey: string }>
+  label?: string
+}) {
+  if (active && payload && payload.length) {
+    const point = payload.find((p) => p.value != null)
+    if (!point) return null
+    const isProjected = point.dataKey === "projected"
+    return (
+      <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
+        <div className="flex items-center gap-2">
+          <p className="font-medium text-foreground">{label}</p>
+          {isProjected && (
+            <span className="rounded bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
+              Projected
+            </span>
+          )}
+        </div>
+        <p
+          className="mt-1 text-lg font-bold"
+          style={{ color: isProjected ? PROJECTED_COLOR : ACTUAL_COLOR }}
+        >
+          {formatCurrency(point.value)}
+        </p>
+      </div>
+    )
+  }
+  return null
+}
+
+export function ForecastChart({ forecast, meta, unitLabel }: ForecastChartProps) {
   const rows = forecast || []
 
   // Find the index of the last historical (non-projected) point so the
@@ -38,46 +82,11 @@ export function ForecastChart({ forecast }: ForecastChartProps) {
     projected: r.projected || i === lastActualIndex ? r.total : null,
   }))
 
-  const CustomTooltip = ({
-    active,
-    payload,
-    label,
-  }: {
-    active?: boolean
-    payload?: Array<{ value: number; dataKey: string }>
-    label?: string
-  }) => {
-    if (active && payload && payload.length) {
-      const point = payload.find((p) => p.value != null)
-      if (!point) return null
-      const isProjected = point.dataKey === "projected"
-      return (
-        <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
-          <div className="flex items-center gap-2">
-            <p className="font-medium text-foreground">{label}</p>
-            {isProjected && (
-              <span className="rounded bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
-                Projected
-              </span>
-            )}
-          </div>
-          <p
-            className="mt-1 text-lg font-bold"
-            style={{ color: isProjected ? PROJECTED_COLOR : ACTUAL_COLOR }}
-          >
-            {formatCurrency(point.value)}
-          </p>
-        </div>
-      )
-    }
-    return null
-  }
-
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">Spend Forecast</CardTitle>
-        <CardDescription>History (solid) with trend projection (dashed)</CardDescription>
+        <CardDescription>{forecastDescription(meta, unitLabel, rows.some((r) => r.projected))}</CardDescription>
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (
