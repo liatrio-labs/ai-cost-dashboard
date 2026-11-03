@@ -31,6 +31,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { fetchWithRetry } from "@/lib/collectors/http"
 import { listGatewayKeysWithProjects, type GatewayKey } from "@/lib/collectors/vercel-ai-gateway"
 import { normalizeEmail } from "./attribution"
+import { ensurePeople, ensureProjects, must } from "./sync-helpers"
 
 const TEAM_MEMBERS_URL = "https://api.vercel.com/v3/teams"
 const MAX_MEMBERS = 2000
@@ -193,10 +194,6 @@ export interface GatewaySyncSummary {
   error?: string
 }
 
-function must<T>(res: { data: T | null; error: { message: string; code?: string } | null }, what: string): T {
-  if (res.error) throw new Error(`${what}: ${res.error.message}`)
-  return res.data as T
-}
 
 const KEY_COLUMNS =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
@@ -247,70 +244,16 @@ export async function applyGatewayKeySync(
     }
     wanted.set(email, members.get(k.createdBy!)?.name ?? null)
   }
-  const personByEmail = new Map<string, string>()
-  if (wanted.size) {
-    const emails = [...wanted.keys()]
-    const found = must(await admin.from("people").select("id, email").in("email", emails), "Failed to read people") as {
-      id: string
-      email: string
-    }[]
-    for (const p of found ?? []) personByEmail.set(p.email, p.id)
-    for (const email of emails) {
-      if (personByEmail.has(email)) continue
-      const res = await admin
-        .from("people")
-        .insert({ email, display_name: wanted.get(email) ?? null, team_id: null, active: true })
-        .select("id, email")
-        .single()
-      if (res.error?.code === "23505") {
-        // Created concurrently: read it back.
-        const again = must(await admin.from("people").select("id, email").eq("email", email).single(), "Failed to read person") as { id: string }
-        personByEmail.set(email, again.id)
-        continue
-      }
-      const row = must(res, "Failed to create person") as { id: string }
-      personByEmail.set(email, row.id)
-      summary.people_created++
-    }
-  }
+  const people = await ensurePeople(admin, wanted)
+  const personByEmail = people.personByEmail
+  summary.people_created += people.created
 
   // Projects: one org_projects row per project-scoped key's projectId.
   const projectNames = new Map<string, string | null>()
   for (const k of keys) if (k.projectId) projectNames.set(k.projectId, k.projectName ?? projectNames.get(k.projectId) ?? null)
-  const projectByExternal = new Map<string, string>()
-  if (projectNames.size) {
-    const ids = [...projectNames.keys()]
-    const found = must(
-      await admin.from("org_projects").select("id, external_project_id, name").eq("provider_id", providerId).in("external_project_id", ids),
-      "Failed to read org_projects"
-    ) as { id: string; external_project_id: string; name: string | null }[]
-    for (const p of found ?? []) {
-      projectByExternal.set(p.external_project_id, p.id)
-      const name = projectNames.get(p.external_project_id)
-      // Fill a missing name only; never rename or touch the team.
-      if (!p.name && name) {
-        must(await admin.from("org_projects").update({ name }).eq("id", p.id).select("id"), "Failed to update org_projects")
-      }
-    }
-    for (const id of ids) {
-      if (projectByExternal.has(id)) continue
-      const res = await admin
-        .from("org_projects")
-        .insert({ provider_id: providerId, external_project_id: id, name: projectNames.get(id) ?? null })
-        .select("id")
-        .single()
-      if (res.error?.code === "23505") {
-        const again = must(
-          await admin.from("org_projects").select("id").eq("provider_id", providerId).eq("external_project_id", id).single(),
-          "Failed to read org_projects"
-        ) as { id: string }
-        projectByExternal.set(id, again.id)
-        continue
-      }
-      projectByExternal.set(id, (must(res, "Failed to create org_projects row") as { id: string }).id)
-      summary.projects_created++
-    }
-  }
+  const projects = await ensureProjects(admin, providerId, projectNames)
+  const projectByExternal = projects.projectByExternal
+  summary.projects_created += projects.created
 
   // Keys.
   const existingRows = must(
