@@ -36,7 +36,7 @@ import { buildAttribution, str } from "./attribution"
 
 // NOTE: singular "organization".
 const API_BASE_URL = "https://api.openai.com/v1/organization"
-const MAX_HISTORICAL_DAYS = 366
+export const MAX_HISTORICAL_DAYS = 366
 /** Daily (non-backfill) pull: today plus this many prior UTC days (#21). */
 export const DEFAULT_LOOKBACK_DAYS = 7
 // Max buckets per page for bucket_width=1d is 31; pagination fetches the rest.
@@ -272,8 +272,9 @@ async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promis
   startDate.setUTCDate(startDate.getUTCDate() - days)
   const endPlusOne = new Date(endDate)
   endPlusOne.setUTCDate(endPlusOne.getUTCDate() + 1)
-  const startUnix = isoDateToUnix(isoDate(startDate))
-  const endUnix = isoDateToUnix(isoDate(endPlusOne))
+  // An explicit range (validated upstream) replaces the trailing window.
+  const startUnix = opts.range ? unixSeconds(opts.range.start) : isoDateToUnix(isoDate(startDate))
+  const endUnix = opts.range ? unixSeconds(opts.range.end) : isoDateToUnix(isoDate(endPlusOne))
 
   const fetchCosts = async (): Promise<{ buckets: any[]; byKey: boolean }> => {
     try {

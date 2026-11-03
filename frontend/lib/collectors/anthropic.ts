@@ -254,15 +254,16 @@ async function fetchLegacyPaginated(
 }
 
 /**
- * Collect from the Analytics API (today + prior DEFAULT_LOOKBACK_DAYS days, or `backfillDays`
- * with backfill), falling back to the legacy reports on 403/404.
+ * Collect from the Analytics API (today + prior DEFAULT_LOOKBACK_DAYS days,
+ * `backfillDays` with backfill, or exactly `opts.range` when given), falling
+ * back to the legacy reports on 403/404.
  */
 async function collect(ctx: CollectorContext, opts: CollectOptions = {}): Promise<CostRecord[]> {
   const bucketWidth = "1d"
   const today = startOfUTCDay(new Date())
   const days = opts.backfill ? opts.backfillDays ?? 90 : DEFAULT_LOOKBACK_DAYS
-  const startTime = new Date(today.getTime() - days * DAY_MS)
-  const endTime = new Date(today.getTime() + DAY_MS)
+  const startTime = opts.range ? opts.range.start : new Date(today.getTime() - days * DAY_MS)
+  const endTime = opts.range ? opts.range.end : new Date(today.getTime() + DAY_MS)
   const tctx = { userId: ctx.userId, providerId: ctx.providerId, organizationId: ctx.organizationId }
 
   try {

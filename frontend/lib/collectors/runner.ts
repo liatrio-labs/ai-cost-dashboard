@@ -10,6 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createAdminClient, touchProvidersCollected } from "@/lib/supabase/admin"
 import type { Collector, CostRecord, CollectionSummary, CollectOptions, CollectorDetails } from "./types"
+import { DAY_MS, isoDate } from "./http"
 
 import { collector as anthropic } from "./anthropic"
 import { collector as claudeAi } from "./claude-ai"
@@ -75,6 +76,57 @@ export async function getOwnerUserId(admin: SupabaseClient): Promise<string> {
   return user.id
 }
 
+/**
+ * Per-UTC-day record count and cost for an explicit range, listing every day
+ * in [start, end) (zeros for days the provider returned nothing for).
+ */
+export function summarizeDays(
+  records: CostRecord[],
+  range: { start: Date; end: Date }
+): Array<{ date: string; records: number; cost_usd: number }> {
+  const byDay = new Map<string, { records: number; cost: number }>()
+  for (let t = range.start.getTime(); t < range.end.getTime(); t += DAY_MS) {
+    byDay.set(isoDate(new Date(t)), { records: 0, cost: 0 })
+  }
+  for (const r of records) {
+    const day = byDay.get(r.timestamp.slice(0, 10))
+    if (!day) continue
+    day.records++
+    day.cost += r.cost_usd
+  }
+  return Array.from(byDay, ([date, d]) => ({
+    date,
+    records: d.records,
+    cost_usd: Math.round(d.cost * 1e6) / 1e6,
+  }))
+}
+
+/** Keep only records whose bucket starts inside [start, end). */
+export function recordsInRange(records: CostRecord[], range: { start: Date; end: Date }): CostRecord[] {
+  const lo = range.start.getTime()
+  const hi = range.end.getTime()
+  return records.filter((r) => {
+    const t = Date.parse(r.timestamp)
+    return t >= lo && t < hi
+  })
+}
+
+/**
+ * Write a batch of collected rows idempotently.
+ *
+ * Re-pull semantics (issue #20), relied on by the cron windows and by
+ * explicit start_date/end_date re-pulls alike:
+ * - Every existing `api_automated` row for (provider, owner) at a timestamp
+ *   present in `records` is deleted, then `records` are inserted. That
+ *   replaces old org-level rows (e.g. Anthropic `model 'unknown'`, no
+ *   attribution) at the same midnight-UTC bucket instead of adding to them.
+ * - Timestamps NOT present in `records` are left alone: a day the provider
+ *   returns no buckets for keeps whatever rows it already had. We never infer
+ *   "zero spend" from an absent bucket.
+ * - Rows with any other collection_method (manual, CSV) are never touched.
+ * - Callers fetch everything first and only call this once all fetches
+ *   succeeded, so a failed fetch deletes nothing.
+ */
 export async function storeRecords(admin: SupabaseClient, records: CostRecord[]): Promise<number> {
   if (!records.length) return 0
 
@@ -166,7 +218,9 @@ export async function runCollectionForProvider(
       },
       opts
     )
-    const stored = await storeRecords(admin, records)
+    // An explicit range must never delete outside itself, whatever the API returned.
+    const toStore = opts.range ? recordsInRange(records, opts.range) : records
+    const stored = await storeRecords(admin, toStore)
 
     // Stamp the tool's "Last updated" time on every successful pull.
     await touchProvidersCollected([(prov as { id: string }).id])
@@ -179,6 +233,7 @@ export async function runCollectionForProvider(
       owner_user_id: ownerUserId,
       ...(Object.keys(details).length ? { details } : {}),
       timestamp,
+      ...(opts.range ? { days: summarizeDays(toStore, opts.range) } : {}),
     }
   } catch (e) {
     return {

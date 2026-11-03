@@ -399,3 +399,68 @@ describe("anthropic collect (mocked fetch)", () => {
     await expect(collector.collect(ctx)).rejects.toThrow(/400/)
   })
 })
+
+describe("anthropic collect with an explicit range (issue #20)", () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+    jest.restoreAllMocks()
+  })
+  const res = (body: unknown, status = 200) =>
+    ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response
+  const ctx = { apiKey: "test-admin-key", userId: "user-1", providerId: "prov-anthropic" }
+  const spans = (urls: URL[], path: string) =>
+    urls
+      .filter((u) => u.pathname.endsWith(path))
+      .map((u) => [u.searchParams.get("starting_at"), u.searchParams.get("ending_at")])
+
+  test("requests exactly [start, end) from the analytics API", async () => {
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      urls.push(new URL(String(url)))
+      return res({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx, {
+      range: { start: new Date("2026-01-24T00:00:00Z"), end: new Date("2026-02-01T00:00:00Z") },
+      // A range wins over backfill flags.
+      backfill: true,
+      backfillDays: 300,
+    })
+    const want = [["2026-01-24T00:00:00Z", "2026-02-01T00:00:00Z"]]
+    expect(spans(urls, "/analytics/cost")).toEqual(want)
+    expect(spans(urls, "/analytics/usage")).toEqual(want)
+  })
+
+  test("a >31-day range is still split into <= 31-day spans", async () => {
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      urls.push(new URL(String(url)))
+      return res({ data: [], has_more: false, next_page: null })
+    }) as any
+    await collector.collect(ctx, {
+      range: { start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-03-10T00:00:00Z") },
+    })
+    expect(spans(urls, "/analytics/cost")).toEqual([
+      ["2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z"],
+      ["2026-02-01T00:00:00Z", "2026-03-04T00:00:00Z"],
+      ["2026-03-04T00:00:00Z", "2026-03-10T00:00:00Z"],
+    ])
+  })
+
+  test("the legacy fallback uses the same range", async () => {
+    jest.spyOn(console, "warn").mockImplementation(() => {})
+    const urls: URL[] = []
+    global.fetch = jest.fn(async (url: any) => {
+      const u = new URL(String(url))
+      if (u.pathname.includes("/analytics/")) return res({}, 404)
+      urls.push(u)
+      return res({ data: [], has_more: false })
+    }) as any
+    await collector.collect(ctx, {
+      range: { start: new Date("2026-07-23T00:00:00Z"), end: new Date("2026-07-24T00:00:00Z") },
+    })
+    const want = [["2026-07-23T00:00:00Z", "2026-07-24T00:00:00Z"]]
+    expect(spans(urls, "/cost_report")).toEqual(want)
+    expect(spans(urls, "/usage_report/messages")).toEqual(want)
+  })
+})

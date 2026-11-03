@@ -172,6 +172,65 @@ It applies 001-011 with a stub Supabase `auth` schema, re-applies 010 and 011 to
 idempotent, seeds fixtures and runs the attribution/rollup assertions. See
 `database/README.md`.
 
+## Re-pulling history
+
+`POST /api/admin/collect` can re-fetch an explicit range of UTC days for `anthropic`,
+`claude-ai` and `openai`, e.g. to replace old org-level rows with attributed ones or
+fill a missing day.
+
+Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
+`end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today
+(UTC). A `start_date` before the provider's earliest data is clamped to it (2026-01-01 for
+Anthropic and Claude.ai analytics; 366 days back for OpenAI) and the response reports
+`range.clamped: true`. Without the dates the old `{ provider, backfill, backfill_days }`
+behaviour is unchanged; with them, `backfill` is ignored. The response includes the
+effective `range`, `records_stored` and a per-day `days` list (`date`, `records`,
+`cost_usd`, zeros for days the provider returned nothing for), and the daily rollup is
+refreshed on success. The cron routes accept the same `start_date`/`end_date` query
+params (with `CRON_SECRET`).
+
+Auth is an admin session, or `Authorization: Bearer <COLLECTION_TRIGGER_SECRET>` for
+scripts (compared in constant time; disabled when the env var is unset or empty).
+
+```bash
+BASE=https://your-deployment.example.com
+SECRET=replace-with-collection-trigger-secret
+
+# One day
+curl -sS -X POST "$BASE/api/admin/collect" \
+  -H "Authorization: Bearer $SECRET" -H "Content-Type: application/json" \
+  -d '{"provider":"anthropic","start_date":"2026-07-23","end_date":"2026-07-23"}'
+
+# 31-day chunks from 2026-01-01 to yesterday (GNU date)
+start=2026-01-01
+last=$(date -u -d yesterday +%F)
+while [[ ! "$start" > "$last" ]]; do
+  end=$(date -u -d "$start +30 days" +%F)
+  [[ "$end" > "$last" ]] && end=$last
+  echo "== $start .. $end"
+  curl -sS -X POST "$BASE/api/admin/collect" \
+    -H "Authorization: Bearer $SECRET" -H "Content-Type: application/json" \
+    -d "{\"provider\":\"anthropic\",\"start_date\":\"$start\",\"end_date\":\"$end\"}" \
+    | jq '{status, records_stored, range, days}'
+  start=$(date -u -d "$end +1 day" +%F)
+done
+```
+
+What a re-pull does to existing rows (`storeRecords()` in `frontend/lib/collectors/runner.ts`):
+
+- Every `api_automated` row for that provider at a bucket timestamp the provider
+  returned is deleted, then the new rows are inserted. Old org-level rows (Anthropic
+  `model 'unknown'`, no `metadata.attribution`) at the same midnight-UTC bucket are
+  **replaced**, not added to, so running the same range twice gives the same rows and
+  the same `SUM(cost_usd)`.
+- Days inside the range that the provider returns **no** buckets for are **left alone**:
+  their existing rows stay. An empty response is not treated as "zero spend". Check the
+  `days` list for zero-record days if you expected data there.
+- Manual and CSV rows (any other `collection_method`) are never touched.
+- Everything is fetched first; if any request in the chunk fails, nothing is deleted or
+  inserted and the response has `status: "error"`. Rows the API returns outside the
+  requested range are dropped rather than stored.
+
 ## Deployment
 
 Deployed as a single Vercel project (root directory `frontend`). The cron schedule in
