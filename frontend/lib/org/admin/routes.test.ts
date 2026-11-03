@@ -420,7 +420,10 @@ describe("projects", () => {
   it("lists observed and registered projects, assigns and unregisters", async () => {
     const list = await call(projects.GET, "GET", "/x")
     const ids = list.body.map((p: { external_project_id: string }) => p.external_project_id).sort()
-    expect(ids).toEqual(["proj_1", "proj_2", "proj_9"])
+    // Anthropic workspaces are listed too (issue #28).
+    expect(ids).toEqual(["proj_1", "proj_2", "proj_9", "wrk_1"])
+    expect(list.body.find((p: { external_project_id: string }) => p.external_project_id === "wrk_1")).toMatchObject({ kind: "workspace" })
+    expect(list.body.find((p: { external_project_id: string }) => p.external_project_id === "proj_1")).toMatchObject({ kind: "project" })
 
     const created = await call(projects.POST, "POST", "/x", { provider_id: P.openai, external_project_id: "proj_9", team_id: T.data })
     expect(created).toMatchObject({ status: 201, body: { external_project_id: "proj_9", team_id: T.data } })

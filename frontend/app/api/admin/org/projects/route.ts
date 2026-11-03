@@ -1,6 +1,8 @@
 /**
  * GET  /api/admin/org/projects — every project seen in
- *      metadata.attribution.project_id merged with registered org_projects
+ *      metadata.attribution.project_id, plus Anthropic workspaces seen in
+ *      workspace_id (issue #28, kind "workspace"), merged with registered
+ *      org_projects
  * POST /api/admin/org/projects — { provider_id, external_project_id, name?,
  *      team_id? } register or update a project's team (upsert)
  */
@@ -15,7 +17,13 @@ export const dynamic = "force-dynamic"
 
 export const GET = adminRoute(async (_request, _params, admin) => {
   const org = await loadOrg(admin)
-  const records = await scanRecords(admin, { requireField: "project_id" })
+  const [withProject, withWorkspace] = await Promise.all([
+    scanRecords(admin, { requireField: "project_id" }),
+    scanRecords(admin, { requireField: "workspace_id" }),
+  ])
+  // A row with both fields comes back from both scans; keep it once.
+  const seen = new Set(withProject.map((r) => r.id))
+  const records = [...withProject, ...withWorkspace.filter((r) => !r.id || !seen.has(r.id))]
   return json(listProjects(records, org.projects))
 })
 
