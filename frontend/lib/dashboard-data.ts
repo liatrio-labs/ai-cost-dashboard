@@ -102,13 +102,30 @@ export async function fetchAttributedDaily(
   )
 }
 
-/** Org tables (authenticated SELECT, migrations 010/011). Identities aren't needed for labels. */
+const KEY_COLUMNS_BASE = "id, provider_id, external_key_id, name, owner_person_id, team_id"
+
+/**
+ * org_api_keys with the key's assigned project (migration 015), so the
+ * dashboard can place keys with no spend under their project (issue #28).
+ * Falls back to the pre-015 columns when org_project_id doesn't exist yet.
+ */
+async function fetchOrgKeys(supabase: SupabaseLike) {
+  const res = (await supabase.from("org_api_keys").select(`${KEY_COLUMNS_BASE}, org_project_id`).order("name")) as {
+    data: unknown[] | null
+    error: { code?: string; message?: string } | null
+  }
+  const missing =
+    !!res.error && (res.error.code === "42703" || res.error.code === "PGRST204" || /column .* does not exist/i.test(res.error.message ?? ""))
+  return missing ? supabase.from("org_api_keys").select(KEY_COLUMNS_BASE).order("name") : res
+}
+
+/** Org tables (authenticated SELECT, migrations 010/011/015). Identities aren't needed for labels. */
 export async function fetchOrgData(supabase: SupabaseLike): Promise<OrgData> {
   const [departments, teams, people, apiKeys, projects] = await Promise.all([
     supabase.from("departments").select("id, name, description").order("name"),
     supabase.from("teams").select("id, name, department_id").order("name"),
     supabase.from("people").select("id, email, display_name, team_id, active").order("email"),
-    supabase.from("org_api_keys").select("id, provider_id, external_key_id, name, owner_person_id, team_id").order("name"),
+    fetchOrgKeys(supabase),
     supabase.from("org_projects").select("id, provider_id, external_project_id, name, team_id").order("name"),
   ])
   for (const r of [departments, teams, people, apiKeys, projects]) if (r.error) throw r.error

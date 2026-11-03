@@ -387,7 +387,7 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
   })
 
   const project = projectEntities(cur, prev, org, index, slugOf, nameOf)
-  const key_groups = keyGroups({ api_key, org, index, cur, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf })
+  const key_groups = keyGroups({ api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf })
   const hasProjects = providerScoped.some((r) => !!effectiveProjectId(r))
 
   // provider x model detail for whatever the filters select.
@@ -466,7 +466,9 @@ function projectOptions(org: OrgData, rows: AttributedDailyRow[], slugOf: (id: s
     out.set(p.external_project_id, { id: p.external_project_id, label: p.name || p.external_project_id, provider: slugOf(p.provider_id) })
   }
   for (const r of rows) {
-    if (r.project_id && !out.has(r.project_id)) out.set(r.project_id, { id: r.project_id, label: r.project_id, provider: slugOf(r.provider_id) })
+    // Anthropic workspaces filter like projects (issue #28).
+    const pid = effectiveProjectId(r)
+    if (pid && !out.has(pid)) out.set(pid, { id: pid, label: pid, provider: slugOf(r.provider_id) })
   }
   return [...out.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
@@ -484,6 +486,7 @@ function keyGroups(input: {
   org: OrgData
   index: OrgIndex
   cur: AttributedDailyRow[]
+  prev: AttributedDailyRow[]
   providerScoped: AttributedDailyRow[]
   providers: ProviderRow[]
   filters: DashboardFilters
@@ -491,7 +494,7 @@ function keyGroups(input: {
   slugOf: (id: string) => string
   nameOf: (id: string) => string
 }): ProviderGroup<BreakdownKeyItem>[] {
-  const { api_key, org, index, cur, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf } = input
+  const { api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf } = input
   // key id -> project -> cost, preferring the period's rows over all loaded rows.
   const projectByKey = (rows: AttributedDailyRow[]) => {
     const acc = new Map<string, Map<string, number>>()
@@ -506,7 +509,9 @@ function keyGroups(input: {
     for (const [k, m] of acc) out.set(k, [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0])
     return out
   }
-  const inPeriod = projectByKey(cur)
+  // Filtered rows (period and comparison) first, so under a project filter an
+  // active key is always placed in that project.
+  const inPeriod = projectByKey([...cur, ...prev])
   const anyTime = projectByKey(providerScoped)
   const entityById = new Map(api_key.filter((e) => e.id).map((e) => [e.id!, e]))
   const onlyProjectFilter = !filters.department && !filters.team && !filters.person && !filters.key
@@ -543,9 +548,7 @@ function keyGroups(input: {
     }
     if (filters.project) {
       const pid = keyProjectId(item, projectsById)
-      if (filters.project === UNASSIGNED_FILTER ? pid !== null : pid !== filters.project) {
-        if (!hasActivity) continue
-      }
+      if (filters.project === UNASSIGNED_FILTER ? pid !== null : pid !== filters.project) continue
     }
     items.push(item)
   }

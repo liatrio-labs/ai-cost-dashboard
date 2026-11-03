@@ -311,4 +311,38 @@ describe("Projects and keys under projects (issue #28)", () => {
     await user.click(screen.getAllByRole("button", { name: "Filter by project No project" })[0])
     expect(onChange).toHaveBeenLastCalledWith({ project: "unassigned" })
   })
+
+  it("lists observed workspaces in the Project filter options (Bugbot)", () => {
+    const ids = wsBreakdown().options.projects.map((p) => p.id)
+    expect(ids).toEqual(expect.arrayContaining(["wrk_research", "wrk_ops"]))
+  })
+
+  it("under a project filter, only that project's keys are listed, even when a key's spend there is only in the comparison period (Bugbot)", () => {
+    const org = wsOrg()
+    const records = [
+      ...RECORDS,
+      // October: the key spent in wrk_research; November: more in wrk_other.
+      { ...wsRecord(4, "wrk_research", "ant_key_research"), timestamp: "2026-10-03T10:00:00Z" },
+      wsRecord(90, "wrk_other", "ant_key_research"),
+    ]
+    const data = computeBreakdown({
+      rows: toAttributedDailyRows(records, buildOrgIndex(org)),
+      org,
+      providers: PROVIDERS,
+      filters: { project: "wrk_research" },
+      params: { month: "2026-11" },
+      now: NOW,
+    })
+    const groups = data.key_groups.flatMap((g) => g.projects.map((p) => ({ id: p.external_id, keys: p.keys.map((k) => k.label) })))
+    expect(groups).toEqual([{ id: "wrk_research", keys: ["Research key"] }])
+  })
+
+  it("places a $0 key under its assigned project (Bugbot)", () => {
+    const org = wsOrg()
+    org.projects = [{ id: "op-site", provider_id: P.openai, external_project_id: "proj_site", name: "Site", team_id: null }]
+    org.apiKeys = org.apiKeys.map((k) => (k.external_key_id === "key_owner" ? { ...k, org_project_id: "op-site" } : k))
+    const data = computeBreakdown({ rows: attributedRows(org), org, providers: PROVIDERS, filters: {}, params: { month: "2026-11" }, now: NOW })
+    const site = data.key_groups.flatMap((g) => g.projects).find((p) => p.external_id === "proj_site")
+    expect(site?.keys.map((k) => k.external_key_id)).toEqual(["key_owner"])
+  })
 })
