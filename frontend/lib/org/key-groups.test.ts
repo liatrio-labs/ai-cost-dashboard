@@ -112,4 +112,17 @@ describe("groupKeys", () => {
     expect(keyProjectId({ provider_id: GW, external_key_id: "x", observed_project_id: "prj_site", org_project_id: "op-idle", total_cost_usd: 0 }, byId)).toBe("prj_site")
     expect(keyProjectId({ provider_id: GW, external_key_id: "x", org_project_id: "op-data", total_cost_usd: 0 }, byId)).toBeNull()
   })
+
+  it("places a key by its most recent row, not by scan order (Bugbot)", () => {
+    // Scan order is by row id: a re-pulled older row can come last.
+    const rows: ObservedRecord[] = [
+      { ...rec(OA, 5, { api_key_id: "oa_moved", project_id: "proj_data" }), timestamp: "2026-11-02T00:00:00Z" },
+      { ...rec(OA, 50, { api_key_id: "oa_moved", project_id: "proj_web" }), timestamp: "2026-09-01T00:00:00Z" },
+      { ...rec(AN, 1, { api_key_id: "an_moved", workspace_id: "wrk_new" }), timestamp: "2026-11-02T00:00:00Z" },
+      { ...rec(AN, 9, { api_key_id: "an_moved", workspace_id: "wrk_old" }), timestamp: "2026-08-01T00:00:00Z" },
+    ]
+    const keys = listKeys(rows, [])
+    expect(keys.find((k) => k.external_key_id === "oa_moved")?.observed_project_id).toBe("proj_data")
+    expect(keys.find((k) => k.external_key_id === "an_moved")?.observed_workspace_id).toBe("wrk_new")
+  })
 })
