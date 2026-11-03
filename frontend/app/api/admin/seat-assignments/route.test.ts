@@ -223,6 +223,35 @@ describe("PUT /api/admin/seat-assignments", () => {
     expect(mockState.db.table("people")).toHaveLength(5)
   })
 
+  it("reads every row of a month past PostgREST's 1000-row cap, so none are left behind", async () => {
+    const db = mockState.db
+    db.maxRows = 1000
+    // April made of the original entry plus 1,200 one-seat csv rows at $1.
+    for (let i = 0; i < 1200; i++) {
+      db.table("cost_records").push({
+        ...prodSeatRows()[1],
+        id: `bulk-${String(i).padStart(4, "0")}`,
+        cost_usd: 1,
+        request_count: 1,
+        collection_method: "csv_import",
+        metadata: { entry_type: "monthly_seats", month: "2026-04", seats: 1, price_per_seat: 1, cost_basis: "seat_subscription" },
+      })
+    }
+    const res = await call(seats.PUT, "PUT", "/api/admin/seat-assignments", {
+      provider_id: CLAUDE_MAX,
+      month: "2026-04",
+      expected_total_usd: 4000,
+      assignments: [{ person_email: "alice@liatrio.com", seats: 1, cost_usd: 200 }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ total_usd: 4000, total_seats: 1214, remainder: { seats: 1213, cost_usd: 3800 } })
+    expect(db.rpcArgs[0].p_delete_ids).toHaveLength(1201)
+    db.maxRows = null
+    const april = seatRowsOf("2026-04")
+    expect(april).toHaveLength(2)
+    expect(sumMicros(april as { cost_usd: number }[])).toBe(toMicros(4000))
+  })
+
   it("surfaces an RPC refusal (rows changed underneath) and leaves the month as it was", async () => {
     const db = mockState.db
     const orig = db.rpc.bind(db)

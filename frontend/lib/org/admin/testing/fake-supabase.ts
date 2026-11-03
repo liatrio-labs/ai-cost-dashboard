@@ -56,6 +56,8 @@ export class FakeSupabase {
   /** Every mutating call, for assertions: { table, op, rows }. */
   writes: { table: string; op: "insert" | "update" | "delete"; rows: Row[] }[] = []
   rpcCalls: string[] = []
+  /** Like PostgREST max-rows: cap every select at this many rows when set. */
+  maxRows: number | null = null
   private seq = 0
 
   constructor(tables: Record<string, object[]> = {}, config: Record<string, FakeTableConfig> = ORG_TABLE_CONFIG) {
@@ -214,6 +216,7 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: FakeError | null;
     const count = out.length
     if (this.rangeFrom !== null) out = out.slice(this.rangeFrom, (this.rangeTo ?? out.length - 1) + 1)
     if (this.limitN !== null) out = out.slice(0, this.limitN)
+    if (this.db.maxRows !== null) out = out.slice(0, this.db.maxRows)
     const projected = out.map((r) => project(r, this.columns))
     if (this.head) return { data: null, error: null, count }
     if (this.singleMode) {

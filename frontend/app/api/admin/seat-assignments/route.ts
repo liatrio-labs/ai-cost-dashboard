@@ -32,6 +32,7 @@ import {
   MANUAL_METHODS,
   planSeatSplit,
   SeatPlanError,
+  SEAT_ENTRY_TYPE,
   entryMonth,
   type SeatEntryRow,
 } from "@/lib/org/seat-assignments"
@@ -55,17 +56,32 @@ async function seatProviders(admin: SupabaseClient): Promise<ProviderRow[]> {
   return (rows ?? []).filter(isSeatProvider)
 }
 
+/** PostgREST returns at most this many rows per request (Supabase default max-rows). */
+const PAGE = 1000
+
+/**
+ * Every manual seat row for these providers, paged by id. A month seen only
+ * in part would be planned from a short total and replace_seat_group would
+ * leave the unseen rows behind, so this never stops at one page.
+ */
 async function seatRows(admin: SupabaseClient, providerIds: string[]): Promise<SeatEntryRow[]> {
   if (!providerIds.length) return []
-  const rows = must(
-    await admin
-      .from("cost_records")
-      .select(ROW_COLUMNS)
-      .in("provider_id", providerIds)
-      .in("collection_method", [...MANUAL_METHODS])
-      .order("timestamp", { ascending: false })
-  ) as SeatEntryRow[]
-  return (rows ?? []).filter(isSeatEntry)
+  const out: SeatEntryRow[] = []
+  for (let from = 0; ; from += PAGE) {
+    const page = must(
+      await admin
+        .from("cost_records")
+        .select(ROW_COLUMNS)
+        .in("provider_id", providerIds)
+        .in("collection_method", [...MANUAL_METHODS])
+        .eq("metadata->>entry_type", SEAT_ENTRY_TYPE)
+        .order("id")
+        .range(from, from + PAGE - 1)
+    ) as SeatEntryRow[]
+    out.push(...(page ?? []))
+    if (!page || page.length < PAGE) break
+  }
+  return out.filter(isSeatEntry)
 }
 
 export const GET = adminRoute(async (_request, _params, admin) => {
