@@ -10,6 +10,7 @@ export const D = { eng: "dept-eng", sales: "dept-sales" }
 export const T = { platform: "team-platform", data: "team-data", field: "team-field", orphan: "team-orphan" }
 export const PE = { alice: "p-alice", bob: "p-bob", carol: "p-carol", dave: "p-dave", erin: "p-erin" }
 export const K = { team: "k-team", owner: "k-owner", bare: "k-bare" }
+export const PR = { sales: "pr-sales" }
 
 export function orgData(): OrgData {
   return {
@@ -38,6 +39,10 @@ export function orgData(): OrgData {
       { id: K.team, provider_id: P.openai, external_key_id: "key_team", name: "Data pipeline key", owner_person_id: PE.alice, team_id: T.data },
       { id: K.owner, provider_id: P.openai, external_key_id: "key_owner", name: null, owner_person_id: PE.bob, team_id: null },
       { id: K.bare, provider_id: P.openai, external_key_id: "key_bare", name: "Unowned key", owner_person_id: null, team_id: null },
+    ],
+    // 011: openai proj_2 -> Field; proj_1 is deliberately unmapped.
+    projects: [
+      { id: PR.sales, provider_id: P.openai, external_project_id: "proj_2", name: "Sales tools", team_id: T.field },
     ],
   }
 }

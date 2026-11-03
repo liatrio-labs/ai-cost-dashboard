@@ -6,6 +6,7 @@
 --   alice -> Platform   bob -> Field   carol -> (no team)
 --   dave  -> Data       erin -> Orphan
 -- Identities: anthropic 'user_bob' -> bob; cursor 'dave.alias@liatrio.com' -> dave
+-- Projects (openai): proj_2 -> Field (011)
 -- Keys (openai): key_team  (owner alice, team Data)
 --                key_owner (owner bob,   no team)
 --                key_bare  (no owner,    no team)
@@ -47,6 +48,12 @@ INSERT INTO org_api_keys (id, provider_id, external_key_id, name, owner_person_i
 SELECT 'b0000000-0000-0000-0000-000000000003', id, 'key_bare', 'Unowned key', NULL, NULL
 FROM providers WHERE name = 'openai';
 
+-- Projects (011): openai proj_2 -> Field; proj_1 is deliberately unmapped.
+INSERT INTO org_projects (id, provider_id, external_project_id, name, team_id)
+SELECT 'c0000000-0000-0000-0000-000000000001', id, 'proj_2', 'Sales tools',
+       '70000000-0000-0000-0000-000000000003'
+FROM providers WHERE name = 'openai';
+
 -- cost_records. The model_name is a test label naming the case it covers,
 -- so assertions can find each row's rollup by (provider, model_name).
 CREATE TEMP TABLE fx (provider TEXT, ts TIMESTAMPTZ, model TEXT, cost NUMERIC, meta JSONB);
@@ -79,6 +86,12 @@ INSERT INTO fx VALUES
     ('openai',    '2026-11-02 16:00+00', 'key_bare',           3.00, '{"attribution":{"api_key_id":"key_bare","project_id":"proj_1","granularity":"project"}}'),
     -- key id is per provider: anthropic has no key_team
     ('anthropic', '2026-11-02 17:00+00', 'key_wrong_provider', 5.00, '{"attribution":{"api_key_id":"key_team","workspace_id":"wrk_1","granularity":"workspace"}}'),
+    -- (011) project with a team, no person/key -> project team Field / Sales
+    ('openai',    '2026-11-02 19:00+00', 'project_team',       0.75, '{"attribution":{"project_id":"proj_2","granularity":"project"}}'),
+    -- (011) person team beats project team: alice (Platform) in proj_2 (Field)
+    ('openai',    '2026-11-02 19:30+00', 'person_beats_project', 1.50, '{"attribution":{"person_email":"alice@liatrio.com","project_id":"proj_2","granularity":"person"}}'),
+    -- (011) person without team falls back to the project team
+    ('openai',    '2026-11-02 19:45+00', 'project_fallback',   2.50, '{"attribution":{"person_email":"carol@liatrio.com","project_id":"proj_2","granularity":"person"}}'),
     -- empty strings count as absent; bad granularity falls back to org
     ('openai',    '2026-11-02 18:00+00', 'empty_strings',      7.00, '{"attribution":{"person_email":"","api_key_id":"","granularity":"bogus"}}');
 

@@ -146,6 +146,34 @@ describe("resolveAttribution: team and department", () => {
   })
 })
 
+describe("resolveAttribution: project team fallback (011)", () => {
+  it("project team applies when there is no key or person team", () => {
+    expect(resolve(P.openai, { project_id: "proj_2", granularity: "project" })).toMatchObject({
+      person_id: null,
+      team_id: T.field,
+      department_id: D.sales,
+      project_id: "proj_2",
+    })
+  })
+
+  it("person team beats project team", () => {
+    expect(
+      resolve(P.openai, { person_email: "alice@liatrio.com", project_id: "proj_2", granularity: "person" })
+    ).toMatchObject({ person_id: PE.alice, team_id: T.platform })
+  })
+
+  it("person without a team falls back to the project team", () => {
+    expect(
+      resolve(P.openai, { person_email: "carol@liatrio.com", project_id: "proj_2", granularity: "person" })
+    ).toMatchObject({ person_id: PE.carol, team_id: T.field })
+  })
+
+  it("project ids match per provider only, and unmapped projects stay Unassigned", () => {
+    expect(resolve(P.anthropic, { project_id: "proj_2", granularity: "project" })).toMatchObject(UNASSIGNED)
+    expect(resolve(P.openai, { project_id: "proj_1", granularity: "project" })).toMatchObject(UNASSIGNED)
+  })
+})
+
 describe("resolveAttribution: missing or malformed attribution", () => {
   it.each([
     ["empty metadata", {}],

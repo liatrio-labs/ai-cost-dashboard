@@ -186,7 +186,19 @@ separate from the legacy `api_credentials` table.
 **Access**: RLS on; authenticated users can `SELECT`, writes go through the
 service role (admin routes), as in migration 003.
 
-#### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010)
+Migration 011 adds `org_projects` so project spend (OpenAI / Vercel projects)
+can be assigned to a team from the admin Unassigned queue:
+
+```sql
+org_projects      (id, provider_id → providers, external_project_id, name,
+                   team_id → teams NULL, timestamps)
+                  UNIQUE (provider_id, external_project_id)
+```
+
+Same access rules. These tables are managed at `/admin/org` through the
+`/api/admin/org/*` routes (issue #7).
+
+#### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).
 
@@ -205,7 +217,8 @@ service role (admin routes), as in migration 003.
    `(provider, person_external_id)` in `person_identities`; else
    `(provider, person_email)` in `person_identities.external_id`; else the API
    key's `owner_person_id`; else none.
-2. Team: the API key's `team_id`; else the person's `team_id`; else Unassigned.
+2. Team: the API key's `team_id`; else the person's `team_id`; else the
+   project's `team_id` (`org_projects`, since 011); else Unassigned.
 3. Department: the team's `department_id`; else Unassigned.
 
 Rows without `attribution` (everything written before #6) get granularity
@@ -359,16 +372,19 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   app_settings, `providers.last_collected_at`, BIGINT token columns
 - **010_org_structure.sql**: departments, teams, people, person_identities,
   org_api_keys, `cost_records_daily_attributed`; refresh function covers both views
+- **011_org_projects.sql**: `org_projects` (project -> team) and the project team
+  fallback in `cost_records_daily_attributed`
 
 ### Testing migrations locally
 
 `scripts/test-migrations.sh` starts a throwaway PostgreSQL 15 on a unix socket
 in a temp dir, applies `scripts/migration-tests/auth_stub.sql` (roles `anon`,
-`authenticated`, `service_role`, `auth.users`, `auth.uid()`), then 001-010,
-re-applies 010, seeds `fixtures.sql` and runs `assertions.sql` (precedence
+`authenticated`, `service_role`, `auth.users`, `auth.uid()`), then 001-011,
+re-applies 010 and 011, seeds `fixtures.sql` and runs `assertions.sql` (precedence
 rules, Unassigned, per-date reconciliation with `cost_records_daily`, both
-views refreshed by `refresh_cost_records_daily()`, RLS/grants), then re-applies
-010 over the data. Server binaries come from `PG_BIN`, an installed
+views refreshed by `refresh_cost_records_daily()`, project team fallback,
+RLS/grants), then re-applies 010 and 011 over the data. 011 must always follow
+010, because 010 recreates the view without the project fallback. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.
 

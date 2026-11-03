@@ -84,6 +84,10 @@ service**. Collection is in-process; the cron routes only authenticate the reque
 - **Any authenticated `@liatrio.com` user can reach the `/admin` area** (configurable
   via the `ADMIN_DOMAINS` env var; an explicit `ADMIN_EMAILS` allowlist is also honored).
 - The dashboard data is shared — all authenticated users see the same org-wide spend.
+- `/admin/org` manages departments, teams, people (and their provider identities),
+  API key and project ownership, imports people from emails seen in collected data
+  (dry run, then confirm), and shows the monthly Unassigned queue with one-click
+  assign. Its API lives under `/api/admin/org/*`, behind the same admin check.
 
 ## Project structure
 
@@ -131,7 +135,7 @@ scripts/test-migrations.sh             # uses PG_BIN or an installed postgresql-
 FETCH_PG=1 scripts/test-migrations.sh  # or download PG 15 binaries from npm first
 ```
 
-It applies 001-010 with a stub Supabase `auth` schema, re-applies 010 to prove it's
+It applies 001-011 with a stub Supabase `auth` schema, re-applies 010 and 011 to prove they're
 idempotent, seeds fixtures and runs the attribution/rollup assertions. See
 `database/README.md`.
 
