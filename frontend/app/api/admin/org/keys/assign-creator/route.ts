@@ -1,10 +1,12 @@
 /**
  * POST /api/admin/org/keys/assign-creator — { provider_id, external_key_id }
- * Vercel AI Gateway "Assign to creator" (issue #32, lib/org/assign-creator):
- * for a registered gateway key with spend attribution team or unset, a
- * creator email and no owner, set the owner to the creator's person (matched
- * by email, else created with no team) with assignment_source 'manual'.
- * 404 when the key isn't registered, 409 when it isn't eligible.
+ * Vercel AI Gateway "Assign to creator" (issues #32, #34, lib/org/assign-creator):
+ * a manual override for a registered gateway key (any spend attribution) with
+ * a creator email whose owner isn't the creator's person (no owner, or someone
+ * else). Sets the owner to the creator's person (matched by email, else
+ * created with no team) with assignment_source 'manual'.
+ * 404 when the key isn't registered, 409 when it isn't eligible (no creator
+ * email, or already owned by its creator).
  */
 
 import { z } from "zod"

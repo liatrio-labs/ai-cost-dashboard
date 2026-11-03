@@ -550,8 +550,8 @@ function GatewayKeysCard({
           <div>
             <CardTitle>Unassigned gateway keys</CardTitle>
             <CardDescription>
-              Vercel AI Gateway keys with no owner, project or team. Keys set to &quot;user&quot; spend attribution map to their creator and project-scoped keys to their
-              project automatically on every collection. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
+              Vercel AI Gateway keys with no owner, project or team. Every key&apos;s creator becomes its owner and project-scoped keys map to their project
+              automatically on every collection and &quot;Sync keys now&quot;, whatever the spend attribution. Assigning here marks the key <em>manual</em>, and the sync never overwrites it.
             </CardDescription>
           </div>
           <KeySyncButton onSynced={reload} />

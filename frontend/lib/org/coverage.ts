@@ -37,7 +37,7 @@ export const PROVIDER_COVERAGE: Record<string, ProviderCoverage> = {
   "vercel-ai-gateway": {
     person: "via_key_owner",
     api_key: true,
-    note: "per API key; people via key creator (user spend attribution) or owner; projects via project-scoped keys; OIDC/PAT/app-token spend stays org-level",
+    note: "per API key; people via key creator (default owner in every spend-attribution mode) or owner; projects via project-scoped keys; OIDC/PAT/app-token spend stays org-level",
   },
   vercel: { person: "no", api_key: false, note: "per project only" },
   windsurf: { person: "no", api_key: false, note: "org-level only (flat seat cost)" },

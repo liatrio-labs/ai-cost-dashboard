@@ -7,6 +7,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+/** True when a Postgres / PostgREST error says a column doesn't exist (an unapplied migration). */
+export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && (error.code === "42703" || error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? ""))
+}
+
 export function must<T>(res: { data: T | null; error: { message: string; code?: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`)
   return res.data as T

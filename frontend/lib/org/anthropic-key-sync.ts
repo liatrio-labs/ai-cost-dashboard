@@ -42,7 +42,7 @@ import { fetchWithRetry } from "@/lib/collectors/http"
 import { normalizeEmail } from "./attribution"
 import { isManual, type AssignmentSource, type SyncKeyRow } from "./gateway-sync"
 import type { UnresolvedReason } from "./key-status"
-import { ensurePeople, ensureProjects, must } from "./sync-helpers"
+import { ensurePeople, ensureProjects, isMissingColumn, must } from "./sync-helpers"
 
 const ADMIN_API_BASE_URL = "https://api.anthropic.com/v1/organizations"
 const ANTHROPIC_VERSION = "2023-06-01"
@@ -342,10 +342,6 @@ export interface AnthropicSyncSummary {
 const KEY_COLUMNS_015 =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
 const KEY_COLUMNS_017 = `${KEY_COLUMNS_015}, external_status, unresolved_reason`
-
-function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
-  return !!error && (error.code === "42703" || error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? ""))
-}
 
 /** Apply the sync for an already-fetched listing. Exported for tests and the strict admin route. */
 export async function applyAnthropicKeySync(

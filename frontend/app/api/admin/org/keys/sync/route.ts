@@ -13,14 +13,15 @@
  *
  * Response: { providers: { anthropic?: summary, "vercel-ai-gateway"?: summary } }
  * where each summary has created / updated / unchanged / manual_kept /
- * unresolved_creators (or { status: "skipped", reason }). Manual assignments
+ * unresolved_creators (the gateway summary also has creator_default_assigned,
+ * issue #34) (or { status: "skipped", reason }). Manual assignments
  * are never overwritten. No key or secret is ever returned.
  */
 
 import { z } from "zod"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
 import { refreshRollups } from "@/lib/org/admin/repo"
-import { applyGatewayKeySync, listTeamMembers, type TeamMember } from "@/lib/org/gateway-sync"
+import { applyGatewayKeySync, loadTeamMembers } from "@/lib/org/gateway-sync"
 import { AnthropicKeySyncError, applyAnthropicKeySync, listAnthropicKeyData } from "@/lib/org/anthropic-key-sync"
 import { GatewayApiError, listGatewayKeysWithProjects } from "@/lib/collectors/vercel-ai-gateway"
 import { PROVIDER_ENV } from "@/lib/collectors/runner"
@@ -84,9 +85,9 @@ export const POST = adminRoute(async (request, _params, admin) => {
   if (anthropicListing) out.anthropic = { ...(await applyAnthropicKeySync(admin, ids.anthropic, anthropicListing)) }
   if (gatewayKeys) {
     const teamId = process.env.VERCEL_TEAM_ID || undefined
-    const needMembers = gatewayKeys.some((k) => k.spendAttribution === "user" && k.createdBy)
-    const members = needMembers && teamId ? await listTeamMembers(credential("vercel-ai-gateway").value!, teamId) : new Map<string, TeamMember>()
-    out["vercel-ai-gateway"] = { ...(await applyGatewayKeySync(admin, ids["vercel-ai-gateway"], gatewayKeys, members)) }
+    // Team members whenever any key has a creator (issue #34: the creator is every key's default owner).
+    const { members, complete } = await loadTeamMembers(credential("vercel-ai-gateway").value!, teamId, gatewayKeys)
+    out["vercel-ai-gateway"] = { ...(await applyGatewayKeySync(admin, ids["vercel-ai-gateway"], gatewayKeys, members, { membersComplete: complete })) }
   }
   await refreshRollups()
   return json({ providers: out })

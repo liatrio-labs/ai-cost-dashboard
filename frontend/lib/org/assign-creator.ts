@@ -1,11 +1,13 @@
 /**
- * Vercel AI Gateway "Assign to creator" (issue #32).
+ * Vercel AI Gateway "Assign to creator" (issues #32, #34).
  *
- * A gateway key whose spend attribution is "team" or unset (NULL) is never
- * assigned by the key sync. When it has a creator email and no owner, an
- * admin can hand it to that creator in one click: the owner becomes the
- * creator's person (matched by email, else created with no team) and the
- * assignment is marked manual, so a later "Sync keys now" leaves it alone.
+ * The key sync already makes the creator every gateway key's default owner
+ * (auto). This is the manual override: for any gateway key (any spend
+ * attribution) with a creator email whose owner isn't the creator's person
+ * (no owner, or someone else), an admin can hand it to the creator in one
+ * click. The owner becomes the creator's person (matched by email, else
+ * created with no team) and the assignment is marked manual, so a later
+ * "Sync keys now" leaves it alone.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -46,10 +48,18 @@ export async function assignKeyToCreator(
     "Failed to read org_api_keys"
   ) as (AssignableKey & { id: string }) | null
   if (!key) throw new AssignCreatorError(404, "Key is not registered; run Sync keys now first")
-  if (!canAssignToCreator(key, provider.name)) {
+  let ownerEmail: string | null = null
+  if (key.owner_person_id) {
+    const owner = must(
+      await admin.from("people").select("id, email").eq("id", key.owner_person_id).maybeSingle(),
+      "Failed to read people"
+    ) as { id: string; email: string | null } | null
+    ownerEmail = owner?.email ?? null
+  }
+  if (!canAssignToCreator(key, provider.name, ownerEmail)) {
     throw new AssignCreatorError(
       409,
-      "Assign to creator only applies to AI Gateway keys with team or unset spend attribution, a creator email and no owner"
+      "Assign to creator only applies to AI Gateway keys with a creator email that aren't already owned by their creator"
     )
   }
   const email = normalizeEmail(key.external_created_by_email)!

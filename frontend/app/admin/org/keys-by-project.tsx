@@ -13,10 +13,12 @@
  *
  * Issue #32: Anthropic keys show their status and creator; keys the sync
  * couldn't give an owner (service account, deleted or unmatched creator, no
- * creator) are listed under "Unassigned keys" with the reason. AI Gateway
- * keys with team / unset spend attribution, a creator email and no owner get
- * a one-click "Assign to creator" (POST /api/admin/org/keys/assign-creator,
- * manual).
+ * creator) are listed under "Unassigned keys" with the reason. Issue #34: the
+ * gateway sync makes the creator every gateway key's default owner, and
+ * gateway keys with no owner (no creator, unmatched creator) are listed there
+ * too. "Assign to creator" (POST /api/admin/org/keys/assign-creator, manual)
+ * is an override on any gateway key with a creator email whose owner isn't
+ * that creator.
  */
 
 import { useMemo } from "react"
@@ -52,6 +54,7 @@ export function KeysByProjectCard({
     const p = id ? org.people.find((x) => x.id === id) : undefined
     return p ? p.display_name || p.email : null
   }
+  const personEmail = (id: string | null) => (id ? (org.people.find((x) => x.id === id)?.email ?? null) : null)
 
   return (
     <Card>
@@ -98,6 +101,7 @@ export function KeysByProjectCard({
                         org={org}
                         mutate={mutate}
                         owner={personLabel(k.owner_person_id)}
+                        ownerEmail={personEmail(k.owner_person_id)}
                         providerSlug={pg.provider_slug}
                       />
                     ))}
@@ -113,7 +117,7 @@ export function KeysByProjectCard({
   )
 }
 
-/** Keys the sync left without an owner, with the reason (issue #32). */
+/** Keys the sync left without an owner, with the reason (issues #32, #34; Anthropic and AI Gateway alike). */
 function UnassignedKeys({ keys }: { keys: KeyRow[] }) {
   const pending = keys.filter((k) => !k.owner_person_id && k.unresolved_reason)
   if (!pending.length) return null
@@ -155,12 +159,14 @@ function KeyLine({
   org,
   mutate,
   owner,
+  ownerEmail,
   providerSlug,
 }: {
   k: KeyRow
   org: Org
   mutate: Mutate
   owner: string | null
+  ownerEmail?: string | null
   providerSlug: string | null
 }) {
   const save = (patch: Record<string, unknown>) =>
@@ -190,7 +196,7 @@ function KeyLine({
         </p>
       </div>
       <div className="flex items-center gap-1">
-        {canAssignToCreator(k, providerSlug) && <AssignToCreatorButton k={k} mutate={mutate} />}
+        {canAssignToCreator(k, providerSlug, ownerEmail) && <AssignToCreatorButton k={k} mutate={mutate} />}
         <select
           aria-label={`Owner of ${k.external_key_id}`}
           className={selectClass}
