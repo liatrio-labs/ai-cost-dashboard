@@ -13,6 +13,8 @@ import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
+import { splitHeaderLabel } from "@/lib/header-label"
+import { cn } from "@/lib/utils"
 import {
   drillInto,
   FILTER_KEYS,
@@ -82,15 +84,48 @@ export function coverageText(notes: CoverageNote[]): string {
   return notes.map((n) => `${n.providerName}: ${n.note}`).join("; ")
 }
 
-function Coverage({ notes, unassigned }: { notes: CoverageNote[]; unassigned: boolean }) {
+/**
+ * The coverage text every list shares, or null when any differs or is empty.
+ * Lets a table show an identical "Not included" note once (issue #41).
+ */
+export function sharedCoverageText(lists: CoverageNote[][]): string | null {
+  if (lists.length === 0) return null
+  const first = coverageText(lists[0])
+  return first && lists.every((l) => coverageText(l) === first) ? first : null
+}
+
+function Coverage({ notes, unassigned, testId = "coverage" }: { notes: CoverageNote[]; unassigned: boolean; testId?: string }) {
   if (notes.length === 0) return null
+  // Wraps inside nowrap table cells so a long note can't set the table width (issue #41).
   return (
-    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground" data-testid="coverage">
+    <p className="mt-0.5 text-[11px] leading-snug whitespace-normal break-words text-muted-foreground" data-testid={testId}>
       {unassigned ? "Includes " : "Not included: "}
       {coverageText(notes)}
     </p>
   )
 }
+
+/**
+ * A column header whose trailing parenthetical goes on line 2, e.g.
+ * "Anthropic" / "(Claude API)" (issue #41). Each line stays nowrap; headers
+ * without a parenthetical render unchanged on one line.
+ */
+export function HeaderLabel({ label, align = "left" }: { label: string; align?: "left" | "right" }) {
+  const { primary, secondary } = splitHeaderLabel(label)
+  if (!secondary) return <>{label}</>
+  return (
+    <span
+      data-testid="header-label"
+      className={cn("inline-flex flex-col leading-tight", align === "right" ? "items-end text-right" : "items-start text-left")}
+    >
+      <span>{primary}</span> <span>{secondary}</span>
+    </span>
+  )
+}
+
+const changeHeader = (data: BreakdownData) => (
+  <HeaderLabel label={data.projection?.status === "current" ? "Change (projected)" : "Change"} align="right" />
+)
 
 export function OrgBreadcrumbs({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   return (
@@ -150,7 +185,7 @@ export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData;
               <TableHead>Name</TableHead>
               <TableHead className="text-right">Spend</TableHead>
               <TableHead className="text-right">Previous</TableHead>
-              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
+              <TableHead className="text-right">{changeHeader(data)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -239,7 +274,8 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
     return [...sorted, ...people.filter((e) => e.unassigned)]
   }, [data.person, sort])
 
-  const header = (by: string, label: string, title?: string) => {
+  const ariaSort = (by: string) => (sort.by === by ? (sort.dir === "asc" ? "ascending" : "descending") : undefined)
+  const header = (by: string, label: string, title?: string, align: "left" | "right" = "left") => {
     const active = sort.by === by
     return (
       <button
@@ -249,7 +285,7 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
         aria-label={`Sort by ${label}`}
         onClick={() => setSort({ by, dir: active && sort.dir === "desc" ? "asc" : "desc" })}
       >
-        {label}
+        <HeaderLabel label={label} align={align} />
         {active && (sort.dir === "desc" ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />)}
       </button>
     )
@@ -267,19 +303,16 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
         <Table aria-label="People">
           <TableHeader>
             <TableRow>
-              <TableHead aria-sort={sort.by === "name" ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
+              <TableHead aria-sort={ariaSort("name")}>
                 {header("name", "Name")}
               </TableHead>
-              <TableHead
-                className="text-right"
-                aria-sort={sort.by === "spend" ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
-              >
-                {header("spend", "Spend")}
+              <TableHead className="text-right" aria-sort={ariaSort("spend")}>
+                {header("spend", "Spend", undefined, "right")}
               </TableHead>
-              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
+              <TableHead className="text-right">{changeHeader(data)}</TableHead>
               {data.providers.map((p) => (
-                <TableHead key={p.slug} className="text-right">
-                  {header(p.slug, p.name, `${p.name}: ${p.note}`)}
+                <TableHead key={p.slug} className="text-right" aria-sort={ariaSort(p.slug)}>
+                  {header(p.slug, p.name, `${p.name}: ${p.note}`, "right")}
                   {p.person === "via_key_owner" && <span title="Attributed via API key owner">*</span>}
                 </TableHead>
               ))}
@@ -324,9 +357,19 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
  * filters by that project; a key filters by key.
  * Spend on unregistered keys stays in the last "Unassigned" row.
  */
+/** Wrapping, width-capped Name cell so a long key name or note can't widen the table (issue #41). */
+const NAME_CELL = "min-w-40 max-w-xs whitespace-normal"
+
 export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   const unassigned = data.api_key.filter((k) => k.unassigned && visible(k)) as BreakdownApiKey[]
   const groups = data.key_groups ?? []
+  // An identical "Not included" note shows once (issue #41): in the description
+  // when every registered key shares it, else in a group's header row when every
+  // key in that group shares it. Any other row keeps its own note.
+  const allKeys = groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
+  const tableNote = allKeys.length > 1 ? sharedCoverageText(allKeys.map((k) => k.coverage)) : null
+  const groupNote = (keys: { coverage: CoverageNote[] }[]) =>
+    tableNote || keys.length < 2 ? null : sharedCoverageText(keys.map((k) => k.coverage))
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
@@ -335,6 +378,11 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
           Registered provider API keys under their project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway), including keys with no
           spend yet. A person, team or department filter shows the keys they own plus any key with spend from them. Select a project to filter
           by it.
+          {tableNote && (
+            <span className="mt-1 block text-xs" data-testid="coverage-shared">
+              Not included for every key: {tableNote}
+            </span>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -346,14 +394,16 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
               <TableHead>Owner</TableHead>
               <TableHead>Team</TableHead>
               <TableHead className="text-right">Spend</TableHead>
-              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
+              <TableHead className="text-right">{changeHeader(data)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {groups.flatMap((pg) =>
-              pg.projects.flatMap((g) => [
+              pg.projects.flatMap((g) => {
+                const shared = groupNote(g.keys)
+                return [
                 <TableRow key={`group:${g.key}`} data-testid="key-group-row" className="bg-muted/30 hover:bg-muted/30">
-                  <TableCell colSpan={4} className="py-1.5 text-xs">
+                  <TableCell colSpan={4} className="py-1.5 text-xs whitespace-normal">
                     <span className="text-muted-foreground">
                       {pg.label} · {pg.noun}:{" "}
                     </span>
@@ -368,6 +418,11 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     <span className="ml-2 text-muted-foreground">
                       {g.keys.length} key{g.keys.length === 1 ? "" : "s"}
                     </span>
+                    {shared && (
+                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground" data-testid="coverage-group">
+                        Not included: {shared}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="py-1.5 text-right text-xs tabular-nums text-muted-foreground">{formatCurrency(g.total_cost_usd)}</TableCell>
                   <TableCell />
@@ -375,15 +430,15 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                 ...g.keys.map((k) => (
                   <TableRow key={k.key} data-testid="key-row">
                     <TableCell>{k.providerName ?? "—"}</TableCell>
-                    <TableCell>
+                    <TableCell className={NAME_CELL}>
                       <button
                         type="button"
-                        className="text-left font-medium hover:underline"
+                        className="text-left font-medium break-words hover:underline"
                         onClick={() => onFiltersChange({ ...data.filters, key: k.key })}
                       >
                         {k.label}
                       </button>
-                      <Coverage notes={k.coverage} unassigned={false} />
+                      {!tableNote && !shared && <Coverage notes={k.coverage} unassigned={false} />}
                     </TableCell>
                     <TableCell>{k.owner ?? "—"}</TableCell>
                     <TableCell>{k.team ?? "—"}</TableCell>
@@ -393,12 +448,13 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     </TableCell>
                   </TableRow>
                 )),
-              ])
+                ]
+              })
             )}
             {unassigned.map((k) => (
               <TableRow key={k.key} data-testid="key-row">
                 <TableCell>—</TableCell>
-                <TableCell>
+                <TableCell className={NAME_CELL}>
                   <button
                     type="button"
                     className="text-left font-medium hover:underline"
@@ -446,7 +502,7 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
               <TableHead>Project</TableHead>
               <TableHead>Team</TableHead>
               <TableHead className="text-right">Spend</TableHead>
-              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
+              <TableHead className="text-right">{changeHeader(data)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
