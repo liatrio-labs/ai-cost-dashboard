@@ -172,7 +172,7 @@ export function OrgAdminClient() {
 // Departments & teams
 // ---------------------------------------------------------------------------
 
-function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
+export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
   const [deptName, setDeptName] = useState("")
   const [teamName, setTeamName] = useState("")
   const [teamDept, setTeamDept] = useState("")
@@ -194,8 +194,8 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
   ]
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Card className="md:col-span-1">
+    <div className="grid gap-4 md:grid-cols-[288px_minmax(0,1fr)]">
+      <Card>
         <CardHeader>
           <CardTitle>Add</CardTitle>
           <CardDescription>Departments group teams. A team can sit outside any department.</CardDescription>
@@ -238,7 +238,7 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
         </CardContent>
       </Card>
 
-      <div className="space-y-4 md:col-span-2">
+      <div className="min-w-0 space-y-4">
         {sections.map(({ dept, teams }) =>
           !dept && !teams.length ? null : (
             <Card key={dept?.id ?? "none"}>
@@ -260,14 +260,14 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
                 {teams.map((t) => {
                   const c = counts(t.id)
                   return (
-                    <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <div>
+                    <div key={t.id} data-testid="team-row" className="flex flex-wrap items-center gap-2 py-2 lg:flex-nowrap">
+                      <div className="min-w-0 grow basis-48 truncate" title={t.name}>
                         <span className="font-medium">{t.name}</span>
                         <span className="ml-2 text-xs text-muted-foreground">
                           {c.people} people · {c.keys} keys · {c.projects} projects
                         </span>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-1">
                         <select
                           aria-label={`Move ${t.name}`}
                           className={selectClass}
