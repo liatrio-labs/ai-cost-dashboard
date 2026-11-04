@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
 import { splitHeaderLabel } from "@/lib/header-label"
@@ -34,6 +34,8 @@ import type {
 } from "@/lib/org/breakdown"
 import { considerRevoking, DEFAULT_KEY_FILTER, filterGroups, filterKeys, hasSpend, matchesQuery, type KeyFilter } from "@/lib/org/key-filter"
 import { ConsiderRevoking, isoDay, KeyFilterBar } from "./key-filter-bar"
+import { ExportCsvButton } from "./export-csv-button"
+import { csvFilename, type CsvColumn, type CsvValue } from "@/lib/csv"
 
 type OnFilters = (f: DashboardFilters) => void
 
@@ -126,6 +128,18 @@ export function HeaderLabel({ label, align = "left" }: { label: string; align?: 
     </span>
   )
 }
+
+/**
+ * Issue #50: the Change column in a CSV. The percent as a plain number (the
+ * projected one when the header says so), "new" when there was no prior
+ * spend, else empty.
+ */
+export function changeCsvValue(e: Changeable, projection: BreakdownData["projection"] | undefined): CsvValue {
+  const c = changeCell(e, projection)
+  return c.value ?? (c.text === "new" ? "new" : null)
+}
+
+const changeCsvHeader = (data: BreakdownData) => (data.projection?.status === "current" ? "Change (projected) %" : "Change %")
 
 const changeHeader = (data: BreakdownData) => (
   <HeaderLabel label={data.projection?.status === "current" ? "Change (projected)" : "Change"} align="right" />
@@ -278,6 +292,16 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
     return [...sorted, ...people.filter((e) => e.unassigned)]
   }, [data.person, sort])
 
+  const csvColumns: CsvColumn<BreakdownEntity>[] = [
+    { header: "Name", value: (e) => e.label },
+    { header: "Spend (USD)", value: (e) => e.cost },
+    { header: changeCsvHeader(data), value: (e) => changeCsvValue(e, data.projection) },
+    ...data.providers.map((p) => ({
+      header: `${p.name} (USD)`,
+      value: (e: BreakdownEntity): CsvValue => (p.person === "no" ? "n/a" : (e.byProvider[p.slug] ?? 0)),
+    })),
+  ]
+
   const ariaSort = (by: string) => (sort.by === by ? (sort.dir === "asc" ? "ascending" : "descending") : undefined)
   const header = (by: string, label: string, title?: string, align: "left" | "right" = "left") => {
     const active = sort.by === by
@@ -302,6 +326,9 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
         <CardDescription>
           Per-provider spend. &quot;n/a&quot; means the provider can&apos;t attribute spend to people, not $0.
         </CardDescription>
+        <CardAction>
+          <ExportCsvButton label="Export People as CSV" filename={csvFilename("people", data.period)} columns={csvColumns} rows={rows} />
+        </CardAction>
       </CardHeader>
       <CardContent>
         <Table aria-label="People">
@@ -365,6 +392,8 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
 const NAME_CELL = "min-w-40 max-w-xs whitespace-normal"
 
 const UNASSIGNED_KEY_LABEL = "Unassigned (no registered key)"
+/** A CSV row of the API keys table: a registered key (item) under its group, or the Unassigned spend row. */
+type KeyCsvRow = { k: BreakdownApiKey; item: BreakdownKeyItem | null; group: string | null }
 const keyFields = (k: BreakdownKeyItem) => ({ spend: k.cost, status: k.status, text: [k.label, k.owner, k.external_key_id] })
 
 export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
@@ -391,10 +420,30 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
   const groupNote = (keys: { coverage: CoverageNote[] }[]) =>
     tableNote || keys.length < 2 ? null : sharedCoverageText(keys.map((k) => k.coverage))
   const empty = groups.length === 0 && unassigned.length === 0
+  // Issue #50: one CSV row per key row shown, in table order, with its group as a column.
+  const csvRows: KeyCsvRow[] = [
+    ...groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys.map((k) => ({ k, item: k, group: `${pg.noun}: ${g.label}` })))),
+    ...unassigned.map((k) => ({ k, item: null, group: null })),
+  ]
+  const csvColumns: CsvColumn<KeyCsvRow>[] = [
+    { header: "Provider", value: (r) => r.item?.providerName },
+    { header: "Project / workspace", value: (r) => r.group },
+    { header: "Name", value: (r) => r.item?.label ?? UNASSIGNED_KEY_LABEL },
+    { header: "Key ID", value: (r) => r.item?.external_key_id },
+    { header: "Status", value: (r) => r.item?.status },
+    { header: "Created", value: (r) => isoDay(r.item?.provider_created_at) },
+    { header: "Owner", value: (r) => r.item?.owner },
+    { header: "Team", value: (r) => r.item?.team },
+    { header: "Spend (USD)", value: (r) => r.k.cost },
+    { header: changeCsvHeader(data), value: (r) => changeCsvValue(r.k, data.projection) },
+  ]
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">API keys</CardTitle>
+        <CardAction>
+          <ExportCsvButton label="Export API keys as CSV" filename={csvFilename("api-keys", data.period)} columns={csvColumns} rows={csvRows} />
+        </CardAction>
         <CardDescription>
           Registered provider API keys under their project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway), including keys with no
           spend yet. A person, team or department filter shows the keys they own plus any key with spend from them. Select a project to filter
@@ -534,6 +583,14 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
   // even if this period's filters leave only the Unassigned row.
   const any = data.hasProjects ?? projects.some((p) => !p.unassigned)
   if (!any) return null
+  const csvColumns: CsvColumn<BreakdownProject>[] = [
+    { header: "Provider", value: (p) => p.providerName },
+    { header: "Project", value: (p) => (p.unassigned ? "Unassigned (no project)" : p.label) },
+    { header: "Kind", value: (p) => p.kind },
+    { header: "Team", value: (p) => p.team },
+    { header: "Spend (USD)", value: (p) => p.cost },
+    { header: changeCsvHeader(data), value: (p) => changeCsvValue(p, data.projection) },
+  ]
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
@@ -542,6 +599,9 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
           Spend by provider project (OpenAI projects, Anthropic workspaces, Vercel projects via project-scoped AI Gateway keys). Select one to
           filter the keys and the rest of the page. Gateway spend from OIDC, PATs or app tokens has no project and stays Unassigned.
         </CardDescription>
+        <CardAction>
+          <ExportCsvButton label="Export Projects as CSV" filename={csvFilename("projects", data.period)} columns={csvColumns} rows={projects} />
+        </CardAction>
       </CardHeader>
       <CardContent>
         <Table aria-label="Projects">

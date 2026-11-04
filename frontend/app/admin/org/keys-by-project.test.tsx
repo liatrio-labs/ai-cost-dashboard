@@ -6,6 +6,9 @@ import type { OrgApiKey } from "@/lib/org/types"
 import { KeysByProjectCard } from "./keys-by-project"
 import type { Org } from "./shared"
 
+jest.mock("@/lib/csv", () => ({ ...jest.requireActual("@/lib/csv"), downloadCsv: jest.fn() }))
+const download = jest.requireMock("@/lib/csv").downloadCsv as jest.Mock
+
 const OA = "prov-openai"
 const AN = "prov-anthropic"
 const GW = "prov-aigw"
@@ -189,6 +192,31 @@ describe("KeysByProjectCard filters (issue #45)", () => {
     await user.clear(screen.getByRole("searchbox", { name: "Search Admin API keys" }))
     await user.type(screen.getByRole("searchbox", { name: "Search Admin API keys" }), "zzz")
     expect(screen.getByTestId("admin-keys-empty")).toBeInTheDocument()
+  })
+
+  it("issue #50: Export CSV saves exactly the keys the filters leave, in display order, named all-time", async () => {
+    const user = userEvent.setup()
+    renderCard()
+    const exportRows = async () => {
+      await user.click(screen.getByRole("button", { name: "Export admin API keys as CSV" }))
+      const [filename, csv] = download.mock.calls.at(-1) as [string, string]
+      const [header, ...rows] = csv.split("\r\n").map((l) => l.split(","))
+      return { filename, header, rows }
+    }
+    const nameCol = (h: string[]) => h.indexOf("Name")
+
+    let csv = await exportRows()
+    expect(csv.filename).toBe("ai-cost-admin-api-keys-all-time.csv")
+    expect(csv.rows.map((r) => r[nameCol(csv.header)])).toEqual(rowNames())
+    const live = Object.fromEntries(csv.header.map((h, i) => [h, csv.rows[0][i]]))
+    expect(live).toMatchObject({ Name: "live key", "Key ID": "an_live", Status: "active", Owner: "Alice", Registered: "yes", "Spend (USD)": "30" })
+
+    await user.click(screen.getByRole("checkbox", { name: "Show $0 keys" }))
+    await user.click(within(screen.getByRole("group", { name: "Admin API keys status" })).getByRole("button", { name: /^Active/ }))
+    csv = await exportRows()
+    expect(rowNames()).toEqual(["live key", "stale key", "never key"])
+    expect(csv.rows).toHaveLength(3)
+    expect(csv.rows.map((r) => r[nameCol(csv.header)])).toEqual(rowNames())
   })
 
   it("lists active keys with $0 in the last 90 days to consider revoking, with owner, last spend and created date", async () => {

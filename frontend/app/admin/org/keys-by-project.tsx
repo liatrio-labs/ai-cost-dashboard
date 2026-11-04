@@ -26,18 +26,23 @@
  * period, so spend is all collected data), with search, status chips and a
  * read-only "Consider revoking" list (active keys with $0 in 90 days). The
  * provider's creation date shows when migration 018 is applied.
+ *
+ * Issue #50: "Export CSV" saves the keys the filters leave, in display order.
+ * The page has no period, so the filename says all-time.
  */
 
 import { useMemo, useState } from "react"
 import { Loader2, Trash2, UserCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { KeyRow, ProjectRow } from "@/lib/org/admin/observed"
 import { groupKeys } from "@/lib/org/key-groups"
 import { considerRevoking, DEFAULT_KEY_FILTER, filterGroups, filterKeys, type KeyFilter } from "@/lib/org/key-filter"
 import { canAssignToCreator, unresolvedReasonText } from "@/lib/org/key-status"
 import { ConsiderRevoking, isoDay, KeyFilterBar } from "@/components/org/key-filter-bar"
+import { ExportCsvButton } from "@/components/org/export-csv-button"
+import { csvFilename, type CsvColumn } from "@/lib/csv"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "never")
@@ -82,6 +87,29 @@ export function KeysByProjectCard({
     label: k.name || k.external_key_id,
   }))
 
+  // Issue #50: one CSV row per key shown, in display order.
+  const csvRows = (groups ?? []).flatMap((pg) => pg.projects.flatMap((g) => g.keys.map((k) => ({ k, pg, g }))))
+  type Row = (typeof csvRows)[number]
+  const teamName = (id: string | null) => (id ? (org.teams.find((t) => t.id === id)?.name ?? null) : null)
+  const csvColumns: CsvColumn<Row>[] = [
+    { header: "Provider", value: (r) => r.pg.label },
+    { header: "Group type", value: (r) => r.pg.noun },
+    { header: "Project / workspace", value: (r) => r.g.label },
+    { header: "Project / workspace ID", value: (r) => r.g.external_id },
+    { header: "Name", value: (r) => r.k.name },
+    { header: "Key ID", value: (r) => r.k.external_key_id },
+    { header: "Registered", value: (r) => (r.k.id ? "yes" : "no") },
+    { header: "Status", value: (r) => r.k.external_status },
+    { header: "Assignment", value: (r) => r.k.assignment_source },
+    { header: "Owner", value: (r) => personLabel(r.k.owner_person_id) },
+    { header: "Unassigned reason", value: (r) => (r.k.owner_person_id || !r.k.unresolved_reason ? null : unresolvedReasonText(r.k.unresolved_reason, r.pg.provider_slug)) },
+    { header: "Team", value: (r) => teamName(r.k.team_id) },
+    { header: "Created by", value: (r) => r.k.external_created_by_email ?? (r.k.external_created_by?.includes(":") ? r.k.external_created_by : null) },
+    { header: "Created", value: (r) => isoDay(r.k.provider_created_at) },
+    { header: "Last seen", value: (r) => isoDay(r.k.last_seen) },
+    { header: "Spend (USD)", value: (r) => r.k.total_cost_usd },
+  ]
+
   return (
     <Card>
       <CardHeader>
@@ -91,6 +119,11 @@ export function KeysByProjectCard({
           Keys with $0 spend (all collected data) are hidden unless you show them. A key&apos;s team wins over its owner&apos;s team, which wins over its project&apos;s team. Assigning
           here marks the key <em>manual</em>. Key ids only; secrets are never stored.
         </CardDescription>
+        {groups && groups.length > 0 && (
+          <CardAction>
+            <ExportCsvButton label="Export admin API keys as CSV" filename={csvFilename("admin-api-keys", null)} columns={csvColumns} rows={csvRows} />
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent className="space-y-6">
         {!groups && <Loader2 className="h-4 w-4 animate-spin" />}
