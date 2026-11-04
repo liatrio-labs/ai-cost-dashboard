@@ -425,3 +425,37 @@ describe("Claude.ai by product (issue #48)", () => {
     }
   })
 })
+
+describe("Cursor by product (issue #65)", () => {
+  beforeEach(() => {
+    const org = orgData()
+    seed(org)
+    tables.person_identities = org.identities as unknown as Row[]
+  })
+  const split = (products: { product: string; cost: number }[] | undefined) =>
+    Object.fromEntries((products ?? []).map((p) => [p.product, p.cost]))
+
+  it("splits the Cursor tool on the dashboard from the rollup rows, with no raw read", async () => {
+    const { body } = await dash("/api/dashboard?month=2026-11")
+    const tool = body.tools.find((t) => t.id === "prov-cursor")!
+    expect(tool.monthlySpend).toBe(30)
+    expect(split(tool.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    expect(reads).not.toContain("cost_records")
+  })
+
+  it("follows a team filter on the dashboard", async () => {
+    const data = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    expect(split(data.body.tools.find((t) => t.id === "prov-cursor")!.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    const platform = await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)
+    expect(platform.body.tools.find((t) => t.id === "prov-cursor")).toBeUndefined()
+  })
+
+  it("shows the person view's Cursor products in the breakdown", async () => {
+    const { body } = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.dave}`)
+    expect(body.level).toBe("detail")
+    expect(body.cursorProducts!.total).toBe(30)
+    expect(split(body.cursorProducts!.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    const alice = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.alice}`)
+    expect(alice.body.cursorProducts).toBeNull()
+  })
+})
