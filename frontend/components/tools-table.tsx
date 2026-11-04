@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -20,6 +20,7 @@ import {
   type DashboardProjection,
   type DashboardTool,
 } from "@/lib/dashboard-types"
+import { ClaudeAiProductSubRows } from "@/components/claude-ai-products"
 
 interface ToolsTableProps {
   tools: DashboardTool[]
@@ -121,7 +122,8 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                 </TableRow>
               ) : (
                 filteredTools.map((tool) => (
-                  <TableRow key={tool.id}>
+                  <Fragment key={tool.id}>
+                  <TableRow>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div
@@ -190,6 +192,11 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                       })()}
                     </TableCell>
                   </TableRow>
+                  {/* Issue #48: Claude.ai by product, summing to the row above. */}
+                  {tool.products && tool.products.length > 0 && (
+                    <ClaudeAiProductSubRows products={tool.products} colSpanAfter={3} />
+                  )}
+                  </Fragment>
                 ))
               )}
             </TableBody>

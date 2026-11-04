@@ -103,11 +103,17 @@ describe("PeopleTable", () => {
   })
 })
 
+/** Issue #45: $0 keys are hidden by default; tests about every row opt in. */
+async function showZeroKeys(user = userEvent.setup()) {
+  await user.click(screen.getByRole("checkbox", { name: "Show $0 keys" }))
+}
+
 describe("ApiKeysTable", () => {
   it("lists provider, name, owner, team and spend", async () => {
     const user = userEvent.setup()
     const onChange = jest.fn()
     render(<ApiKeysTable data={breakdown()} onFiltersChange={onChange} />)
+    await showZeroKeys(user)
     const table = screen.getByRole("table", { name: "API keys" })
     const rows = within(table).getAllByTestId("key-row")
     // 3 registered keys (key_owner has no spend this month but is still listed, issue #28) + Unassigned.
@@ -121,6 +127,72 @@ describe("ApiKeysTable", () => {
 
     await user.click(within(table).getByRole("button", { name: "Data pipeline key" }))
     expect(onChange).toHaveBeenCalledWith({ key: "k-team" })
+  })
+})
+
+describe("ApiKeysTable filters (issue #45)", () => {
+  const withStatus = () => {
+    const d: BreakdownData = JSON.parse(JSON.stringify(breakdown()))
+    for (const k of d.key_groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))) {
+      if (k.label === "Data pipeline key") k.status = "active"
+      if (k.label === "Unowned key") k.status = "inactive"
+      if (k.label === "key_owner") Object.assign(k, { status: "active", spend_90d: 0, last_spend: "2026-05-02", provider_created_at: "2025-03-04T00:00:00Z" })
+    }
+    return d
+  }
+  const keyNames = (table: HTMLElement) => within(table).getAllByTestId("key-row").map((r) => within(r).getAllByRole("button")[0].textContent)
+
+  it("hides $0 keys by default and shows the count", async () => {
+    const user = userEvent.setup()
+    render(<ApiKeysTable data={withStatus()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    expect(keyNames(table)).toEqual(["Data pipeline key", "Unowned key", "Unassigned (no registered key)"])
+    expect(screen.getByTestId("key-count")).toHaveTextContent("2 of 3 keys with spend")
+    await showZeroKeys(user)
+    expect(keyNames(table)).toContain("key_owner")
+    expect(screen.getByTestId("key-count")).toHaveTextContent("3 keys")
+  })
+
+  it("search and status chips combine and keep the order", async () => {
+    const user = userEvent.setup()
+    render(<ApiKeysTable data={withStatus()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    const status = screen.getByRole("group", { name: "API keys status" })
+    expect(within(status).getByRole("button", { name: /^Active/ })).toHaveTextContent("Active1")
+    expect(within(status).getByRole("button", { name: /^Inactive/ })).toHaveTextContent("Inactive1")
+    await user.click(within(status).getByRole("button", { name: /^Inactive/ }))
+    expect(keyNames(table)).toEqual(["Unowned key"])
+    await user.click(within(status).getByRole("button", { name: /^All/ }))
+    await user.type(screen.getByRole("searchbox", { name: "Search API keys" }), "key")
+    expect(keyNames(table)).toEqual(["Data pipeline key", "Unowned key", "Unassigned (no registered key)"])
+    await user.click(within(status).getByRole("button", { name: /^Active/ }))
+    expect(keyNames(table)).toEqual(["Data pipeline key"])
+    await user.clear(screen.getByRole("searchbox", { name: "Search API keys" }))
+    await user.type(screen.getByRole("searchbox", { name: "Search API keys" }), "nomatch")
+    expect(screen.getByTestId("keys-empty")).toHaveTextContent("No keys match these filters.")
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(keyNames(table)).toHaveLength(3)
+  })
+
+  it("lists active keys with $0 in 90 days to consider revoking, with created date when known", async () => {
+    const user = userEvent.setup()
+    render(<ApiKeysTable data={withStatus()} onFiltersChange={() => {}} />)
+    const box = screen.getByTestId("consider-revoking")
+    expect(screen.getByTestId("consider-revoking-count")).toHaveTextContent("1")
+    await user.click(within(box).getByText(/Consider revoking/))
+    const row = within(box).getByTestId("revoke-row")
+    for (const text of ["key_owner", "2026-05-02", "2025-03-04"]) expect(within(row).getByText(text)).toBeInTheDocument()
+    expect(within(box).queryByRole("button")).not.toBeInTheDocument() // read-only
+    await showZeroKeys(user)
+    expect(within(rowOf(screen.getByRole("table", { name: "API keys" }), "key_owner")).getByTestId("key-created")).toHaveTextContent("created 2025-03-04")
+  })
+
+  it("without status or provider_created_at, shows no revoke list and no created dates", async () => {
+    render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    expect(screen.queryByTestId("consider-revoking")).not.toBeInTheDocument()
+    await showZeroKeys()
+    expect(screen.queryByTestId("key-created")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("group", { name: "API keys status" })).getByRole("button", { name: /^No status/ })).toHaveTextContent("No status3")
   })
 })
 
@@ -170,8 +242,9 @@ describe("org table layout (issue #41)", () => {
     expect(cell).not.toHaveClass("whitespace-normal")
   })
 
-  it("API keys: the Name cell and its note wrap instead of widening the table", () => {
+  it("API keys: the Name cell and its note wrap instead of widening the table", async () => {
     render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
     const nameCell = within(table).getByRole("button", { name: "Data pipeline key" }).closest("td") as HTMLElement
     expect(nameCell).toHaveClass("whitespace-normal", "max-w-xs")
@@ -180,8 +253,9 @@ describe("org table layout (issue #41)", () => {
     expect(spendCell).toHaveClass("text-right", "whitespace-nowrap")
   })
 
-  it("API keys: rows whose notes differ keep their own note", () => {
+  it("API keys: rows whose notes differ keep their own note", async () => {
     render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
     // key_owner has no spend, so no note; the other two keep theirs.
     expect(keyRowCoverage(table)).toEqual([
@@ -193,11 +267,12 @@ describe("org table layout (issue #41)", () => {
     expect(screen.queryByTestId("coverage-group")).not.toBeInTheDocument()
   })
 
-  it("API keys: a note every key shares shows once in the description", () => {
+  it("API keys: a note every key shares shows once in the description", async () => {
     const data = clone(breakdown())
     const keys = data.key_groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
     for (const k of keys) k.coverage = keys[0].coverage
     render(<ApiKeysTable data={data} onFiltersChange={() => {}} />)
+    await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
     expect(screen.getByTestId("coverage-shared")).toHaveTextContent(/^Not included for every key: Cursor \(Admin API\): per person; no API keys/)
     expect(keyRowCoverage(table)).toEqual([null, null, null])
@@ -205,7 +280,7 @@ describe("org table layout (issue #41)", () => {
     expect(within(rowOf(table, "Unassigned (no registered key)")).getByTestId("coverage")).toHaveTextContent(/^Includes /)
   })
 
-  it("API keys: a note every key in a group shares shows once in the group row", () => {
+  it("API keys: a note every key in a group shares shows once in the group row", async () => {
     const data = clone(breakdown())
     const group = data.key_groups[0].projects[0]
     for (const k of group.keys) k.coverage = group.keys[0].coverage
@@ -213,6 +288,7 @@ describe("org table layout (issue #41)", () => {
     other.keys = [{ ...other.keys[0], key: "k-other", label: "Other key", coverage: [] }, { ...other.keys[1], key: "k-other2", label: "Other key 2" }]
     data.key_groups[0].projects.push(other)
     render(<ApiKeysTable data={data} onFiltersChange={() => {}} />)
+    await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
     expect(screen.queryByTestId("coverage-shared")).not.toBeInTheDocument()
     const groupRows = within(table).getAllByTestId("key-group-row")
@@ -392,8 +468,9 @@ describe("Projects and keys under projects (issue #28)", () => {
     expect(within(rowOf(table, "wrk_ops")).getByText("$5.00")).toBeInTheDocument()
   })
 
-  it("nests keys under their workspace / project, $0 keys included", () => {
+  it("nests keys under their workspace / project, $0 keys included when shown", async () => {
     render(<ApiKeysTable data={wsBreakdown()} onFiltersChange={() => {}} />)
+    await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
     const headings = within(table).getAllByTestId("key-group-row").map((r) => r.textContent)
     expect(headings.some((h) => /Anthropic.*Workspace: wrk_research/.test(h ?? ""))).toBe(true)

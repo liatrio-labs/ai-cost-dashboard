@@ -89,6 +89,19 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 - Cost is still the source of truth: one row per cost group, with usage joined
   in on the identical group. The 30-day revision lookback from PR #2 is kept.
 - The same 403/404 fallback to the legacy reports applies. Those rows are `org`.
+- Spend by product (issue #48): every row keeps the API's product in
+  `metadata.group.product`. The dashboard (Claude.ai sub-rows in the Tools table
+  and a "by product" card on the Dashboard tab) and the person view split
+  Claude.ai spend into Claude Code (`claude_code`), Chat (`claude_chat`, `chat`,
+  `claude_ai`) and Other (anything else, including legacy rows with no product).
+  The rollups have no product column, so the routes read the period's Claude.ai
+  `cost_records` with `product:metadata->group->>product` (no migration) and
+  divide each rollup row (date x model, plus the attribution columns when
+  filtered) in proportion to the raw records with the same key; a rollup row
+  with no matching raw spend goes to Other. Slices are rounded by largest
+  remainder, so Claude Code + Chat + Other equals the Claude.ai total to the
+  cent. See `lib/claude-ai-products.ts`. If the raw read fails, the dashboard
+  renders without the split.
 
 ### OpenAI (`openai.ts`)
 
@@ -392,6 +405,23 @@ key used by this person) are listed too. A key filter lists that key. An
 `unassigned` filter value owns nothing, so it lists only keys with spend.
 Provider and project filters apply on top. This is display only: totals and
 the department / team / person / key tables don't change.
+
+#### Key table filters and "Consider revoking" (issue #45)
+
+Both key tables hide keys with $0 spend by default (dashboard: the selected
+period; `/admin/org`: all collected data, since that page has no period) and
+say how many are shown ("119 of 594 keys with spend"). "Show $0 keys" lists
+them all. A search box matches name, owner or key id, and status chips
+(active / inactive / deleted, where Anthropic's `archived` is "deleted", plus
+"no status" for providers that don't report one) narrow further. Chip counts
+reflect the spend filter and search. Filters only drop rows; the table order
+is unchanged. The logic is `frontend/lib/org/key-filter.ts`.
+
+"Consider revoking" lists active keys with $0 in the last 90 days (whatever the
+selected period), with owner and last spend date, never-spent keys first. It is
+read-only. The provider's key creation date (`org_api_keys.provider_created_at`,
+migration 018 from #44) shows when that column exists; without it the column is
+left out and nothing fails.
 
 On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project_id`: the Projects table shows workspaces (marked "workspace") and the

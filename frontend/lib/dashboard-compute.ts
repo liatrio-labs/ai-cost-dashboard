@@ -8,6 +8,10 @@
  * full period, the projected current month), projected fields on `tools`, and
  * a forecast whose current month is a projected point (lib/projection.ts,
  * docs/projections.md). kpis, trends and tools' actual figures are unchanged.
+ *
+ * Issue #48: given the period's Claude.ai product rows, the Claude.ai tool
+ * carries `products` (Claude Code, Chat, Other) summing to its monthlySpend
+ * (lib/claude-ai-products.ts).
  */
 
 import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
@@ -20,6 +24,12 @@ import {
   projectPeriod,
   type PeriodStatus,
 } from "@/lib/projection"
+import {
+  CLAUDE_AI_SLUG,
+  splitClaudeAiByProduct,
+  type ProductDayRow,
+  type ProductSlice,
+} from "@/lib/claude-ai-products"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -201,6 +211,11 @@ export interface ComputeDashboardInput {
   unitForecast?: UnitForecast | null
   /** Person/key filters: trailing 3-month average shown instead of a forecast. */
   trailingAverage?: number
+  /**
+   * Issue #48: Claude.ai raw records for the period (already narrowed to the
+   * same filters as `daily`). When given, the Claude.ai tool gets `products`.
+   */
+  claudeAiProductRows?: ProductDayRow[] | null
 }
 
 export interface UnitForecastMeta {
@@ -236,6 +251,7 @@ export function computeDashboard({
   projectForecast = true,
   unitForecast = null,
   trailingAverage,
+  claudeAiProductRows = null,
 }: ComputeDashboardInput) {
   const providerById = buildProviderMeta(providers)
 
@@ -304,6 +320,17 @@ export function computeDashboard({
   const prevWin = previousWindow(periodStart, periodEnd)
   const prev = aggregate(prevWin.start, prevWin.end)
 
+  // Issue #48: Claude.ai by product. The split covers the same rows as the
+  // Claude.ai tool's monthlySpend, so the slices sum to it.
+  const claudeAiId = providers.find((p) => p.name === CLAUDE_AI_SLUG)?.id ?? null
+  const claudeAiProducts: ProductSlice[] | null =
+    claudeAiId && claudeAiProductRows && cur.prov.has(claudeAiId)
+      ? splitClaudeAiByProduct(
+          daily.filter((r) => r.provider_id === claudeAiId && r.date >= periodStart && r.date <= periodEnd),
+          claudeAiProductRows
+        ).products
+      : null
+
   // tools: per provider for the active period
   const tools = Array.from(cur.prov.entries())
     .map(([pid, agg]) => {
@@ -340,6 +367,7 @@ export function computeDashboard({
               }
             })()
           : {}),
+        ...(pid === claudeAiId && claudeAiProducts ? { products: claudeAiProducts } : {}),
       }
     })
     .sort((a, b) => b.monthlySpend - a.monthlySpend)
