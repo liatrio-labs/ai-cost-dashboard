@@ -139,4 +139,12 @@ describe("Cursor – Bugbot/automation row (issue #51)", () => {
     expect(opts).toContain(AUTOMATION_LABEL)
     expect(opts).not.toContain("Unassigned")
   })
+
+  it("filter bar renders before the breakdown loads (data null), e.g. a shared filtered link (Bugbot review)", () => {
+    render(<OrgFilterBar data={null} filters={{ department: AUTOMATION_KEY, person: "unassigned" }} onFiltersChange={jest.fn()} />)
+    const dept = within(screen.getByLabelText("Department")).getAllByRole("option").map((o) => o.textContent)
+    // The selected automation value still has a label while loading.
+    expect(dept).toContain(AUTOMATION_LABEL)
+    expect(screen.getByLabelText("Person")).toBeInTheDocument()
+  })
 })
