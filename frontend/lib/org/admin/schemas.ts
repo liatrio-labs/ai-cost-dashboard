@@ -396,3 +396,12 @@ export const csvImportSchema = z.strictObject({
   confirm: z.boolean().optional(),
   create_teams: z.boolean().optional(),
 })
+
+/** POST /people/merge (issue #51): fold secondary_id into primary_id; preview = dry run. */
+export const personMergeSchema = z
+  .strictObject({
+    primary_id: id("primary_id").pipe(z.string().max(64)),
+    secondary_id: id("secondary_id").pipe(z.string().max(64)),
+    preview: z.boolean().optional(),
+  })
+  .refine((v) => v.primary_id !== v.secondary_id, { error: "Pick two different people", path: ["secondary_id"] })

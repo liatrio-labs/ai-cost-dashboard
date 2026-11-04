@@ -17,12 +17,19 @@
  * row's Anthropic workspace_id (issue #28: workspaces sit beside projects on
  * the dashboard; OpenAI / Vercel project ids and Anthropic workspace ids never
  * collide in practice, and the provider filter can split them anyway).
+ *
+ * Issue #51: "cursor-automation" (AUTOMATION_FILTER) matches Cursor rows with
+ * no user at that level, and "unassigned" then excludes them, so the
+ * "Cursor – Bugbot/automation" line drills like any other row. Both only
+ * apply when the caller passes the automation provider ids; without them
+ * "cursor-automation" matches nothing and "unassigned" behaves as before.
  */
 
-import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import { AUTOMATION_KEY, isAutomationRow, UNASSIGNED_KEY } from "@/lib/org/rollup"
 import type { ResolvedAttribution } from "@/lib/org/types"
 
 export const UNASSIGNED_FILTER = UNASSIGNED_KEY
+export const AUTOMATION_FILTER = AUTOMATION_KEY
 
 export const ORG_FILTER_KEYS = ["department", "team", "person", "key", "project"] as const
 export type OrgFilterKey = (typeof ORG_FILTER_KEYS)[number]
@@ -69,6 +76,10 @@ type FilterableRow = Pick<ResolvedAttribution, "department_id" | "team_id" | "pe
   project_id?: string | null
   /** Anthropic workspace; stands in for project_id when the row has none (issue #28). */
   workspace_id?: string | null
+  /** Attribution granularity; tells Cursor automation rows apart (issue #51). */
+  granularity?: string | null
+  /** Recurring-cost rows ("recurring" models) are never automation (issue #51). */
+  model_name?: string | null
 }
 
 /** The project the `project` filter and the Projects table see: project_id, else workspace_id. */
@@ -79,17 +90,25 @@ export function effectiveProjectId(row: { project_id?: string | null; workspace_
 /**
  * Does a row pass every filter? `providerIdForFilter` is the provider id the
  * `provider` filter (a slug) resolved to; when the slug is unknown pass null,
- * which matches nothing.
+ * which matches nothing. `automationIds` (rollup's automationProviderIds)
+ * turns on the issue #51 automation line.
  */
 export function matchesFilters(
   row: FilterableRow,
   f: DashboardFilters,
-  providerIdForFilter?: string | null
+  providerIdForFilter?: string | null,
+  automationIds?: ReadonlySet<string> | null
 ): boolean {
   for (const k of ORG_FILTER_KEYS) {
     const want = f[k]
     if (!want) continue
     const have = k === "project" ? effectiveProjectId(row) : (row[FILTER_FIELD[k]] ?? null)
+    if (k !== "project" && (want === UNASSIGNED_FILTER || want === AUTOMATION_FILTER)) {
+      if (have !== null) return false
+      const auto = isAutomationRow(row, automationIds)
+      if (want === AUTOMATION_FILTER ? !auto : auto) return false
+      continue
+    }
     if (want === UNASSIGNED_FILTER ? have !== null : have !== want) return false
   }
   if (f.provider && row.provider_id !== providerIdForFilter) return false
@@ -99,10 +118,11 @@ export function matchesFilters(
 export function applyFilters<T extends FilterableRow>(
   rows: T[],
   f: DashboardFilters,
-  providerIdForFilter?: string | null
+  providerIdForFilter?: string | null,
+  automationIds?: ReadonlySet<string> | null
 ): T[] {
   if (!hasFilters(f)) return rows
-  return rows.filter((r) => matchesFilters(r, f, providerIdForFilter))
+  return rows.filter((r) => matchesFilters(r, f, providerIdForFilter, automationIds))
 }
 
 /** The breakdown level to show for the current filters. */

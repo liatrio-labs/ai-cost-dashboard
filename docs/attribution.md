@@ -347,6 +347,34 @@ cost per provider and day is identical before and after the sync) and
 
 - Cursor: `member_email` is lower-cased into `person_email` with
   `granularity: "person"`. Events with no email stay `org`.
+- Issue #51: those no-user Cursor rows (Bugbot, background agents and other
+  team-level automation) are shown as their own line, **"Cursor –
+  Bugbot/automation"**, just before Unassigned at the department, team, person
+  and API key levels of the org breakdown (`lib/org/rollup.ts`
+  `isAutomationRow`: Cursor provider, `granularity = 'org'`, no person). It is
+  display only: the view is unchanged and every level still sums to the org
+  total. The line drills like any other row with the filter value
+  `cursor-automation`, and the `unassigned` filter no longer includes those
+  rows. A Cursor email that isn't a registered person is still `person`
+  granularity and stays Unassigned (add the person). Checked by
+  `lib/org/cursor-automation.test.ts`.
+
+### Duplicate people (issue #51)
+
+`/admin/org` -> People -> **Possible duplicates** lists people with the same
+normalized name or the same email local-part (before `@`, ignoring case, dots
+and `+tag`). Pick the record to keep, preview, then merge: the other record's
+`person_identities`, owned `org_api_keys` and seat assignments (manual
+`monthly_seats` rows' `attribution.person_email`) move to it, it gains one
+alias identity per provider for the other email (so automated rows that still
+carry that email resolve to it through the existing identity match), it adopts
+the other record's team or name only where its own is empty, and the other
+record is deleted and logged in `person_merges`. Totals never change. The merge
+is `merge_people()` from migration 021; repeating it is a no-op that reports
+`already_merged`. Without 021 the list and preview still work and merging is
+disabled with a "Migration 021 not applied" notice. Checked by
+`lib/org/person-merge.test.ts`, `lib/org/admin/merge-routes.test.ts`,
+`app/admin/org/merge.test.tsx` and `scripts/migration-tests/assertions_021.sql`.
 
 The Vercel (hosting usage), Apify and Windsurf collectors were removed in #27
 after those tools were deleted from the dashboard. They had no attribution

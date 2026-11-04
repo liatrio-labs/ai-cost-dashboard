@@ -50,6 +50,7 @@ import type { AttributedDailyRow } from "@/lib/org/types"
 import { computeDashboard, resolvePeriod, type DailyRow, type ProviderRow } from "@/lib/dashboard-compute"
 import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
 import { buildOrgIndex } from "@/lib/org/attribution"
+import { automationProviderIds } from "@/lib/org/rollup"
 import { projectionContext } from "@/lib/projection"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
@@ -97,12 +98,12 @@ export async function GET(request: NextRequest) {
       // whole org's trailing spend, so read every attributed row once and
       // narrow in memory.
       const all = [...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)]
-      daily = applyFilters(all, filters, null)
+      daily = applyFilters(all, filters, null, automationProviderIds(providers))
       unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
       const rows = [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)]
-      daily = applyFilters(rows, filters, providerId)
+      daily = applyFilters(rows, filters, providerId, automationProviderIds(providers))
       // Person / key / project views get a trailing average, not a forecast
       // (plus the projected current month, from computeDashboard). The
       // average ends at the last complete month, never the partial one (#39).
@@ -169,6 +170,7 @@ async function unitForecastForFilters(
     overrides,
     include: [sel.key],
     current: projectionContext(providers, now),
+    automationProviderIds: automationProviderIds(providers),
   })
   return result.units.find((u) => u.key === sel.key) ?? null
 }

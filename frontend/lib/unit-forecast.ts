@@ -42,7 +42,7 @@ import {
 
 export { UNIT_LEVELS, coerceUnitOverrides, serializeUnitOverrides, unitOverrideKey } from "@/lib/forecast-settings"
 export type { UnitLevel, UnitOverride, UnitOverrides } from "@/lib/forecast-settings"
-import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import { AUTOMATION_KEY, isAutomationRow, UNASSIGNED_KEY } from "@/lib/org/rollup"
 import { monthRange, projectPeriod, type ProjectionContext } from "@/lib/projection"
 
 /** Fraction of the remaining gap to the plateau closed each month. */
@@ -141,6 +141,9 @@ export interface UnitRow extends CostRow {
   team_id: string | null
   provider_id?: string | null
   model_name?: string | null
+  /** Tell Cursor automation rows apart (issue #51). */
+  person_id?: string | null
+  granularity?: string | null
 }
 
 export interface UnitForecast {
@@ -182,6 +185,13 @@ export interface ComputeUnitForecastsInput {
   include?: string[]
   /** Anchor on the projected current month (issue #39). Omit for the pre-#39 anchor. */
   current?: ProjectionContext
+  /**
+   * Issue #51: Cursor provider ids (rollup's automationProviderIds). Their
+   * no-user rows form their own "cursor-automation" unit instead of
+   * Unassigned, matching the breakdown and the unassigned filter. Omit for
+   * the old behaviour.
+   */
+  automationProviderIds?: ReadonlySet<string> | null
 }
 
 /** Plateau an override implies, or null when it has none. */
@@ -201,8 +211,9 @@ export function overridePlateau(
   return null
 }
 
-const unitKeyOf = (r: UnitRow, level: UnitLevel) =>
-  (level === "team" ? r.team_id : r.department_id) ?? UNASSIGNED_KEY
+const unitKeyOf = (r: UnitRow, level: UnitLevel, automationIds?: ReadonlySet<string> | null) =>
+  (level === "team" ? r.team_id : r.department_id) ??
+  (r.provider_id && isAutomationRow({ ...r, provider_id: r.provider_id }, automationIds) ? AUTOMATION_KEY : UNASSIGNED_KEY)
 
 export function computeUnitForecasts({
   rows,
@@ -211,6 +222,7 @@ export function computeUnitForecasts({
   overrides = {},
   include = [],
   current,
+  automationProviderIds = null,
 }: ComputeUnitForecastsInput): UnitForecastResult {
   const orgPlateau = plateauForEmployees(settings)
   const orgHistory = monthlyTotals(rows)
@@ -226,7 +238,7 @@ export function computeUnitForecasts({
   const rowsByUnit = new Map<string, UnitRow[]>()
   for (const k of include) rowsByUnit.set(k, [])
   for (const r of rows) {
-    const k = unitKeyOf(r, level)
+    const k = unitKeyOf(r, level, automationProviderIds)
     if (!rowsByUnit.has(k)) rowsByUnit.set(k, [])
     rowsByUnit.get(k)!.push(r)
   }
@@ -300,6 +312,8 @@ export function forecastUnitForFilters(f: {
   provider?: string
 }): { level: UnitLevel; key: string } | null {
   if (f.person || f.key || f.project || f.provider) return null
+  // The Cursor automation line (issue #51) is not a forecastable unit.
+  if (f.team === AUTOMATION_KEY || f.department === AUTOMATION_KEY) return null
   if (f.team) return { level: "team", key: f.team }
   if (f.department) return { level: "department", key: f.department }
   return null

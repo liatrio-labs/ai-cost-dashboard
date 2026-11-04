@@ -7,6 +7,7 @@ import type { ProviderRow } from "@/lib/dashboard-compute"
 import {
   FILTER_FIELD,
   ORG_FILTER_KEYS,
+  AUTOMATION_FILTER,
   UNASSIGNED_FILTER,
   type DashboardFilters,
 } from "@/lib/dashboard-filters"
@@ -95,7 +96,8 @@ export function narrowAttributed(f: DashboardFilters, providerId: string | null)
         if (v === UNASSIGNED_FILTER) q = q.is("project_id", null)
         continue
       }
-      q = v === UNASSIGNED_FILTER ? q.is(FILTER_FIELD[k], null) : q.eq(FILTER_FIELD[k], v)
+      // "cursor-automation" (issue #51) is a subset of NULL at that level, never an id.
+      q = v === UNASSIGNED_FILTER || v === AUTOMATION_FILTER ? q.is(FILTER_FIELD[k], null) : q.eq(FILTER_FIELD[k], v)
     }
     if (f.provider && providerId) q = q.eq("provider_id", providerId)
     return q
