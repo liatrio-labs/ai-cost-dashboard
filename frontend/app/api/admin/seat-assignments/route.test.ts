@@ -173,7 +173,7 @@ describe("PUT /api/admin/seat-assignments", () => {
     await call(seats.PUT, "PUT", "/api/admin/seat-assignments", APRIL)
     const added = mockState.db.table("people").filter((p) => p.email === "new.hire@liatrio.com")
     expect(added).toHaveLength(1)
-    expect(added[0]).toMatchObject({ team_id: null, display_name: null })
+    expect(added[0]).toMatchObject({ team_id: null, display_name: "New Hire" }) // issue #66 default name
     expect(mockState.db.table("people")).toHaveLength(6)
   })
 
