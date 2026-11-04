@@ -58,6 +58,7 @@ import type {
 } from "./types"
 import { fetchWithRetry, toFloat, toInt, isoDate, startOfUTCDay, DAY_MS } from "./http"
 import { buildAttribution, orgAttribution, str } from "./attribution"
+import { parseProviderTimestamp } from "@/lib/org/sync-helpers"
 
 const REPORT_URL = "https://ai-gateway.vercel.sh/v1/report"
 const API_KEYS_URL = "https://api.vercel.com/v1/api-keys"
@@ -96,6 +97,8 @@ export interface GatewayKey {
   createdBy?: string | null
   /** metadata.spendAttribution; null when unset (Vercel treats unset as team). */
   spendAttribution?: SpendAttribution | null
+  /** When Vercel created the key (ISO, from createdAt epoch ms) when listed; issue #44. */
+  createdAt?: string | null
 }
 
 /** "user" | "team" from Vercel's metadata.spendAttribution, else null. */
@@ -316,6 +319,8 @@ async function fetchGatewayKeys(
       if (projectId) key.projectId = projectId
       if (createdBy) key.createdBy = createdBy
       if (spendAttribution) key.spendAttribution = spendAttribution
+      const createdAt = parseProviderTimestamp(k.createdAt ?? k.created_at)
+      if (createdAt) key.createdAt = createdAt
       keys.push(key)
       added++
     }

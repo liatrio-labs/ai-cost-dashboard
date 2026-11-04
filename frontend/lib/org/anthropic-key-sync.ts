@@ -35,6 +35,10 @@
  *
  * Migration 017 (external_status, unresolved_reason) is optional at runtime:
  * when it isn't applied the sync reads and writes the 015 columns only.
+ *
+ * Migration 018 (issue #44): the key's created_at is stored in
+ * provider_created_at when the column exists. A key the API lists without a
+ * created_at keeps whatever date is stored.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -42,7 +46,7 @@ import { fetchWithRetry } from "@/lib/collectors/http"
 import { normalizeEmail } from "./attribution"
 import { isManual, type AssignmentSource, type SyncKeyRow } from "./gateway-sync"
 import type { UnresolvedReason } from "./key-status"
-import { ensurePeople, ensureProjects, isMissingColumn, must } from "./sync-helpers"
+import { ensurePeople, ensureProjects, must, parseProviderTimestamp, providerCreatedAtChange, selectKeyTier } from "./sync-helpers"
 
 const ADMIN_API_BASE_URL = "https://api.anthropic.com/v1/organizations"
 const ANTHROPIC_VERSION = "2023-06-01"
@@ -72,6 +76,8 @@ export interface AnthropicApiKey {
   created_by: { id: string | null; type: string | null } | null
   /** Who the key acts for, when the API reports it (wins over created_by). */
   principal: { user_id: string | null; id: string | null; type: string | null } | null
+  /** When Anthropic created the key (ISO), from the API's created_at; null/absent = unknown. */
+  created_at?: string | null
 }
 
 export interface AnthropicUser {
@@ -114,6 +120,7 @@ function parseKey(k: any): AnthropicApiKey | null {
     workspace_id: s(k.workspace_id),
     created_by: cb ? { id: s(cb.id), type: s(cb.type) } : null,
     principal: pr ? { user_id: s(pr.user_id) ?? (isUserType(s(pr.type)) ? s(pr.id) : null), id: s(pr.id), type: s(pr.type) } : null,
+    created_at: parseProviderTimestamp(k.created_at),
   }
 }
 
@@ -241,6 +248,8 @@ export function workspaceProjectId(workspaceId: string | null, defaultIds: Set<s
 export interface AnthropicKeyRow extends SyncKeyRow {
   external_status?: string | null
   unresolved_reason?: string | null
+  /** Migration 018; absent when it isn't applied. */
+  provider_created_at?: string | null
 }
 
 export interface AnthropicPlanContext {
@@ -249,6 +258,8 @@ export interface AnthropicPlanContext {
   orgProjectId: string | null
   /** Migration 017 columns are present. */
   has017: boolean
+  /** Migration 018's provider_created_at is present (default false). */
+  has018?: boolean
 }
 
 export type AnthropicKeyPlan =
@@ -273,6 +284,7 @@ export function planAnthropicKey(
   if (ctx.has017) meta.external_status = key.status
 
   if (!existing) {
+    if (ctx.has018 && key.created_at) meta.provider_created_at = key.created_at
     const owner = ctx.ownerPersonId
     const project = ctx.orgProjectId
     const row: Record<string, unknown> = {
@@ -292,6 +304,10 @@ export function planAnthropicKey(
   const patch: Record<string, unknown> = {}
   const cur = existing as unknown as Record<string, unknown>
   for (const [k, v] of Object.entries(meta)) if ((cur[k] ?? null) !== v) patch[k] = v
+  if (ctx.has018) {
+    const created = providerCreatedAtChange(existing.provider_created_at, key.created_at)
+    if (created) patch.provider_created_at = created
+  }
 
   let finalOwner: string | null
   if (!isManual(existing)) {
@@ -342,6 +358,7 @@ export interface AnthropicSyncSummary {
 const KEY_COLUMNS_015 =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
 const KEY_COLUMNS_017 = `${KEY_COLUMNS_015}, external_status, unresolved_reason`
+const KEY_COLUMNS_018 = `${KEY_COLUMNS_017}, provider_created_at`
 
 /** Apply the sync for an already-fetched listing. Exported for tests and the strict admin route. */
 export async function applyAnthropicKeySync(
@@ -387,16 +404,13 @@ export async function applyAnthropicKeySync(
 
   const creators = new Map(keys.map((k) => [k.id, resolveCreator(k, users)]))
 
-  // Existing keys (017 columns when present).
-  let has017 = true
+  // Existing keys (018 / 017 columns when present).
   const ids = keys.map((k) => k.id)
-  const readKeys = (columns: string) =>
+  const { res, tier } = await selectKeyTier([KEY_COLUMNS_018, KEY_COLUMNS_017, KEY_COLUMNS_015], (columns) =>
     admin.from("org_api_keys").select(columns).eq("provider_id", providerId).in("external_key_id", ids)
-  let res = await readKeys(KEY_COLUMNS_017)
-  if (isMissingColumn(res.error)) {
-    has017 = false
-    res = await readKeys(KEY_COLUMNS_015)
-  }
+  )
+  const has018 = tier === 0
+  const has017 = tier <= 1
   const existing = new Map(((must(res, "Failed to read org_api_keys") as unknown as AnthropicKeyRow[]) ?? []).map((r) => [r.external_key_id, r]))
 
   // People: creators that resolved to an email, only for keys the sync may
@@ -423,6 +437,7 @@ export async function applyAnthropicKeySync(
         ownerPersonId: creator.email ? (people.personByEmail.get(creator.email) ?? null) : null,
         orgProjectId: projects.projectByExternal.get(workspaceProjectId(k.workspace_id, defaultIds)) ?? null,
         has017,
+        has018,
       },
       providerId
     )
