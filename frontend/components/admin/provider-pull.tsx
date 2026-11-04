@@ -174,7 +174,7 @@ export function ProviderPullCard() {
                   {r && !r.loading && <PullStatus r={r} />}
                 </div>
                 <div className="flex items-center gap-2">
-                  {(p.id === "vercel-ai-gateway" || p.id === "anthropic") && <KeySyncButton providers={[p.id]} />}
+                  {(p.id === "vercel-ai-gateway" || p.id === "anthropic" || p.id === "openai") && <KeySyncButton providers={[p.id]} />}
                   <Button variant="outline" size="sm" onClick={() => pull(p.id)} disabled={r?.loading || !!problem} className="gap-2" aria-label={`Pull ${p.name}`}>
                     {r?.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     Pull

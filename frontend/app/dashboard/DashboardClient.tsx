@@ -37,6 +37,7 @@ import { ToolsTable } from "@/components/tools-table"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import { OrgBreakdown, OrgFilterBar } from "@/components/org/org-breakdown"
+import { SyncFreshness } from "@/components/sync-freshness"
 import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
 import {
   hasFilters,
@@ -293,6 +294,9 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
         {error && (
           <div className="mb-6 rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>
         )}
+
+        {/* Per-provider sync freshness and warnings (issue #47) */}
+        <SyncFreshness isAdmin={isAdmin} className="mb-6" />
 
         {showOrg && (
           <div className="mb-6">
