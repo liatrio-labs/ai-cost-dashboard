@@ -15,12 +15,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import type { ReviewInboxResponse } from "@/lib/org/admin/review"
-import type { ReviewItem, ReviewKind } from "@/lib/org/review-inbox"
+import { REVIEW_KINDS, type ReviewItem, type ReviewKind } from "@/lib/org/review-inbox"
 import { TeamSelect, usd, type Mutate, type Org } from "./shared"
 
 const API = "/api/admin/org"
 
 const KIND_TITLE: Record<ReviewKind, string> = {
+  budget_over: "Projected over budget",
   person_spike: "Person spikes",
   person_day: "Person-days",
   unassigned_new: "Newly unassigned spend",
@@ -28,6 +29,7 @@ const KIND_TITLE: Record<ReviewKind, string> = {
 }
 
 function kindHelp(kind: ReviewKind, t: ReviewInboxResponse["thresholds"]): string {
+  if (kind === "budget_over") return "People, teams and projects whose current month, projected to its end, is over their monthly budget (Budgets tab)."
   if (kind === "person_spike") return `Month spend over ${t.spikeRatio}x the previous month and over ${usd(t.spikeMinUsd)}. The current month is projected.`
   if (kind === "person_day") return `One person's spend on one day over ${usd(t.personDayMinUsd)}.`
   if (kind === "unassigned_new") return `Spend with no team whose person, key or project was first seen in the last ${t.newDays} days.`
@@ -50,7 +52,7 @@ async function send(path: string, method: string, body?: unknown): Promise<{ ok:
 }
 
 const periodLabel = (it: ReviewItem) =>
-  it.kind === "person_spike" ? it.period : it.kind === "unassigned_new" ? `since ${it.period}` : it.kind === "key_new" ? `created ${it.period}` : it.period
+  it.kind === "person_spike" || it.kind === "budget_over" ? it.period : it.kind === "unassigned_new" ? `since ${it.period}` : it.kind === "key_new" ? `created ${it.period}` : it.period
 
 export function ReviewTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate; reloadKey: number }) {
   const [inbox, setInbox] = useState<ReviewInboxResponse | null>(null)
@@ -72,7 +74,7 @@ export function ReviewTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate
     }
   }, [reloadKey, tick])
 
-  const kinds = (["person_spike", "person_day", "unassigned_new", "key_new"] as const).map((k) => ({ kind: k, items: inbox?.items.filter((i) => i.kind === k) ?? [] }))
+  const kinds = REVIEW_KINDS.map((k) => ({ kind: k, items: inbox?.items.filter((i) => i.kind === k) ?? [] }))
 
   return (
     <Card>
@@ -189,10 +191,16 @@ function ReviewRow({
           <Badge variant="outline" className="ml-2">
             {periodLabel(item)}
           </Badge>
-          {item.projected && (
-            <Badge variant="secondary" className="ml-1" title="Current month projected to its end (issue #39)">
-              projected
+          {item.kind === "budget_over" ? (
+            <Badge variant="destructive" className="ml-1" title="Current month projected to its end (issue #39) is over the monthly budget">
+              Projected over budget
             </Badge>
+          ) : (
+            item.projected && (
+              <Badge variant="secondary" className="ml-1" title="Current month projected to its end (issue #39)">
+                projected
+              </Badge>
+            )
           )}
           <span className="ml-2 text-xs text-muted-foreground">
             {item.kind === "person_spike" &&

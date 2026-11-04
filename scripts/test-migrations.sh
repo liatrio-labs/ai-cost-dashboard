@@ -8,7 +8,8 @@
 # assertions_NNN.sql for later migrations). Finally re-applies 010, 011, 014
 # and the later migrations over the data (016 adds replace_seat_group() and the
 # Claude Ultra rename; fixtures.sql seeds the claude-max provider for it;
-# 018 adds review_items and org_api_keys.provider_created_at).
+# 018 adds review_items and org_api_keys.provider_created_at; 020 adds
+# budgets and alert_log and must follow 018).
 # 012 and 013 are unused.
 # Never touches a remote database:
 # the server listens only on a unix socket in a temp directory, and is

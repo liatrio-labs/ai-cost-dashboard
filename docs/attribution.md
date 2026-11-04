@@ -464,6 +464,30 @@ then comes back showing the earlier decision. Without 018 the items still
 list, Acknowledge is hidden behind a "migration 018 not applied" notice, and
 `POST /api/admin/org/review` answers 409 `migration_018_not_applied`.
 
+### Budgets and alerts (issue #49)
+
+`/admin/org` → **Budgets** keeps one monthly USD budget per person, team or
+project (`budgets`, migration 020). Spend maps to a subject the same way the
+dashboard filters do: `person_id`, `team_id`, and a project is the row's
+provider + `project_id` (else `workspace_id`) looked up in `org_projects`. The
+current month is projected with #39 (`frontend/lib/budgets.ts`) and each budget
+is **over** (actual already over), **projected over** (projection over, actual
+under) or **on track**. Over and projected-over subjects show in Needs review
+as **Projected over budget** (`budget_over`, acknowledgeable like the others
+when 018 and 020 are applied).
+
+`/api/cron/budget-alerts` (daily, 09:30 UTC) sends one alert per subject per
+month (`alert_log`, UNIQUE subject + month + dry_run) for projected overruns
+and the inbox's person spikes; an overrun and a spike for the same subject and
+month are one message. The row is claimed before sending, and released when
+every channel fails so the next run retries. Dry-run is the default and logs
+without sending; dry-run and live rows are deduped separately. Channels come
+only from env var names (`BUDGET_ALERTS_MODE`, `BUDGET_ALERT_SLACK_WEBHOOK_URL`,
+`BUDGET_ALERT_EMAIL_TO`, `BUDGET_ALERT_EMAIL_FROM`, `RESEND_API_KEY`); live
+mode with none configured sends and logs nothing. Without 020 the tab shows
+"migration 020 not applied", writes answer 409 `migration_020_not_applied`,
+and the cron returns `status: "migration_020_not_applied"`.
+
 On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project_id`: the Projects table shows workspaces (marked "workspace") and the
 `project` filter matches either column. The table shows whenever any loaded row
