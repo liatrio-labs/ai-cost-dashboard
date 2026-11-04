@@ -4,7 +4,7 @@
  */
 
 import type { CurrentMonthProjection, DashboardProjection, ProjectionBasis } from "@/lib/dashboard-compute"
-import type { ProductSlice } from "@/lib/claude-ai-products"
+import type { ProductSlice } from "@/lib/product-breakdown"
 export type { CurrentMonthProjection, DashboardProjection, ProjectionBasis }
 
 export interface DashboardTool {
@@ -26,7 +26,10 @@ export interface DashboardTool {
   compareSpend?: number
   /** Signed, 1 decimal; null when there was no prior spend ("new"). */
   projectedChangePercent?: number | null
-  /** Issue #48, Claude.ai only: Claude Code / Chat / Other, summing to monthlySpend. */
+  /**
+   * Issue #48, Claude.ai: Claude Code / Chat / Other. Issue #65, Cursor: Grok
+   * Bot / Bugbot / Agent/Chat. Sums to monthlySpend.
+   */
   products?: ProductSlice[]
 }
 

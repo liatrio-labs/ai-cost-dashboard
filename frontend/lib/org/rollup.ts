@@ -11,6 +11,7 @@
  * still sum to the input total.
  */
 
+import { RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import { resolveAttribution } from "./attribution"
 import type { AttributableRecord, AttributedDailyRow, OrgIndex } from "./types"
 
@@ -34,13 +35,22 @@ export function automationProviderIds(providers: readonly { id: string; name: st
 /**
  * A Cursor row with no user: org granularity and no person. A Cursor row whose
  * email just isn't a registered person has granularity 'person' and stays
- * Unassigned (someone should add that person).
+ * Unassigned (someone should add that person). Recurring license / flat-fee
+ * rows (issue #59, model "recurring" / "recurring seats") are also org-level
+ * with no person, but they are a bill, not automation, so they stay Unassigned.
  */
 export function isAutomationRow(
-  row: { provider_id: string; person_id?: string | null; granularity?: string | null },
+  row: { provider_id: string; person_id?: string | null; granularity?: string | null; model_name?: string | null },
   automationIds: ReadonlySet<string> | null | undefined
 ): boolean {
-  return !!automationIds && automationIds.has(row.provider_id) && !row.person_id && row.granularity === "org"
+  return (
+    !!automationIds &&
+    automationIds.has(row.provider_id) &&
+    !row.person_id &&
+    row.granularity === "org" &&
+    row.model_name !== RECURRING_MODEL &&
+    row.model_name !== RECURRING_SEAT_MODEL
+  )
 }
 
 export interface RollupTotals {

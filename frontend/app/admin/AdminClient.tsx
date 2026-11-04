@@ -12,6 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Separator } from "@/components/ui/separator"
 import { MonthlyEntryForm } from "@/components/monthly-entry-form"
 import { ManageTools, type ToolRow } from "@/components/admin/manage-tools"
+import {
+  MonthSelect,
+  RecurringAmountFields,
+  draftToBody,
+  emptyDraft,
+  monthChoices,
+  type RecurringDraft,
+} from "@/components/admin/recurring-cost"
+import { currentMonthOf } from "@/lib/recurring-costs"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
@@ -62,6 +71,11 @@ export function AdminClient() {
   // Add-a-tool form state.
   const [toolName, setToolName] = useState("")
   const [toolSeatBased, setToolSeatBased] = useState(true)
+  // Issue #59: optional recurring monthly cost for the new tool.
+  const [toolRecurring, setToolRecurring] = useState(false)
+  const [toolRecurringDraft, setToolRecurringDraft] = useState<RecurringDraft>(emptyDraft(true))
+  const [toolRecurringStart, setToolRecurringStart] = useState(() => currentMonthOf(new Date()))
+  const [recurringReloadKey, setRecurringReloadKey] = useState(0)
   const [addingTool, setAddingTool] = useState(false)
   const [addToolMsg, setAddToolMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -90,20 +104,37 @@ export function AdminClient() {
       setAddToolMsg({ ok: false, text: "Enter a tool name." })
       return
     }
+    let recurring: Record<string, unknown> | undefined
+    if (toolRecurring) {
+      const parsed = draftToBody(toolRecurringDraft)
+      if ("error" in parsed) {
+        setAddToolMsg({ ok: false, text: parsed.error })
+        return
+      }
+      recurring = { ...parsed.body, from_month: toolRecurringStart }
+    }
     setAddingTool(true)
     try {
       const res = await fetch("/api/admin/providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: name, seat_based: toolSeatBased }),
+        body: JSON.stringify({ display_name: name, seat_based: toolSeatBased, recurring }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
         setAddToolMsg({ ok: false, text: body.error || `HTTP ${res.status}` })
         return
       }
-      setAddToolMsg({ ok: true, text: `Added "${name}". It's now in the entry dropdown below.` })
+      if (recurring && body.recurring_saved === false) {
+        setAddToolMsg({ ok: false, text: body.message || "Tool added, but its recurring cost wasn't saved." })
+      } else if (recurring) {
+        setAddToolMsg({ ok: true, text: `Added "${name}" with a recurring monthly cost. Manage it under Manage tools.` })
+      } else {
+        setAddToolMsg({ ok: true, text: `Added "${name}". It's now in the entry dropdown below.` })
+      }
       setToolName("")
+      setToolRecurringDraft(emptyDraft(toolSeatBased))
+      setRecurringReloadKey((k) => k + 1)
       await loadProviders()
     } catch (err) {
       setAddToolMsg({ ok: false, text: (err instanceof Error && err.message) || "Request failed" })
@@ -200,6 +231,34 @@ export function AdminClient() {
                 />
                 Seat-based subscription
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={toolRecurring}
+                  onChange={(e) => {
+                    setToolRecurring(e.target.checked)
+                    setToolRecurringDraft({ ...toolRecurringDraft, seatBased: toolSeatBased })
+                  }}
+                  className="h-4 w-4 accent-primary"
+                />
+                Monthly recurring cost (counts every month until changed or ended)
+              </label>
+              {toolRecurring ? (
+                <div className="space-y-3 rounded-md border border-border/50 p-3">
+                  <RecurringAmountFields draft={toolRecurringDraft} onChange={setToolRecurringDraft} idPrefix="new-tool" />
+                  <div className="space-y-1 sm:max-w-xs">
+                    <label htmlFor="new-tool-start" className="text-xs font-medium text-muted-foreground">
+                      Start month
+                    </label>
+                    <MonthSelect
+                      id="new-tool-start"
+                      value={toolRecurringStart}
+                      onChange={setToolRecurringStart}
+                      months={monthChoices(currentMonthOf(new Date()))}
+                    />
+                  </div>
+                </div>
+              ) : null}
               {addToolMsg && (
                 <p
                   className={`flex items-center gap-1 text-xs ${
@@ -252,12 +311,14 @@ export function AdminClient() {
             <CardTitle>Manage tools</CardTitle>
             <CardDescription>
               Add a description and the platform&apos;s admin URL (where to pull more data) for each
-              tool, or delete a tool and its cost records.
+              tool, set up, change or end a manual tool&apos;s monthly recurring cost, or delete a tool
+              and its cost records.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ManageTools
               tools={toolRows}
+              reloadKey={recurringReloadKey}
               onChanged={() => {
                 loadProviders()
                 setEntriesReloadKey((k) => k + 1)

@@ -12,6 +12,9 @@
  * Org filters are not pushed down here: the comparison period, coverage notes
  * and dropdown options need the provider-scoped rows. The provider filter is.
  *
+ * Issue #59: recurring monthly costs (lib/recurring-costs.ts) are appended
+ * to the attributed rows for every month they cover without a manual entry.
+ *
  * Issue #48: the person view (a person filter, level "detail") also gets
  * Claude.ai spend by product. The period's raw Claude.ai records are read
  * from cost_records (product by JSON path, no migration), resolved like the
@@ -29,6 +32,7 @@ import {
   fetchIdentities,
   fetchOrgData,
   fetchProviders,
+  fetchRecurringDaily,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
@@ -54,10 +58,14 @@ export async function GET(request: NextRequest) {
     const providerId = providerIdForSlug(providers, filters.provider)
     const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
     const now = new Date()
-    const [rows, claudeAiProductRows] = await Promise.all([
+    // An unknown provider slug matches nothing (same as fetchAttributedDaily).
+    const unknownProvider = !!filters.provider && !providerId
+    const [attributed, recurring, claudeAiProductRows] = await Promise.all([
       fetchAttributedDaily(supabase, { provider: filters.provider }, providerId),
+      unknownProvider ? Promise.resolve([]) : fetchRecurringDaily(supabase, { now, providerId, org }),
       personProducts(supabase, providers, org, filters, params, now),
     ])
+    const rows = [...attributed, ...recurring]
 
     return successResponse(
       computeBreakdown({

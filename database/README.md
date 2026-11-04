@@ -261,6 +261,29 @@ amount exceeds 1.25x the decided amount. `review_items` is admin-only (RLS on,
 no policies, no `anon` / `authenticated` grants; the admin routes use the
 service role).
 
+Migration 020 (issue #49) adds monthly budgets and the alert log:
+
+```sql
+budgets    (id, scope, subject_id, monthly_usd, note, created_by, updated_by,
+            created_at, updated_at)
+           scope IN ('person', 'team', 'project'); subject_id = people.id /
+           teams.id / org_projects.id (no FK); monthly_usd > 0
+           UNIQUE (scope, subject_id)
+alert_log  (id, subject, period, kinds, dry_run, channels, amount, budget_usd,
+            message, sent_at, created_at)
+           subject ~ 'person:|team:|project:'; period YYYY-MM;
+           kinds <@ {projected_overrun, spike}
+           UNIQUE (subject, period, dry_run)
+review_items.kind  + 'budget_over' (only when 018 is applied)
+```
+
+The projected-over-budget flag is computed live (`frontend/lib/budgets.ts`, the
+#39 projection); nothing is stored. `alert_log` is how the alert cron sends at
+most once per subject per month: it inserts the row before sending. Both tables
+are admin-only (RLS on, no policies, no `anon` / `authenticated` grants).
+Re-applying 018 after 020 resets the `review_items` kind CHECK without
+`budget_over`; re-apply 020 after it (the test script does).
+
 #### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011 and 015)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).
@@ -487,6 +510,14 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   returns 409 `migration_018_not_applied`), and key creation dates read as
   unknown. **Needs Robert's explicit approval before it is applied to
   production.**
+- **020_budgets.sql**: monthly budgets and alerts (#49). Admin-only
+  `budgets` (one per person / team / project) and `alert_log` (one alert per
+  subject per month, dry-run and live separately), and `budget_over` added to
+  the `review_items` kind CHECK when 018 is applied. No view or data change.
+  The app works before it is applied: the Budgets tab shows "migration 020 not
+  applied", writes return 409 `migration_020_not_applied`, the inbox has no
+  budget items and the alert cron sends nothing. **Needs Robert's explicit
+  approval before it is applied to production.**
 - **021_person_merge.sql**: duplicate person merge (#51). Adds `person_merges`
   (audit log of merged-away people; RLS on, service role only) and
   `merge_people(primary uuid, secondary uuid, merged_by text)`, which in one
@@ -527,12 +558,14 @@ resolves to the actor, manual owner, auto creator owner, workspace project
 team, Default project via the key, Unassigned; no fan-out, reconciliation,
 grants), runs `assertions_018.sql` (`provider_created_at` type and NULL
 default, `review_items` CHECKs, one row per item and upsert, RLS and grants,
-totals unchanged), runs `assertions_021.sql` (a duplicate Jane merged through
-`merge_people()` as `service_role`: moved counts, identities / key owner /
-seat rows on the primary, the old email resolving through the alias, all
-spend on the primary after a refresh, totals unchanged and reconciled,
-a repeated merge returning `already_merged` with nothing changed, refusals,
-grants), then re-applies 010, 011, 014, 015, 016, 017, 018 and 021 over the data. 011 must always follow 010, because 010 recreates the view
+totals unchanged), runs `assertions_020.sql` (`budgets` and `alert_log`
+CHECKs and unique keys, dry-run and live deduped separately, `budget_over` in
+`review_items`, RLS and grants, totals unchanged), runs `assertions_021.sql`
+(a duplicate Jane merged through `merge_people()` as `service_role`: moved
+counts, identities / key owner / seat rows on the primary, the old email
+resolving through the alias, all spend on the primary after a refresh, totals
+unchanged and reconciled, a repeated merge returning `already_merged` with
+nothing changed, refusals, grants), then re-applies 010, 011, 014 and every later migration (015 to 018, 020, 021, 022) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

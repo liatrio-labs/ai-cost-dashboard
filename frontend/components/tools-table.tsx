@@ -20,7 +20,7 @@ import {
   type DashboardProjection,
   type DashboardTool,
 } from "@/lib/dashboard-types"
-import { ClaudeAiProductSubRows } from "@/components/claude-ai-products"
+import { ProductSubRows } from "@/components/product-breakdown"
 
 interface ToolsTableProps {
   tools: DashboardTool[]
@@ -192,9 +192,9 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                       })()}
                     </TableCell>
                   </TableRow>
-                  {/* Issue #48: Claude.ai by product, summing to the row above. */}
+                  {/* Issue #48 / #65: Claude.ai or Cursor by product, summing to the row above. */}
                   {tool.products && tool.products.length > 0 && (
-                    <ClaudeAiProductSubRows products={tool.products} colSpanAfter={3} />
+                    <ProductSubRows products={tool.products} colSpanAfter={3} />
                   )}
                   </Fragment>
                 ))

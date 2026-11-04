@@ -14,7 +14,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
 import { splitHeaderLabel } from "@/lib/header-label"
-import { ClaudeAiProductSplit } from "@/components/claude-ai-products"
+import { ClaudeAiProductSplit, CursorProductSplit } from "@/components/claude-ai-products"
 import { cn } from "@/lib/utils"
 import {
   drillInto,
@@ -765,6 +765,10 @@ export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; o
       {/* Person view (issue #48): Claude.ai spend by product, summing to its detail rows. */}
       {data.level === "detail" && data.claudeAiProducts && (
         <ClaudeAiProductSplit products={data.claudeAiProducts.products} total={data.claudeAiProducts.total} />
+      )}
+      {/* Person view (issue #65): Cursor spend by product (Grok Bot, Bugbot, Agent/Chat). */}
+      {data.level === "detail" && data.cursorProducts && (
+        <CursorProductSplit products={data.cursorProducts.products} total={data.cursorProducts.total} />
       )}
       {data.level !== "detail" && <PeopleTable data={data} onFiltersChange={onFiltersChange} />}
       <ApiKeysTable data={data} onFiltersChange={onFiltersChange} />

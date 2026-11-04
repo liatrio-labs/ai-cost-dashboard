@@ -19,6 +19,9 @@
  *                  with org_api_keys.provider_created_at, migration 018) that
  *                  has spend since. Keys without a stored creation date are
  *                  never listed: our own sync date says nothing.
+ * - budget_over    a person, team or project whose current month, projected
+ *                  with #39, is over its monthly budget (issue #49,
+ *                  lib/budgets.ts; only when migration 020 is applied).
  *
  * Acknowledged or assigned items (review_items) stay hidden until the live
  * amount grows past 1.25x the amount recorded with the decision; then they
@@ -27,9 +30,10 @@
 
 import { effectiveProjectId } from "@/lib/dashboard-filters"
 import { addDays, monthRange, projectByKey, projectionContext, type ProjectionProvider } from "@/lib/projection"
+import type { BudgetStatus } from "@/lib/budgets"
 import type { AttributedDailyRow, OrgData } from "./types"
 
-export const REVIEW_KINDS = ["person_spike", "person_day", "unassigned_new", "key_new"] as const
+export const REVIEW_KINDS = ["budget_over", "person_spike", "person_day", "unassigned_new", "key_new"] as const
 export type ReviewKind = (typeof REVIEW_KINDS)[number]
 export const REVIEW_STATUSES = ["acknowledged", "assigned"] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
@@ -107,6 +111,8 @@ export interface ReviewInboxInput {
   providers: (ProjectionProvider & { display_name?: string | null })[]
   /** review_items rows; empty when migration 018 isn't applied. */
   decisions?: ReviewDecision[]
+  /** lib/budgets.ts statuses (migration 020); over-budget ones become budget_over items. */
+  budgetStatuses?: BudgetStatus[]
   now?: Date
 }
 
@@ -145,7 +151,7 @@ export function isSpike(amount: number, previous: number): boolean {
   return previous > 0 ? amount > REVIEW_THRESHOLDS.spikeRatio * previous : true
 }
 
-export function computeReviewInbox({ rows, org, providers, decisions = [], now = new Date() }: ReviewInboxInput): ReviewInbox {
+export function computeReviewInbox({ rows, org, providers, decisions = [], budgetStatuses = [], now = new Date() }: ReviewInboxInput): ReviewInbox {
   const ctx = projectionContext(providers, now)
   const today = ctx.today
   const windowStart = reviewWindowStart(now)
@@ -320,6 +326,21 @@ export function computeReviewInbox({ rows, org, providers, decisions = [], now =
       label: k.name || k.external_key_id,
       detail: `${providerName.get(k.provider_id) ?? k.provider_id} · ${owner} · created ${created}`,
       assign: k.team_id ? null : { kind: "api_key", provider_id: k.provider_id, external_key_id: k.external_key_id, ...(k.name ? { name: k.name } : {}) },
+    })
+  }
+
+  // -- Projected over budget (issue #49) -------------------------------------
+  for (const b of budgetStatuses) {
+    if (!b.projectedOver || !b.subjectExists) continue
+    candidates.push({
+      ...base("budget_over", b.subject, b.month),
+      amount: b.projected,
+      projected: true,
+      previousAmount: null,
+      ratio: b.ratio,
+      label: `${b.budget.scope === "person" ? "Person" : b.budget.scope === "team" ? "Team" : "Project"}: ${b.label}`,
+      detail: [`budget ${fmt(b.budgetUsd)}`, `actual so far ${fmt(b.actual)}`, b.state === "over" ? "already over" : null].filter(Boolean).join(" · "),
+      assign: null,
     })
   }
 

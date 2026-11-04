@@ -10,8 +10,9 @@
  *   Rows on incomplete days count as actuals but don't drive the rate.
  * - Seat vs usage. Rows dated the 1st of a month from a monthly-seat provider
  *   (ChatGPT Business, Claude Ultra `claude-max`), or any row on the 1st with
- *   model_name 'seats' (e.g. Cursor seat rows, if any), are seat spend.
- *   Everything else is usage.
+ *   model_name 'seats' (e.g. Cursor seat rows, if any) or 'recurring' (a
+ *   recurring flat monthly cost, issue #59), are seat spend. Everything else
+ *   is usage.
  * - Usage. Per provider, for each remaining day of the period (days after the
  *   provider's last complete day), expected spend =
  *     w x period average for that day type + (1 - w) x trailing average for it
@@ -23,7 +24,9 @@
  *   that already logged spend adds only max(0, expected - logged).
  * - Seats. Seat rows already billed in the period count as-is. A provider that
  *   billed seats on the previous month's 1st but not yet on this month's 1st
- *   is projected at the previous month's amount.
+ *   is projected at the previous month's amount. Recurring cost rows (issue
+ *   #59) are never carried this way: they are present for every month the
+ *   recurring cost covers.
  * - Projected = all actual rows in the period + projected usage + projected
  *   seats. Actual totals are never changed; projections are separate numbers.
  *
@@ -36,6 +39,11 @@ export const TRAILING_DAYS = 28
 /** providers.name of providers billed as one seat row on the 1st of each month. */
 export const MONTHLY_SEAT_PROVIDERS = ["chatgpt", "claude-max"] as const
 export const SEAT_MODEL = "seats"
+/** model_name of a recurring flat monthly cost row (issue #59, lib/recurring-costs.ts). */
+export const RECURRING_MODEL = "recurring"
+/** model_name of a recurring seats x price row (issue #59). */
+export const RECURRING_SEAT_MODEL = "recurring seats"
+const RECURRING_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL])
 
 const DAY_MS = 86400000
 
@@ -153,9 +161,12 @@ export function periodStatus(period: Period, today: string): PeriodStatus {
   return "current"
 }
 
+/** A recurring cost row (issue #59): seat spend that is never carried into a month without one. */
+export const isRecurringRow = (r: ProjectionRow) => !!r.model_name && RECURRING_MODELS.has(r.model_name)
+
 export function isSeatRow(r: ProjectionRow, ctx: ProjectionContext): boolean {
   if (!r.date.endsWith("-01")) return false
-  return r.model_name === SEAT_MODEL || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
+  return r.model_name === SEAT_MODEL || isRecurringRow(r) || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
 }
 
 const completeThroughOf = (ctx: ProjectionContext, providerId: string) =>
@@ -177,6 +188,8 @@ export function projectionWindowStart(period: Period, ctx: ProjectionContext): s
 interface ProviderAcc {
   usage: Map<string, number>
   seats: Map<string, number>
+  /** Seat spend per 1st that may be carried forward: seats minus recurring rows (issue #59). */
+  carry: Map<string, number>
   hasUsage: boolean
 }
 
@@ -217,7 +230,7 @@ function seatExtra(acc: ProviderAcc, period: Period): number {
       carried = undefined
       continue
     }
-    const prior = acc.seats.get(prevMonthStart(first)) ?? carried
+    const prior = acc.carry.get(prevMonthStart(first)) ?? carried
     if (prior && prior > 0) {
       extra += prior
       carried = prior
@@ -239,12 +252,15 @@ export function projectPeriod(rows: ProjectionRow[], period: Period, ctx: Projec
   for (const r of rows) {
     if (r.date < lo || r.date > period.end) continue
     const pid = r.provider_id ?? ""
-    const acc = accs.get(pid) ?? { usage: new Map(), seats: new Map(), hasUsage: false }
+    const acc = accs.get(pid) ?? { usage: new Map(), seats: new Map(), carry: new Map(), hasUsage: false }
     accs.set(pid, acc)
     const cost = num(r.total_cost_usd)
     const seat = isSeatRow(r, ctx)
     const m = seat ? acc.seats : acc.usage
     m.set(r.date, (m.get(r.date) ?? 0) + cost)
+    // A recurring cost is expanded for every month it covers, so a month
+    // without its row means it ended or a manual entry replaced it: never carry it.
+    if (seat && !isRecurringRow(r)) acc.carry.set(r.date, (acc.carry.get(r.date) ?? 0) + cost)
     if (!seat) acc.hasUsage = true
     if (r.date >= period.start) {
       if (seat) seatActual += cost

@@ -165,7 +165,9 @@ Useful env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, the provider tokens (e.g.
 `ANTHROPIC_ADMIN_KEY`, `OPENAI_ADMIN_KEY` + `OPENAI_ORG_ID`, `CURSOR_ADMIN_KEY`,
 `AI_GATEWAY_API_KEY`, plus `VERCEL_TOKEN` and `VERCEL_TEAM_ID` for the AI Gateway
-key sync), and optionally `ADMIN_DOMAINS`.
+key sync), optionally `ADMIN_DOMAINS`, and the budget-alert vars (`BUDGET_ALERTS_MODE`,
+`BUDGET_ALERT_SLACK_WEBHOOK_URL`, `BUDGET_ALERT_EMAIL_TO`, `BUDGET_ALERT_EMAIL_FROM`,
+`RESEND_API_KEY`; see Budgets below).
 Set `NEXT_PUBLIC_SKIP_AUTH=true` to bypass auth in local dev.
 
 ```bash
@@ -262,6 +264,19 @@ in the last 7 days. Each item can be acknowledged or assigned (the existing assi
 flow) with a note; it stays hidden unless its amount grows more than 25%. Without
 migration 018 the items still show, with a "migration 018 not applied" notice and no
 Acknowledge.
+
+**Budgets** on `/admin/org` (issue #49) sets a monthly USD budget per person, team or
+project. Each budget shows this month's actual and #39 projection, and a **Projected
+over budget** badge when the projection is over; those subjects are also listed in
+Needs review. A daily cron (`/api/cron/budget-alerts`, 09:30 UTC) alerts on projected
+overruns and person spikes by Slack webhook and/or email, at most once per person,
+team or project per month. It is **dry-run by default** (alerts are logged to
+`alert_log`, nothing is sent) and is configured only by env vars:
+`BUDGET_ALERTS_MODE=live` to send, `BUDGET_ALERT_SLACK_WEBHOOK_URL`, and for email
+`BUDGET_ALERT_EMAIL_TO` (comma-separated), `BUDGET_ALERT_EMAIL_FROM` and
+`RESEND_API_KEY` (Resend). The admin page shows which of these names are set, never
+their values. Needs migration 020; without it the tab says "migration 020 not
+applied", the inbox has no budget items and the cron sends nothing.
 
 ```bash
 BASE=https://your-deployment.example.com

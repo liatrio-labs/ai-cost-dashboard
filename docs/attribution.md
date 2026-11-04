@@ -93,7 +93,12 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   `metadata.group.product`. The dashboard (Claude.ai sub-rows in the Tools table
   and a "by product" card on the Dashboard tab) and the person view split
   Claude.ai spend into Claude Code (`claude_code`), Chat (`claude_chat`, `chat`,
-  `claude_ai`) and Other (anything else, including legacy rows with no product).
+  `claude_ai`, and since issue #65 `chat_cowork_unified` and `cowork`, which is
+  how the API labels most chat) and Other (anything else, including legacy rows
+  with no product). Small products (`claude_design`, `claude_tag`, `voice_mode`,
+  `office_agent`, `claude_in_chrome`, `research`, `code_review`, ...) stay in
+  Other, and the card lists the raw labels Other contains (largest first, plus
+  a tooltip with all of them).
   The rollups have no product column, so the routes read the period's Claude.ai
   `cost_records` with `product:metadata->group->>product` (no migration) and
   divide each rollup row (date x model, plus the attribution columns when
@@ -102,6 +107,12 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   remainder, so Claude Code + Chat + Other equals the Claude.ai total to the
   cent. See `lib/claude-ai-products.ts`. If the raw read fails, the dashboard
   renders without the split.
+- Cursor has the same kind of card (issue #65) on the Dashboard tab and the
+  person view, split by model from the rollup rows (no raw read, no
+  migration): Grok Bot (`grok-bot-*`), Bugbot (`github_bugbot`) and Agent/Chat
+  (every other model). It sums to the Cursor total to the cent and follows the
+  filters and period. See `lib/cursor-products.ts`; the shared card is
+  `components/product-breakdown.tsx`.
 
 ### OpenAI (`openai.ts`)
 
@@ -480,6 +491,30 @@ note. The item stays hidden until its amount exceeds 1.25x the recorded amount,
 then comes back showing the earlier decision. Without 018 the items still
 list, Acknowledge is hidden behind a "migration 018 not applied" notice, and
 `POST /api/admin/org/review` answers 409 `migration_018_not_applied`.
+
+### Budgets and alerts (issue #49)
+
+`/admin/org` → **Budgets** keeps one monthly USD budget per person, team or
+project (`budgets`, migration 020). Spend maps to a subject the same way the
+dashboard filters do: `person_id`, `team_id`, and a project is the row's
+provider + `project_id` (else `workspace_id`) looked up in `org_projects`. The
+current month is projected with #39 (`frontend/lib/budgets.ts`) and each budget
+is **over** (actual already over), **projected over** (projection over, actual
+under) or **on track**. Over and projected-over subjects show in Needs review
+as **Projected over budget** (`budget_over`, acknowledgeable like the others
+when 018 and 020 are applied).
+
+`/api/cron/budget-alerts` (daily, 09:30 UTC) sends one alert per subject per
+month (`alert_log`, UNIQUE subject + month + dry_run) for projected overruns
+and the inbox's person spikes; an overrun and a spike for the same subject and
+month are one message. The row is claimed before sending, and released when
+every channel fails so the next run retries. Dry-run is the default and logs
+without sending; dry-run and live rows are deduped separately. Channels come
+only from env var names (`BUDGET_ALERTS_MODE`, `BUDGET_ALERT_SLACK_WEBHOOK_URL`,
+`BUDGET_ALERT_EMAIL_TO`, `BUDGET_ALERT_EMAIL_FROM`, `RESEND_API_KEY`); live
+mode with none configured sends and logs nothing. Without 020 the tab shows
+"migration 020 not applied", writes answer 409 `migration_020_not_applied`,
+and the cron returns `status: "migration_020_not_applied"`.
 
 On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project_id`: the Projects table shows workspaces (marked "workspace") and the

@@ -13,6 +13,17 @@ import {
 } from "@/lib/dashboard-filters"
 import type { AttributedDailyRow, OrgData, PersonIdentity } from "@/lib/org/types"
 import { addDays } from "@/lib/dashboard-compute"
+import { buildOrgIndex, resolveAttribution } from "@/lib/org/attribution"
+import { MANUAL_METHODS } from "@/lib/org/seat-assignments"
+import {
+  RECURRING_COLUMNS,
+  attributeRecurringRows,
+  currentMonthOf,
+  expandRecurringCosts,
+  isMissingRelation,
+  type ManualCostRow,
+  type RecurringCost,
+} from "@/lib/recurring-costs"
 import { PRODUCT_ATTRIBUTION_COLUMN, PRODUCT_COST_COLUMNS, type ProductCostRow } from "@/lib/claude-ai-products"
 
 // Minimal structural types so tests can pass a fake client.
@@ -202,4 +213,68 @@ export async function fetchClaudeAiProductRows(
 export function providerIdForSlug(providers: ProviderRow[], slug: string | undefined): string | null {
   if (!slug) return null
   return providers.find((p) => p.name === slug)?.id ?? null
+}
+
+/**
+ * Recurring cost segments (issue #59, migration 022). A missing table (022
+ * not applied yet) reads as no recurring costs, so the dashboard behaves as
+ * before; any other error is thrown like the other reads.
+ */
+export async function fetchRecurringCosts(supabase: SupabaseLike): Promise<RecurringCost[]> {
+  const { data, error } = await supabase.from("recurring_costs").select(RECURRING_COLUMNS).order("start_month")
+  if (error) {
+    if (isMissingRelation(error)) return []
+    throw error
+  }
+  return (data || []) as RecurringCost[]
+}
+
+const MANUAL_ROW_COLUMNS = "id, user_id, provider_id, timestamp, model_name, cost_usd, request_count, collection_method, metadata"
+
+/** Manual (manual_entry / csv_import) cost_records of these providers: overrides and seat splits. */
+async function fetchManualRows(supabase: SupabaseLike, providerIds: string[]): Promise<ManualCostRow[]> {
+  const out: ManualCostRow[] = []
+  // One query per (provider, manual method): few of each, and it never pages
+  // through an API-collected provider's usage rows.
+  for (const pid of providerIds) for (const method of MANUAL_METHODS) {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("cost_records")
+        .select(MANUAL_ROW_COLUMNS)
+        .eq("provider_id", pid)
+        .eq("collection_method", method)
+        .order("timestamp", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (error) throw error
+      const rows = (data || []) as ManualCostRow[]
+      out.push(...rows.filter((r) => (MANUAL_METHODS as readonly string[]).includes(r.collection_method)))
+      if (rows.length < PAGE) break
+    }
+  }
+  return out
+}
+
+/**
+ * Synthetic monthly rows for every recurring cost (issue #59, see
+ * lib/recurring-costs.ts), attributed like cost_records_daily_attributed rows
+ * so they can be appended to either rollup. `providerId` narrows to one
+ * provider (a provider filter). Empty when 022 isn't applied.
+ */
+export async function fetchRecurringDaily(
+  supabase: SupabaseLike,
+  opts: { now: Date; providerId?: string | null; org?: OrgData }
+): Promise<AttributedDailyRow[]> {
+  let costs = await fetchRecurringCosts(supabase)
+  if (opts.providerId) costs = costs.filter((c) => c.provider_id === opts.providerId)
+  if (!costs.length) return []
+  const manualRows = await fetchManualRows(supabase, [...new Set(costs.map((c) => c.provider_id))])
+  const rows = expandRecurringCosts({ costs, manualRows, currentMonth: currentMonthOf(opts.now) })
+  if (!rows.some((r) => r.person_email)) return attributeRecurringRows(rows)
+  const [org, identities] = await Promise.all([
+    opts.org ? Promise.resolve(opts.org) : fetchOrgData(supabase),
+    fetchIdentities(supabase),
+  ])
+  const index = buildOrgIndex({ ...org, identities })
+  return attributeRecurringRows(rows, (record) => resolveAttribution(record, index))
 }

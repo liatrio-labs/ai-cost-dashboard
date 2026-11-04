@@ -188,4 +188,14 @@ describe("Cursor – Bugbot/automation line (issue #51)", () => {
       )
     }
   })
+
+  it("a recurring Cursor license row (org level, no person) stays Unassigned, not automation", () => {
+    const base = rows().find((r) => r.provider_id === P.cursor && r.granularity === "org")!
+    for (const model_name of ["recurring", "recurring seats"]) {
+      const lic = { ...base, model_name, total_cost_usd: 400 }
+      expect(rollup([lic], "person", undefined, { automationProviderIds: AUTO_IDS }).map((b) => [b.key, b.total_cost_usd])).toEqual([["unassigned", 400]])
+      expect(matchesFilters(lic, { person: "unassigned" }, null, AUTO_IDS)).toBe(true)
+      expect(matchesFilters(lic, { person: AUTOMATION_KEY }, null, AUTO_IDS)).toBe(false)
+    }
+  })
 })

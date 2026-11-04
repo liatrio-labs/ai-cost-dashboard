@@ -12,6 +12,10 @@
  * Issue #48: given the period's Claude.ai product rows, the Claude.ai tool
  * carries `products` (Claude Code, Chat, Other) summing to its monthlySpend
  * (lib/claude-ai-products.ts).
+ *
+ * Issue #65: the Cursor tool carries `products` (Grok Bot, Bugbot, Agent/Chat)
+ * split by model from the same rows, summing to its monthlySpend
+ * (lib/cursor-products.ts).
  */
 
 import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
@@ -28,8 +32,9 @@ import {
   CLAUDE_AI_SLUG,
   splitClaudeAiByProduct,
   type ProductDayRow,
-  type ProductSlice,
 } from "@/lib/claude-ai-products"
+import { CURSOR_SLUG, splitCursorByProduct } from "@/lib/cursor-products"
+import type { ProductSlice } from "@/lib/product-breakdown"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -331,6 +336,15 @@ export function computeDashboard({
         ).products
       : null
 
+  // Issue #65: Cursor by product, from the model names on the same rows.
+  const cursorId = providers.find((p) => p.name === CURSOR_SLUG)?.id ?? null
+  const cursorProducts: ProductSlice[] | null =
+    cursorId && cur.prov.has(cursorId)
+      ? splitCursorByProduct(daily.filter((r) => r.provider_id === cursorId && r.date >= periodStart && r.date <= periodEnd)).products
+      : null
+  const productsFor = (pid: string) =>
+    pid === claudeAiId ? claudeAiProducts : pid === cursorId ? cursorProducts : null
+
   // tools: per provider for the active period
   const tools = Array.from(cur.prov.entries())
     .map(([pid, agg]) => {
@@ -367,7 +381,7 @@ export function computeDashboard({
               }
             })()
           : {}),
-        ...(pid === claudeAiId && claudeAiProducts ? { products: claudeAiProducts } : {}),
+        ...(productsFor(pid) ? { products: productsFor(pid)! } : {}),
       }
     })
     .sort((a, b) => b.monthlySpend - a.monthlySpend)

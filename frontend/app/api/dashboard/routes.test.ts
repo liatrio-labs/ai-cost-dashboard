@@ -51,6 +51,8 @@ const reads: string[] = []
 let authed = true
 /** Tables whose reads fail (issue #48: the product split is optional). */
 const failing = new Set<string>()
+/** Tables whose reads return this PostgREST error (issue #59: 022 not applied). */
+const tableErrors: Record<string, { code: string; message: string }> = {}
 
 interface FakeQuery {
   select(): FakeQuery
@@ -85,7 +87,9 @@ function fakeFrom(table: string): FakeQuery {
     lt: (col, v) => ((rows = rows.filter((r) => cmp(r[col], v) < 0)), q),
     range: (a, b) => ((range = [a, b]), q),
     then: (resolve) =>
-      failing.has(table)
+      tableErrors[table]
+        ? resolve({ data: null, error: tableErrors[table] })
+        : failing.has(table)
         ? resolve({ data: null, error: { message: `${table} unavailable` } })
         : resolve({ data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null }),
   }
@@ -120,6 +124,7 @@ function seed(org: OrgData) {
   }
   reads.length = 0
   failing.clear()
+  for (const k of Object.keys(tableErrors)) delete tableErrors[k]
 }
 
 const req = (path: string) => new NextRequest(new URL(path, "http://localhost"))
@@ -423,5 +428,153 @@ describe("Claude.ai by product (issue #48)", () => {
     } finally {
       errors.mockRestore()
     }
+  })
+})
+
+describe("Cursor by product (issue #65)", () => {
+  beforeEach(() => {
+    const org = orgData()
+    seed(org)
+    tables.person_identities = org.identities as unknown as Row[]
+  })
+  const split = (products: { product: string; cost: number }[] | undefined) =>
+    Object.fromEntries((products ?? []).map((p) => [p.product, p.cost]))
+
+  it("splits the Cursor tool on the dashboard from the rollup rows, with no raw read", async () => {
+    const { body } = await dash("/api/dashboard?month=2026-11")
+    const tool = body.tools.find((t) => t.id === "prov-cursor")!
+    expect(tool.monthlySpend).toBe(30)
+    expect(split(tool.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    expect(reads).not.toContain("cost_records")
+  })
+
+  it("follows a team filter on the dashboard", async () => {
+    const data = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    expect(split(data.body.tools.find((t) => t.id === "prov-cursor")!.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    const platform = await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)
+    expect(platform.body.tools.find((t) => t.id === "prov-cursor")).toBeUndefined()
+  })
+
+  it("shows the person view's Cursor products in the breakdown", async () => {
+    const { body } = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.dave}`)
+    expect(body.level).toBe("detail")
+    expect(body.cursorProducts!.total).toBe(30)
+    expect(split(body.cursorProducts!.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30 })
+    const alice = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.alice}`)
+    expect(alice.body.cursorProducts).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #59: recurring monthly costs
+// ---------------------------------------------------------------------------
+describe("recurring monthly costs (issue #59)", () => {
+  const LOVABLE = "prov-lovable"
+  const ULTRA = "prov-claude-max"
+  const manualProviders = [
+    { id: LOVABLE, name: "lovable", display_name: "Lovable", metadata: { collection_method: "manual" } },
+    { id: ULTRA, name: "claude-max", display_name: "Claude Ultra", metadata: { collection_method: "manual", billing: "seat" } },
+  ]
+  const segment = (id: string, provider: string, start: string, end: string | null, amount: string, seats: number | null = null, price: string | null = null) => ({
+    id,
+    provider_id: provider,
+    start_month: `${start}-01`,
+    end_month: end ? `${end}-01` : null,
+    monthly_cost_usd: amount,
+    seats,
+    price_per_seat: price,
+    notes: null,
+  })
+  /** A manual entry as cost_records and as its cost_records_daily / attributed rollup. */
+  function addManual(provider: string, month: string, cost: number, meta: Record<string, unknown> = {}, attributed: Partial<Row> = {}) {
+    const id = `cr-${provider}-${month}-${(tables.cost_records ?? []).length}`
+    tables.cost_records = [
+      ...(tables.cost_records ?? []),
+      {
+        id,
+        user_id: "u1",
+        provider_id: provider,
+        timestamp: `${month}-01T12:00:00Z`,
+        model_name: meta.entry_type === "monthly_seats" ? "seats" : "manual",
+        cost_usd: cost,
+        request_count: 1,
+        collection_method: "manual_entry",
+        metadata: { entry_type: "monthly_manual", month, ...meta },
+      },
+    ]
+    const day = { date: `${month}-01`, provider_id: provider, model_name: "manual", total_cost_usd: cost, total_tokens: 0, total_requests: 1 }
+    tables.cost_records_daily = [...tables.cost_records_daily, day]
+    tables.cost_records_daily_attributed = [
+      ...tables.cost_records_daily_attributed,
+      { ...day, person_id: null, org_api_key_id: null, team_id: null, department_id: null, project_id: null, workspace_id: null, granularity: "org", record_count: 1, ...attributed },
+    ]
+  }
+  beforeEach(() => {
+    tables.providers = [...(PROVIDERS as unknown as Row[]), ...manualProviders]
+  })
+
+  it("count every month from the start through the current month, without a manual entry", async () => {
+    tables.recurring_costs = [segment("rc1", LOVABLE, "2026-10", null, "90.00")]
+    const { status, body } = await dash("/api/dashboard?month=2026-11")
+    expect(status).toBe(200)
+    expect(body.kpis.totalSpend).toBe(NOV_TOTAL + 90)
+    expect(body.trends.map((t) => [t.month, t.total, t.lovable])).toEqual([
+      ["2026-10", 105 + 90, 90],
+      ["2026-11", 250 + 90, 90],
+    ])
+    expect(body.tools.find((t) => t.name === "Lovable")?.monthlySpend).toBe(90)
+    // Seat-like spend: the current month projects the recurring amount as-is.
+    expect(body.forecast.find((f) => f.month === "2026-11")).toMatchObject({ actualToDate: 340 })
+    expect(body.months).toEqual(["2026-11", "2026-10"]) // never into the future
+  })
+
+  it("a manual entry for a month overrides the recurring cost for that month only (no double count)", async () => {
+    tables.recurring_costs = [segment("rc1", LOVABLE, "2026-10", null, "90.00")]
+    addManual(LOVABLE, "2026-10", 120)
+    const { body } = await dash("/api/dashboard?month=2026-11")
+    expect(body.trends.map((t) => [t.month, t.lovable])).toEqual([
+      ["2026-10", 120],
+      ["2026-11", 90],
+    ])
+  })
+
+  it("change from a month: earlier months keep the old amount (provider filter / per-tool view)", async () => {
+    tables.recurring_costs = [segment("rc1", LOVABLE, "2026-09", "2026-10", "90.00"), segment("rc2", LOVABLE, "2026-11", null, "150.00")]
+    const { body } = await dash("/api/dashboard?month=2026-11&provider=lovable")
+    expect(body.trends.map((t) => [t.month, t.total])).toEqual([
+      ["2026-09", 90],
+      ["2026-10", 90],
+      ["2026-11", 150],
+    ])
+    expect(body.kpis.totalSpend).toBe(150)
+  })
+
+  it("seat assignments from the latest manual split apply: person and team views, remainder org-level", async () => {
+    // October is a manual seat split (alice 2 of 10 seats at $50); November is recurring.
+    const split = { entry_type: "monthly_seats", seats: 2, price_per_seat: 50, seat_group_id: "sg1", attribution: { granularity: "person", person_email: "alice@liatrio.com" } }
+    addManual(ULTRA, "2026-10", 100, split, { person_id: PE.alice, team_id: T.platform, department_id: D.eng, granularity: "person" })
+    addManual(ULTRA, "2026-10", 400, { ...split, seats: 8, remainder: true, attribution: { granularity: "org" } })
+    tables.recurring_costs = [segment("rc1", ULTRA, "2026-11", null, "500.00", 10, "50.00")]
+    tables.person_identities = []
+
+    const person = await dash(`/api/dashboard?month=2026-11&person=${PE.alice}&provider=claude-max`)
+    expect(person.body.kpis.totalSpend).toBe(100)
+    const { body } = await brk("/api/dashboard/breakdown?month=2026-11&provider=claude-max")
+    expect(body.total.cost).toBe(500)
+    expect(body.person.find((p) => p.id === PE.alice)?.cost).toBe(100)
+    expect(body.team.find((t) => t.id === T.platform)?.cost).toBe(100)
+    // Totals reconcile with the unfiltered rollup path.
+    const all = await dash("/api/dashboard?month=2026-11&provider=claude-max")
+    expect(all.body.kpis.totalSpend).toBe(500)
+  })
+
+  it("without migration 022 (no recurring_costs table) the response is exactly as before", async () => {
+    const before = await dash("/api/dashboard?month=2026-11")
+    tableErrors.recurring_costs = { code: "PGRST205", message: "Could not find the table 'public.recurring_costs' in the schema cache" }
+    const after = await dash("/api/dashboard?month=2026-11")
+    expect(after.status).toBe(200)
+    expect(after.body).toEqual(before.body)
+    const b = await brk(`/api/dashboard/breakdown?month=2026-11&team=${T.data}`)
+    expect(b.status).toBe(200)
   })
 })

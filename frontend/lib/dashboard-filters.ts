@@ -78,6 +78,8 @@ type FilterableRow = Pick<ResolvedAttribution, "department_id" | "team_id" | "pe
   workspace_id?: string | null
   /** Attribution granularity; tells Cursor automation rows apart (issue #51). */
   granularity?: string | null
+  /** Recurring-cost rows ("recurring" models) are never automation (issue #51). */
+  model_name?: string | null
 }
 
 /** The project the `project` filter and the Projects table see: project_id, else workspace_id. */
