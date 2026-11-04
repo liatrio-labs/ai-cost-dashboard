@@ -42,7 +42,7 @@ import {
 
 export { UNIT_LEVELS, coerceUnitOverrides, serializeUnitOverrides, unitOverrideKey } from "@/lib/forecast-settings"
 export type { UnitLevel, UnitOverride, UnitOverrides } from "@/lib/forecast-settings"
-import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import { AUTOMATION_KEY, UNASSIGNED_KEY } from "@/lib/org/rollup"
 import { monthRange, projectPeriod, type ProjectionContext } from "@/lib/projection"
 
 /** Fraction of the remaining gap to the plateau closed each month. */
@@ -300,6 +300,8 @@ export function forecastUnitForFilters(f: {
   provider?: string
 }): { level: UnitLevel; key: string } | null {
   if (f.person || f.key || f.project || f.provider) return null
+  // The Cursor automation line (issue #51) is not a forecastable unit.
+  if (f.team === AUTOMATION_KEY || f.department === AUTOMATION_KEY) return null
   if (f.team) return { level: "team", key: f.team }
   if (f.department) return { level: "department", key: f.department }
   return null

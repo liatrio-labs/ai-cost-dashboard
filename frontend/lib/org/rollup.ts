@@ -2,6 +2,13 @@
  * Pure aggregation of attributed daily rows (cost_records_daily_attributed)
  * by department, team, person or API key. Every level has an explicit
  * Unassigned bucket, so the buckets at any level always sum to the input total.
+ *
+ * Issue #51: Cursor usage events with no user (Bugbot and other team-level
+ * automation) are written with granularity 'org' and no person. When the
+ * caller passes the Cursor provider ids (`automationProviderIds`), those rows
+ * get their own labelled bucket, "Cursor – Bugbot/automation", just before
+ * Unassigned instead of inside it. It is a re-labelling only: the buckets
+ * still sum to the input total.
  */
 
 import { resolveAttribution } from "./attribution"
@@ -12,6 +19,29 @@ export type RollupLevel = "department" | "team" | "person" | "api_key"
 export const ROLLUP_LEVELS: readonly RollupLevel[] = ["department", "team", "person", "api_key"]
 export const UNASSIGNED_KEY = "unassigned"
 export const UNASSIGNED_LABEL = "Unassigned"
+
+/** Bucket key (and filter value) for Cursor spend with no user (issue #51). */
+export const AUTOMATION_KEY = "cursor-automation"
+export const AUTOMATION_LABEL = "Cursor – Bugbot/automation"
+/** Provider slugs whose no-user rows are automation rather than Unassigned. */
+export const AUTOMATION_PROVIDER_SLUGS: readonly string[] = ["cursor"]
+
+/** Provider ids (from providers rows) whose no-user spend gets the automation line. */
+export function automationProviderIds(providers: readonly { id: string; name: string }[]): Set<string> {
+  return new Set(providers.filter((p) => AUTOMATION_PROVIDER_SLUGS.includes(p.name)).map((p) => p.id))
+}
+
+/**
+ * A Cursor row with no user: org granularity and no person. A Cursor row whose
+ * email just isn't a registered person has granularity 'person' and stays
+ * Unassigned (someone should add that person).
+ */
+export function isAutomationRow(
+  row: { provider_id: string; person_id?: string | null; granularity?: string | null },
+  automationIds: ReadonlySet<string> | null | undefined
+): boolean {
+  return !!automationIds && automationIds.has(row.provider_id) && !row.person_id && row.granularity === "org"
+}
 
 export interface RollupTotals {
   total_cost_usd: number
@@ -26,6 +56,13 @@ export interface RollupBucket extends RollupTotals {
   id: string | null
   label: string
   unassigned: boolean
+  /** True for the "Cursor – Bugbot/automation" bucket (issue #51); not Unassigned. */
+  automation?: boolean
+}
+
+export interface RollupOptions {
+  /** Provider ids whose no-user rows go to the automation bucket (see automationProviderIds). */
+  automationProviderIds?: ReadonlySet<string> | null
 }
 
 export interface OrgRollup {
@@ -88,12 +125,31 @@ export function totalOf(rows: AttributedDailyRow[]): RollupTotals {
   return t
 }
 
+/** The bucket key a row lands in at `level`: entity id, AUTOMATION_KEY or UNASSIGNED_KEY. */
+export function bucketKeyOf(
+  row: AttributedDailyRow,
+  level: RollupLevel,
+  automationIds?: ReadonlySet<string> | null
+): string {
+  const id = row[ID_FIELD[level]]
+  if (id) return id
+  return isAutomationRow(row, automationIds) ? AUTOMATION_KEY : UNASSIGNED_KEY
+}
+
 /**
  * Aggregate rows at one level. Buckets are sorted by cost (desc, then label);
- * the Unassigned bucket is always present (even at $0) and always last.
+ * the Unassigned bucket is always present (even at $0) and always last. The
+ * automation bucket (issue #51), when it has rows, sits just before it.
  */
-export function rollup(rows: AttributedDailyRow[], level: RollupLevel, index?: OrgIndex): RollupBucket[] {
+export function rollup(
+  rows: AttributedDailyRow[],
+  level: RollupLevel,
+  index?: OrgIndex,
+  opts: RollupOptions = {}
+): RollupBucket[] {
   const field = ID_FIELD[level]
+  const automationIds = opts.automationProviderIds
+  let automation: RollupBucket | null = null
   const buckets = new Map<string, RollupBucket>()
   const unassigned: RollupBucket = {
     key: UNASSIGNED_KEY,
@@ -106,7 +162,17 @@ export function rollup(rows: AttributedDailyRow[], level: RollupLevel, index?: O
   for (const row of rows) {
     const id = row[field]
     let bucket = unassigned
-    if (id) {
+    if (!id && isAutomationRow(row, automationIds)) {
+      automation ??= {
+        key: AUTOMATION_KEY,
+        id: null,
+        label: AUTOMATION_LABEL,
+        unassigned: false,
+        automation: true,
+        ...emptyTotals(),
+      }
+      bucket = automation
+    } else if (id) {
       bucket = buckets.get(id) ?? {
         key: id,
         id,
@@ -122,16 +188,17 @@ export function rollup(rows: AttributedDailyRow[], level: RollupLevel, index?: O
   const assigned = [...buckets.values()].sort(
     (a, b) => b.total_cost_usd - a.total_cost_usd || a.label.localeCompare(b.label)
   )
-  return [...assigned, unassigned].map((b) => ({ ...b, total_cost_usd: round6(b.total_cost_usd) }))
+  const tail = automation ? [automation, unassigned] : [unassigned]
+  return [...assigned, ...tail].map((b) => ({ ...b, total_cost_usd: round6(b.total_cost_usd) }))
 }
 
-export function rollupAll(rows: AttributedDailyRow[], index?: OrgIndex): OrgRollup {
+export function rollupAll(rows: AttributedDailyRow[], index?: OrgIndex, opts: RollupOptions = {}): OrgRollup {
   return {
     total: totalOf(rows),
-    department: rollup(rows, "department", index),
-    team: rollup(rows, "team", index),
-    person: rollup(rows, "person", index),
-    api_key: rollup(rows, "api_key", index),
+    department: rollup(rows, "department", index, opts),
+    team: rollup(rows, "team", index, opts),
+    person: rollup(rows, "person", index, opts),
+    api_key: rollup(rows, "api_key", index, opts),
   }
 }
 

@@ -11,6 +11,11 @@
  * `projection`) also carries `projectedCost` and `projectedChangePercent`
  * (projected period vs prevCost, the previous full period); see
  * lib/projection.ts. cost, prevCost and changePercent stay actual vs actual.
+ *
+ * Issue #51: Cursor spend with no user is its own row, "Cursor –
+ * Bugbot/automation" (key "cursor-automation", automation: true), just before
+ * Unassigned at the department, team, person and API key levels. It drills
+ * like any other row; totals are unchanged.
  */
 
 import {
@@ -41,7 +46,15 @@ import { buildOrgIndex } from "./attribution"
 import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
 import { keyActivity } from "./key-filter"
 import { canAttribute, coverageFor, type CoverageLevel, type CoverageSupport } from "./coverage"
-import { rollup, UNASSIGNED_LABEL, type RollupLevel } from "./rollup"
+import {
+  AUTOMATION_KEY,
+  AUTOMATION_LABEL,
+  automationProviderIds,
+  bucketKeyOf,
+  rollup,
+  UNASSIGNED_LABEL,
+  type RollupLevel,
+} from "./rollup"
 import type { AttributedDailyRow, OrgData, OrgIndex } from "./types"
 import {
   periodStatus,
@@ -64,6 +77,8 @@ export interface BreakdownEntity {
   id: string | null
   label: string
   unassigned: boolean
+  /** True for the "Cursor – Bugbot/automation" row (issue #51). Not Unassigned. */
+  automation?: boolean
   cost: number
   prevCost: number
   /** Percent change vs the comparison period; null when there was no prior spend. */
@@ -252,17 +267,17 @@ export function pctChange(cur: number, prev: number): number | null {
 
 export { comparisonPeriod }
 
-const ID_FIELD = {
-  department: "department_id",
-  team: "team_id",
-  person: "person_id",
-  api_key: "org_api_key_id",
-} as const
+export const AUTOMATION_NOTE = "usage with no user (Bugbot, background and team-level automation)"
 
-function byProviderAt(rows: AttributedDailyRow[], level: RollupLevel, slugOf: (id: string) => string) {
+function byProviderAt(
+  rows: AttributedDailyRow[],
+  level: RollupLevel,
+  slugOf: (id: string) => string,
+  automationIds: ReadonlySet<string>
+) {
   const out = new Map<string, Record<string, number>>() // entity key -> slug -> cost
   for (const r of rows) {
-    const key = r[ID_FIELD[level]] ?? UNASSIGNED_FILTER
+    const key = bucketKeyOf(r, level, automationIds)
     const slug = slugOf(r.provider_id)
     const m = out.get(key) ?? {}
     m[slug] = (m[slug] ?? 0) + num(r.total_cost_usd)
@@ -285,17 +300,22 @@ function entitiesAt(
   index: OrgIndex,
   slugOf: (id: string) => string,
   activeProviders: BreakdownProvider[],
-  proj: Map<string, PeriodProjection> | null
+  proj: Map<string, PeriodProjection> | null,
+  automationIds: ReadonlySet<string>
 ): BreakdownEntity[] {
-  const curB = rollup(cur, level, index)
-  const prevB = rollup(prev, level, index)
+  const opts = { automationProviderIds: automationIds }
+  const curB = rollup(cur, level, index, opts)
+  const prevB = rollup(prev, level, index, opts)
   const prevByKey = new Map(prevB.map((b) => [b.key, b]))
-  const split = byProviderAt(cur, level, slugOf)
+  const split = byProviderAt(cur, level, slugOf, automationIds)
 
   // Entities with prior spend but none now still show (a drop to $0 is news).
   const seen = new Set(curB.map((b) => b.key))
   const dropped = prevB.filter((b) => !seen.has(b.key)).map((b) => ({ ...b, total_cost_usd: 0, total_tokens: 0 }))
-  const assigned = [...curB.filter((b) => !b.unassigned), ...dropped.filter((b) => !b.unassigned)]
+  const all = [...curB, ...dropped]
+  const assigned = all.filter((b) => !b.unassigned && !b.automation)
+  // The automation line (issue #51) sits just before Unassigned, like rollup().
+  const automation = all.filter((b) => b.automation)
   const unassigned = curB.find((b) => b.unassigned)!
 
   const covLevel: CoverageLevel = level
@@ -303,13 +323,18 @@ function entitiesAt(
     .filter((p) => !canAttribute(p.slug, covLevel))
     .map((p) => ({ provider: p.slug, providerName: p.name, note: p.note }))
 
-  return [...assigned, unassigned].map((b) => {
+  return [...assigned, ...automation, unassigned].map((b) => {
     const prevCost = round2(prevByKey.get(b.key)?.total_cost_usd ?? 0)
     const cost = round2(b.total_cost_usd)
     const byProvider = Object.fromEntries(
       Object.entries(split.get(b.key) ?? {}).map(([slug, c]) => [slug, round2(c)])
     )
-    const coverage = b.unassigned
+    const coverage = b.automation
+      ? Object.keys(byProvider).map((slug) => {
+          const p = activeProviders.find((x) => x.slug === slug)
+          return { provider: slug, providerName: p?.name ?? slug, note: AUTOMATION_NOTE }
+        })
+      : b.unassigned
       ? Object.keys(byProvider)
           .sort((a, z) => byProvider[z] - byProvider[a])
           .map((slug) => {
@@ -322,6 +347,7 @@ function entitiesAt(
       id: b.id,
       label: b.label,
       unassigned: b.unassigned,
+      ...(b.automation ? { automation: true } : {}),
       cost,
       prevCost,
       changePercent: pctChange(b.total_cost_usd, prevByKey.get(b.key)?.total_cost_usd ?? 0),
@@ -400,6 +426,7 @@ export function computeBreakdown({
   const meta = buildProviderMeta(providers)
   const slugOf = (id: string) => meta.get(id)?.slug ?? id
   const nameOf = (id: string) => meta.get(id)?.name ?? id
+  const automationIds = automationProviderIds(providers)
   const providerIdForFilter = filters.provider
     ? (providers.find((p) => p.name === filters.provider)?.id ?? null)
     : null
@@ -431,7 +458,7 @@ export function computeBreakdown({
       return { slug: p.name, name: nameOf(p.id), color: meta.get(p.id)!.color, note: c.note, person: c.person, apiKey: c.api_key }
     })
 
-  const filtered = applyFilters(rows, filters, providerIdForFilter)
+  const filtered = applyFilters(rows, filters, providerIdForFilter, automationIds)
   const cur = filtered.filter(inWindow(period))
   const prev = filtered.filter(inWindow(compare))
 
@@ -444,13 +471,15 @@ export function computeBreakdown({
   const status = periodStatus(period, ctx.today)
   const totalProj = projectPeriod(filtered, period, ctx)
   const projAt = (keyOf: (r: AttributedDailyRow) => string) => (totalProj ? projectByKey(filtered, keyOf, period, ctx) : null)
-  const levelProj = (level: RollupLevel) => projAt((r) => r[ID_FIELD[level]] ?? UNASSIGNED_FILTER)
+  const levelProj = (level: RollupLevel) => projAt((r) => bucketKeyOf(r, level, automationIds))
+  const at = (level: RollupLevel, proj: Map<string, PeriodProjection> | null) =>
+    entitiesAt(level, cur, prev, index, slugOf, activeProviders, proj, automationIds)
 
-  const department = entitiesAt("department", cur, prev, index, slugOf, activeProviders, levelProj("department"))
-  const team = entitiesAt("team", cur, prev, index, slugOf, activeProviders, levelProj("team"))
-  const person = entitiesAt("person", cur, prev, index, slugOf, activeProviders, levelProj("person"))
+  const department = at("department", levelProj("department"))
+  const team = at("team", levelProj("team"))
+  const person = at("person", levelProj("person"))
   const keyProj = levelProj("api_key")
-  const api_key: BreakdownApiKey[] = entitiesAt("api_key", cur, prev, index, slugOf, activeProviders, keyProj).map((e) => {
+  const api_key: BreakdownApiKey[] = at("api_key", keyProj).map((e) => {
     const k = e.id ? index.apiKeysById.get(e.id) : undefined
     const owner = k?.owner_person_id ? index.peopleById.get(k.owner_person_id) : undefined
     const keyTeam = k?.team_id ? index.teamsById.get(k.team_id) : undefined
@@ -490,6 +519,7 @@ export function computeBreakdown({
   const labelFor = (k: FilterKey, v: string): string => {
     if (k === "provider") return providers.find((p) => p.name === v) ? nameOf(providers.find((p) => p.name === v)!.id) : v
     if (v === UNASSIGNED_FILTER) return UNASSIGNED_LABEL
+    if (v === AUTOMATION_KEY && k !== "project") return AUTOMATION_LABEL
     if (k === "department") return index.departmentsById.get(v)?.name ?? v
     if (k === "team") return index.teamsById.get(v)?.name ?? v
     if (k === "person") {

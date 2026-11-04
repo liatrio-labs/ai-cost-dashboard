@@ -183,7 +183,10 @@ export function transform(
 
   const records: CostRecord[] = []
   for (const agg of groups.values()) {
-    // Per member; events with no userEmail ("unknown") stay org-level (Unassigned).
+    // Per member. Events with no userEmail ("unknown": Bugbot and other
+    // team-level automation) stay org-level; the org rollups show them as
+    // "Cursor – Bugbot/automation" rather than Unassigned (issue #51,
+    // lib/org/rollup.ts isAutomationRow).
     const personEmail = agg.email === "unknown" ? null : normalizeEmail(agg.email)
     const inTok = agg.inputTokens
     const outTok = agg.outputTokens

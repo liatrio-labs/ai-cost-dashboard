@@ -284,12 +284,12 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
     const people = data.person.filter(visible)
     const value = (e: BreakdownEntity) =>
       sort.by === "spend" ? e.cost : sort.by === "name" ? 0 : (e.byProvider[sort.by] ?? 0)
-    const sorted = [...people.filter((e) => !e.unassigned)].sort((a, b) => {
+    const sorted = [...people.filter((e) => !e.unassigned && !e.automation)].sort((a, b) => {
       const d = sort.by === "name" ? a.label.localeCompare(b.label) : value(a) - value(b)
       return sort.dir === "asc" ? d : -d
     })
-    // Unassigned stays last whatever the sort.
-    return [...sorted, ...people.filter((e) => e.unassigned)]
+    // Cursor – Bugbot/automation (issue #51) then Unassigned stay last whatever the sort.
+    return [...sorted, ...people.filter((e) => e.automation), ...people.filter((e) => e.unassigned)]
   }, [data.person, sort])
 
   const csvColumns: CsvColumn<BreakdownEntity>[] = [
