@@ -458,6 +458,21 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   the admin org page fall back to the 015 columns (key status and the
   unresolved reason are then not stored or shown). **Needs Robert's explicit
   approval before it is applied to production.**
+- **021_person_merge.sql**: duplicate person merge (#51). Adds `person_merges`
+  (audit log of merged-away people; RLS on, service role only) and
+  `merge_people(primary uuid, secondary uuid, merged_by text)`, which in one
+  transaction moves the secondary's `person_identities` and owned
+  `org_api_keys` to the primary, rewrites the secondary's email on manual seat
+  rows (`metadata.entry_type = 'monthly_seats'`; only
+  `attribution.person_email` changes), adds one alias identity per provider
+  for the secondary's email, lets the primary adopt the secondary's team/name
+  only where its own is empty, then deletes the secondary and logs it.
+  Returns the moved counts as JSONB; repeating a merge changes nothing and
+  returns `already_merged: true`. No view change and no `cost_records` insert,
+  delete or cost change (SECURITY INVOKER, pinned `search_path`, EXECUTE for
+  `service_role` only). The app works without it: the merge tool lists
+  duplicates and previews, and says merging needs 021. **Needs Robert's
+  explicit approval before it is applied to production.**
 
 ### Testing migrations locally
 
@@ -481,7 +496,12 @@ runs `assertions_017.sql` (the 017 columns and CHECK, and the issue #32
 precedence against the real view: a `user_actor` row on someone else's key
 resolves to the actor, manual owner, auto creator owner, workspace project
 team, Default project via the key, Unassigned; no fan-out, reconciliation,
-grants), then re-applies 010, 011, 014, 015, 016 and 017 over the data. 011 must always follow 010, because 010 recreates the view
+grants), runs `assertions_021.sql` (a duplicate Jane merged through
+`merge_people()` as `service_role`: moved counts, identities / key owner /
+seat rows on the primary, the old email resolving through the alias, all
+spend on the primary after a refresh, totals unchanged and reconciled,
+a repeated merge returning `already_merged` with nothing changed, refusals,
+grants), then re-applies 010, 011, 014 and the later migrations over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

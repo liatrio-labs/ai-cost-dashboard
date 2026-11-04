@@ -17,6 +17,7 @@ import { AssignToCreatorButton, KeysByProjectCard } from "./keys-by-project"
 import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./bulk"
+import { DuplicatesCard } from "./merge"
 
 const API = "/api/admin/org"
 
@@ -134,7 +135,14 @@ export function OrgAdminClient() {
               <StructureTab org={org} mutate={mutate} />
             </TabsContent>
             <TabsContent value="people">
-              <PeopleTab org={org} mutate={mutate} />
+              <PeopleTab
+                org={org}
+                mutate={mutate}
+                onMerged={async (text) => {
+                  setMsg({ ok: true, text })
+                  await reload()
+                }}
+              />
             </TabsContent>
             <TabsContent value="keys">
               <KeysTab org={org} mutate={mutate} reload={reload} reloadKey={reloadKey} />
@@ -286,7 +294,7 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
 // People and identities
 // ---------------------------------------------------------------------------
 
-function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
+function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerged: (text: string) => Promise<void> }) {
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
   const [team, setTeam] = useState<string | null>(null)
@@ -335,6 +343,8 @@ function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
           </form>
         </CardContent>
       </Card>
+
+      <DuplicatesCard org={org} onMerged={onMerged} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

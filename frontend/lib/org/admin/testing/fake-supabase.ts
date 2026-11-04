@@ -56,6 +56,12 @@ export class FakeSupabase {
   /** Every mutating call, for assertions: { table, op, rows }. */
   writes: { table: string; op: "insert" | "update" | "delete"; rows: Row[] }[] = []
   rpcCalls: string[] = []
+  /** Arguments of every rpc() call, in order. */
+  rpcLog: { name: string; args: Record<string, unknown> | undefined }[] = []
+  /** rpc() implementations by name; unregistered names return { data: null, error: null }. */
+  rpcHandlers: Record<string, (args: Record<string, unknown> | undefined) => { data: unknown; error: FakeError | null }> = {}
+  /** Tables that "don't exist" (a migration not applied): every query on them fails like PostgREST. */
+  missingTables = new Set<string>()
   /** Like PostgREST max-rows: cap every select at this many rows when set. */
   maxRows: number | null = null
   private seq = 0
@@ -80,10 +86,11 @@ export class FakeSupabase {
     return new FakeQuery(this, table)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async rpc(name: string, _args?: Record<string, unknown>): Promise<{ data: unknown; error: FakeError | null }> {
+  async rpc(name: string, args?: Record<string, unknown>): Promise<{ data: unknown; error: FakeError | null }> {
     this.rpcCalls.push(name)
-    return { data: null, error: null }
+    this.rpcLog.push({ name, args })
+    const handler = this.rpcHandlers[name]
+    return handler ? handler(args) : { data: null, error: null }
   }
 
   /** Returns the violated constraint, or null. */
@@ -229,6 +236,9 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: FakeError | null;
   }
 
   private execute() {
+    if (this.db.missingTables.has(this.tableName)) {
+      return { data: null, error: { code: "PGRST205", message: `Could not find the table 'public.${this.tableName}' in the schema cache` } }
+    }
     const table = this.db.table(this.tableName)
     const now = new Date().toISOString()
 
