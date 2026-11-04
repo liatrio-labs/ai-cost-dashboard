@@ -18,7 +18,9 @@
  * gateway keys with no owner (no creator, unmatched creator) are listed there
  * too. "Assign to creator" (POST /api/admin/org/keys/assign-creator, manual)
  * is an override on any gateway key with a creator email whose owner isn't
- * that creator.
+ * that creator. Issue #46: OpenAI keys are synced too (owner = the creator
+ * when their email matches a person), so they show here and in a person's
+ * key list like the others.
  *
  * Issue #45: keys with $0 spend are hidden by default (this page has no
  * period, so spend is all collected data), with search, status chips and a
@@ -143,7 +145,7 @@ export function KeysByProjectCard({
                   </div>
                 </div>
               ))}
-              <UnassignedKeys keys={pg.projects.flatMap((g) => g.keys)} />
+              <UnassignedKeys keys={pg.projects.flatMap((g) => g.keys)} providerSlug={pg.provider_slug} />
             </div>
           </section>
         ))}
@@ -162,8 +164,8 @@ export function KeysByProjectCard({
   )
 }
 
-/** Keys the sync left without an owner, with the reason (issues #32, #34; Anthropic and AI Gateway alike). */
-function UnassignedKeys({ keys }: { keys: KeyRow[] }) {
+/** Keys the sync left without an owner, with the reason (issues #32, #34, #46; Anthropic, OpenAI and AI Gateway alike). */
+function UnassignedKeys({ keys, providerSlug }: { keys: KeyRow[]; providerSlug: string | null }) {
   const pending = keys.filter((k) => !k.owner_person_id && k.unresolved_reason)
   if (!pending.length) return null
   return (
@@ -172,7 +174,7 @@ function UnassignedKeys({ keys }: { keys: KeyRow[] }) {
       <ul className="mt-1 space-y-0.5 text-muted-foreground">
         {pending.map((k) => (
           <li key={`${k.provider_id}:${k.external_key_id}`} data-testid="unassigned-key">
-            <span className="text-foreground">{k.name || k.external_key_id}</span>: {unresolvedReasonText(k.unresolved_reason)} · {usd(k.total_cost_usd)}
+            <span className="text-foreground">{k.name || k.external_key_id}</span>: {unresolvedReasonText(k.unresolved_reason, providerSlug)} · {usd(k.total_cost_usd)}
           </li>
         ))}
       </ul>
@@ -236,7 +238,7 @@ function KeyLine({
         <SourceBadge source={k.assignment_source} />
         <p className="text-xs text-muted-foreground">
           <code>{k.external_key_id}</code> · owner {owner ?? "none"}
-          {!owner && k.unresolved_reason && ` (${unresolvedReasonText(k.unresolved_reason)})`} · team {team ?? "none"}
+          {!owner && k.unresolved_reason && ` (${unresolvedReasonText(k.unresolved_reason, providerSlug)})`} · team {team ?? "none"}
           {creator && ` · created by ${creator}`}
           {k.provider_created_at && ` · created ${isoDay(k.provider_created_at)}`} · last seen {day(k.last_seen)} · {usd(k.total_cost_usd)}
         </p>

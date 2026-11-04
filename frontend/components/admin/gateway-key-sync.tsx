@@ -1,10 +1,10 @@
 "use client"
 
 /**
- * "Sync keys now" (issues #28, #32). Used on /admin (in the pull card, per
- * provider) and /admin/org ("API keys & projects", both providers). Calls
- * POST /api/admin/org/keys/sync, which registers every Anthropic and Vercel
- * AI Gateway key in org_api_keys (keys with no spend included), assigns keys
+ * "Sync keys now" (issues #28, #32, #46). Used on /admin (in the pull card,
+ * per provider) and /admin/org ("API keys & projects", every provider). Calls
+ * POST /api/admin/org/keys/sync, which registers every Anthropic, OpenAI and
+ * Vercel AI Gateway key in org_api_keys (keys with no spend included), assigns keys
  * to their creator where the rules allow, and never overwrites manual
  * assignments. A failed key list is a 502 and nothing is written. Shows the
  * per-provider counts, or the error, inline.
@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button"
 
 export const SYNC_KEYS_URL = "/api/admin/org/keys/sync"
 
-export type KeySyncProvider = "anthropic" | "vercel-ai-gateway"
-const PROVIDER_LABEL: Record<KeySyncProvider, string> = { anthropic: "Anthropic", "vercel-ai-gateway": "Vercel AI Gateway" }
+export type KeySyncProvider = "anthropic" | "openai" | "vercel-ai-gateway"
+const PROVIDER_LABEL: Record<KeySyncProvider, string> = { anthropic: "Anthropic", openai: "OpenAI", "vercel-ai-gateway": "Vercel AI Gateway" }
 
 export interface GatewaySyncCounts {
   created?: number
@@ -30,6 +30,8 @@ export interface GatewaySyncCounts {
   unresolved_creators?: number
   /** AI Gateway (issue #34): team / unset keys given their creator as owner this run. */
   creator_default_assigned?: number
+  /** OpenAI (issue #46): keys seen only on cost rows (e.g. deleted keys). */
+  keys_from_cost_records?: number
 }
 
 /** "4 keys: 2 created, 1 updated, 1 unchanged, 1 manual kept" plus optional extras. */
@@ -41,6 +43,7 @@ export function formatSyncSummary(s: GatewaySyncCounts): string {
   ]
   if (n(s.people_created)) parts.push(`${s.people_created} people created`)
   if (n(s.projects_created)) parts.push(`${s.projects_created} projects created`)
+  if (n(s.keys_from_cost_records)) parts.push(`${s.keys_from_cost_records} from cost rows only`)
   if (n(s.creator_default_assigned)) parts.push(`${s.creator_default_assigned} assigned to their creator`)
   if (n(s.unresolved_creators)) parts.push(`${s.unresolved_creators} creator${s.unresolved_creators === 1 ? "" : "s"} unresolved (no owner)`)
   return parts.join("; ")
@@ -86,7 +89,7 @@ export function KeySyncButton({
 }: {
   onSynced?: () => void | Promise<void>
   size?: "sm" | "default"
-  /** Providers to sync; both when omitted. */
+  /** Providers to sync; all when omitted. */
   providers?: KeySyncProvider[]
   label?: string
 }) {

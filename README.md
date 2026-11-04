@@ -34,6 +34,10 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
   console, and a "Last updated" timestamp.
 - 🔁 **Automated daily collection** — Vercel Cron triggers in-process TypeScript
   collectors; idempotent (delete-then-insert per day) so re-runs never double-count.
+- 🕒 **Sync freshness** — dashboard and admin show each provider's last sync (America/Chicago),
+  warn when a provider missed its `vercel.json` cron (scheduled run + 60 min grace), and
+  remind admins from day 4 when a manual provider such as ChatGPT has no entry for the month
+  (`frontend/lib/sync-freshness.ts`, `GET /api/dashboard/freshness`).
 - 🛠️ **Admin area** — trigger a manual pull, add tools, record manual/seat-based monthly
   entries, edit the forecast headcount, and force a dashboard refresh.
 - 💳 **Seat assignments** — split a seat-based tool's month (Claude Ultra, formerly
@@ -239,14 +243,16 @@ gateway key, inside the 300 s function limit). Either way it needs the same
 a set (same rules as below), and runs the gateway key sync afterwards. **Operator step
 after deploying migration 015 and this code; not run as part of the change.**
 
-To register every gateway and Anthropic key (keys with no spend included) without
-collecting, use **Sync keys now** on `/admin` (pull card, per provider) or `/admin/org`
-("API keys & projects", both providers). It reports created / updated / unchanged /
-manual-kept / unresolved-creator counts per provider; a failed Vercel or Anthropic key
-list is an error and changes nothing. Anthropic keys are assigned to their creator and
+To register every gateway, Anthropic and OpenAI key (keys with no spend included)
+without collecting, use **Sync keys now** on `/admin` (pull card, per provider) or
+`/admin/org` ("API keys & projects", every provider). It reports created / updated /
+unchanged / manual-kept / unresolved-creator counts per provider; a failed Vercel,
+Anthropic or OpenAI key list is an error and changes nothing. Anthropic keys are assigned to their creator and
 workspaces become projects (issue #32, see `docs/attribution.md`); the same sync runs
 after every Anthropic collection. Migration 017 stores Anthropic key status and the
-reason a key has no owner; the sync works without it.
+reason a key has no owner; the sync works without it. OpenAI keys are owned by their
+creator when the creator's email matches an existing person (issue #46, no migration);
+the same sync runs after every OpenAI collection.
 
 ```bash
 BASE=https://your-deployment.example.com

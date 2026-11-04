@@ -103,7 +103,9 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 - Project and key names are fetched best-effort. A failed lookup leaves names
   null and never fails collection. The key owner's email goes in
   `metadata.api_key_owner_email`: that is who created the key, which may not be
-  who spends on it, so it is not used as `person_email`.
+  who spends on it, so it is not used as `person_email`. Instead the OpenAI key
+  sync (issue #46, below) makes that creator the key's default owner when the
+  email matches a person, which sits below the row's own person in precedence.
 
 ### Vercel AI Gateway (`vercel-ai-gateway.ts`)
 
@@ -260,20 +262,59 @@ the creator's person (matched by email, else created with no team) with
 `assignment_source = 'manual'`, so a later "Sync keys now" leaves it alone.
 Keys already owned by their creator don't show it (the route answers 409).
 
+### OpenAI keys to their creator, projects as projects (issue #46)
+
+The **OpenAI key sync** (`frontend/lib/org/openai-key-sync.ts`) uses the
+openai provider's Admin key (and `OPENAI_ORG_ID` when set) to list
+`GET /v1/organization/projects?include_archived=true` and each project's
+`GET /v1/organization/projects/{id}/api_keys`, then adds every key seen on the
+openai cost rows that the API no longer lists (deleted keys), with the
+creator taken from `metadata.api_key_owner_email`.
+
+- **Projects.** One `org_projects` row per OpenAI project (provider openai,
+  external id = project id). Existing projects only get a missing name.
+- **Keys.** One `org_api_keys` row per key: name, creator id and email,
+  `org_project_id` = its project, `spend_attribution` NULL. No status is stored.
+- **Auto owner, only for a matching person.** The creator's email
+  (`owner.user.email`, else `api_key_owner_email`) is matched to `people.email`,
+  else to an openai `person_identities` row with that email as external id.
+  A match becomes `owner_person_id` with `assignment_source = 'auto'`. Unlike
+  the Anthropic and gateway syncs, **no person is created**.
+- **No owner, reason stored:** `unmatched_creator` (the email matches no
+  person, or the user has no email; shown as "creator's email matches no
+  person" for OpenAI keys), `service_account`, and `no_creator`. A key known
+  only from cost rows whose rows never recorded a creator keeps whatever owner
+  and email it already had.
+- **Manual wins**, exactly as for Anthropic: the sync only refreshes metadata
+  on a manual key.
+
+It runs best-effort after every `openai` collection (deleted keys come from
+the records just collected) and from **"Sync keys now"** (which scans the
+openai cost rows for deleted keys, best-effort). The project and key lists are
+strict there: an OpenAI Admin API error is a 502 and nothing is written. The
+summary adds `keys_from_cost_records`; `people_created` is always 0.
+OpenAI keys then show in the `/admin/org` keys tab under their project and in
+a person's key list (issue #35) like any other owned key.
+
+**No migration (019 is not needed).** `org_api_keys` has no provider
+constraint and 017's `unresolved_reason` values cover every OpenAI case.
+Without 017 the sync skips `unresolved_reason` and works otherwise.
+
 #### Attribution precedence
 
 | # | Rule | Where |
 |---|---|---|
 | 1 | The person who actually used the key (`user_actor` / principal on the cost row) | `person_email` / `person_external_id` on the row beat the key owner |
 | 2 | An owner set by hand (`assignment_source = 'manual'`); the sync never overwrites it | `org_api_keys.owner_person_id` |
-| 3 | The automatic creator owner (`assignment_source = 'auto'`), for Anthropic keys and, since issue #34, every gateway spend-attribution mode | `org_api_keys.owner_person_id` |
-| 4 | The key's project (Anthropic workspace, Vercel project), then that project's team | row `project_id`, else the key's `org_project_id` |
+| 3 | The automatic creator owner (`assignment_source = 'auto'`), for Anthropic keys, since issue #34 every gateway spend-attribution mode, and since issue #46 OpenAI keys whose creator email matches a person | `org_api_keys.owner_person_id` |
+| 4 | The key's project (Anthropic workspace, Vercel project, OpenAI project), then that project's team | row `project_id`, else the key's `org_project_id` |
 | 5 | Unassigned | no person and no team |
 
 The view (`cost_records_daily_attributed`) is unchanged: these rules already
 hold. Team is still **key team > person team > project team**, so the actor's
 team wins on a user_actor row unless an admin set a team on the key itself.
 Checked by `lib/org/attribution.test.ts`, `lib/org/anthropic-key-sync.test.ts`,
+`lib/org/openai-key-sync.test.ts`,
 `lib/org/gateway-sync.test.ts` (including a totals-unchanged check: summed
 cost per provider and day is identical before and after the sync) and
 `scripts/migration-tests/assertions_017.sql`.
