@@ -11,6 +11,9 @@ import { toAttributedDailyRows, type CostRecordLike } from "@/lib/org/rollup"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
 import type { BreakdownData } from "@/lib/org/breakdown"
 
+// Issue #50: exports are captured instead of saved.
+jest.mock("@/lib/csv", () => ({ ...jest.requireActual("@/lib/csv"), downloadCsv: jest.fn() }))
+
 const NOW = new Date("2026-11-15T00:00:00Z")
 const breakdown = (filters: DashboardFilters = {}, org = orgData()) =>
   computeBreakdown({ rows: attributedRows(org), org, providers: PROVIDERS, filters, params: { month: "2026-11" }, now: NOW })
@@ -559,5 +562,105 @@ describe("Projects and keys under projects (issue #28)", () => {
     })
     const owner = data.key_groups.flatMap((g) => g.projects).find((p) => p.keys.some((k) => k.label === "Research key"))
     expect(owner?.external_id).toBe("wrk_new")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #50: CSV export of the filtered, sorted tables
+// ---------------------------------------------------------------------------
+
+describe("Export CSV (issue #50)", () => {
+  const download = jest.requireMock("@/lib/csv").downloadCsv as jest.Mock
+  beforeEach(() => download.mockClear())
+  /** Parses the last download; the fixtures have no quoted fields, so a plain split is safe. */
+  const lastCsv = () => {
+    const [filename, csv] = download.mock.calls.at(-1) as [string, string]
+    const [header, ...rows] = csv.split("\r\n").map((l) => l.split(","))
+    return { filename, header, rows }
+  }
+
+  it("People: exports the rows shown, in the current sort, with raw numbers and the period in the filename", async () => {
+    const user = userEvent.setup()
+    const data = breakdown()
+    render(<PeopleTable data={data} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "People" })
+    await user.click(within(table).getByRole("button", { name: "Sort by Spend" }))
+    await user.click(screen.getByRole("button", { name: "Export People as CSV" }))
+    const { filename, header, rows } = lastCsv()
+    expect(filename).toBe("ai-cost-people-2026-11.csv")
+    expect(header.slice(0, 3)).toEqual(["Name", "Spend (USD)", "Change (projected) %"])
+    expect(header.slice(3)).toEqual(data.providers.map((p) => `${p.name} (USD)`))
+    const shown = within(table).getAllByTestId("person-row").map((r) => within(r).getAllByRole("button")[0].textContent)
+    expect(rows).toHaveLength(shown.length)
+    expect(rows.map((r) => r[0])).toEqual(shown)
+    const alice = rows.find((r) => r[0] === "Alice")!
+    const aliceData = data.person.find((p) => p.label === "Alice")!
+    expect(alice[1]).toBe(String(aliceData.cost))
+    expect(alice[2]).toBe(aliceData.projectedChangePercent === null ? "" : String(aliceData.projectedChangePercent))
+    const ws = data.providers.findIndex((p) => p.person === "no")
+    expect(alice[3 + ws]).toBe("n/a")
+  })
+
+  it("API keys: exports exactly the key rows the filters leave, with their group", async () => {
+    const user = userEvent.setup()
+    render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    const exportKeys = async () => {
+      await user.click(screen.getByRole("button", { name: "Export API keys as CSV" }))
+      return lastCsv()
+    }
+    const shown = () => within(table).getAllByTestId("key-row").map((r) => within(r).getAllByRole("button")[0].textContent)
+
+    // Default: $0 keys hidden.
+    let csv = await exportKeys()
+    expect(csv.filename).toBe("ai-cost-api-keys-2026-11.csv")
+    expect(csv.header).toEqual(["Provider", "Project / workspace", "Name", "Key ID", "Status", "Created", "Owner", "Team", "Spend (USD)", "Change (projected) %"])
+    expect(csv.rows.map((r) => r[2])).toEqual(shown())
+
+    await showZeroKeys(user)
+    csv = await exportKeys()
+    expect(csv.rows).toHaveLength(4)
+    expect(csv.rows.map((r) => r[2])).toEqual(shown())
+    const team = csv.rows.find((r) => r[2] === "Data pipeline key")!
+    expect(team[0]).toBe("OpenAI API")
+    expect(team[1]).toMatch(/^[A-Za-z ]+: /)
+    expect([team[6], team[7], team[8]]).toEqual(["Alice", "Data", "40"])
+    expect(csv.rows.at(-1)!.slice(0, 3)).toEqual(["", "", "Unassigned (no registered key)"])
+
+    await user.type(screen.getByRole("searchbox", { name: "Search API keys" }), "pipeline")
+    csv = await exportKeys()
+    expect(shown()).toEqual(["Data pipeline key"])
+    expect(csv.rows.map((r) => r[2])).toEqual(["Data pipeline key"])
+  })
+
+  it("Projects: exports every row shown", async () => {
+    const user = userEvent.setup()
+    const org = orgData()
+    org.apiKeys = org.apiKeys.map((k) => (k.external_key_id === "key_bare" ? { ...k, org_project_id: "pr-sales" } : k))
+    render(<ProjectsTable data={breakdown({}, org)} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "Projects" })
+    await user.click(screen.getByRole("button", { name: "Export Projects as CSV" }))
+    const { filename, header, rows } = lastCsv()
+    expect(filename).toBe("ai-cost-projects-2026-11.csv")
+    expect(header).toEqual(["Provider", "Project", "Kind", "Team", "Spend (USD)", "Change (projected) %"])
+    expect(rows).toHaveLength(within(table).getAllByTestId("project-row").length)
+    expect(rows.find((r) => r[1] === "Sales tools")!.slice(3, 5)).toEqual(["Field", "10"])
+    expect(rows.find((r) => r[1] === "Unassigned (no project)")![4]).toBe("240")
+  })
+
+  it("a range period goes in the filename as its dates", async () => {
+    const user = userEvent.setup()
+    const data = computeBreakdown({
+      rows: attributedRows(orgData()),
+      org: orgData(),
+      providers: PROVIDERS,
+      filters: {},
+      params: { start: "2026-10-01", end: "2026-10-15" },
+      now: NOW,
+    })
+    render(<PeopleTable data={data} onFiltersChange={() => {}} />)
+    await user.click(screen.getByRole("button", { name: "Export People as CSV" }))
+    expect(lastCsv().filename).toBe("ai-cost-people-2026-10-01_to_2026-10-15.csv")
+    expect(lastCsv().header[2]).toBe("Change %")
   })
 })
