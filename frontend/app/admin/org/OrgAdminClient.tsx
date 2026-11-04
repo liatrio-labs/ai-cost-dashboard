@@ -320,11 +320,16 @@ function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerg
   const fillDefaultNames = async () => {
     setFilling(true)
     setFillError(null)
-    const res = await api<{ updated: number }>("/people/default-names", "POST")
-    setFilling(false)
-    if (!res.ok) return setFillError(res.data.error || `Request failed (${res.status})`)
-    const n = res.data.updated
-    await onMerged(n ? `Filled default names for ${n} ${n === 1 ? "person" : "people"}` : "No placeholder names to fill")
+    try {
+      const res = await api<{ updated: number }>("/people/default-names", "POST")
+      if (!res.ok) return setFillError(res.data.error || `Request failed (${res.status})`)
+      const n = res.data.updated
+      await onMerged(n ? `Filled default names for ${n} ${n === 1 ? "person" : "people"}` : "No placeholder names to fill")
+    } catch (e) {
+      setFillError(e instanceof Error && e.message ? e.message : "Request failed")
+    } finally {
+      setFilling(false)
+    }
   }
 
   const providerName = (id: string) => {
