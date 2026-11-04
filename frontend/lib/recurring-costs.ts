@@ -26,11 +26,15 @@
  *   fits (more seats or money assigned than the segment has) is not applied
  *   and the whole month stays org-level. Flat segments are org-level.
  *
+ * Rows are dated the 1st with model_name "recurring" (flat) or "recurring
+ * seats"; lib/projection.ts counts both as seat spend that is never carried
+ * into a month without one.
+ *
  * Pure: no I/O. lib/dashboard-data.ts loads the rows (and treats a missing
  * recurring_costs table, i.e. 022 not applied, as no recurring costs).
  */
 
-import { RECURRING_MODEL, SEAT_MODEL } from "@/lib/projection"
+import { RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import type { AttributedDailyRow, ResolvedAttribution } from "@/lib/org/types"
 import {
   entryMonth,
@@ -195,7 +199,7 @@ export function expandRecurringCosts(input: {
         date: `${ym}-01`,
         month: ym,
         provider_id: c.provider_id,
-        model_name: isSeat ? SEAT_MODEL : RECURRING_MODEL,
+        model_name: isSeat ? RECURRING_SEAT_MODEL : RECURRING_MODEL,
         total_tokens: 0,
         record_count: 1,
         recurring_cost_id: c.id,

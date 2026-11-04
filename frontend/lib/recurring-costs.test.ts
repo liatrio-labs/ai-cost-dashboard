@@ -21,7 +21,7 @@ import {
   type RecurringMonthRow,
 } from "@/lib/recurring-costs"
 import { computeFreshness, type FreshnessProvider } from "@/lib/sync-freshness"
-import { monthRange, projectPeriod, projectionContext, RECURRING_MODEL, SEAT_MODEL } from "@/lib/projection"
+import { SEAT_MODEL as SEAT_MODEL_NAME, monthRange, projectPeriod, projectionContext, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import { buildOrgIndex, resolveAttribution } from "@/lib/org/attribution"
 import { orgData, PE, T, D } from "@/lib/org/test-fixtures"
 import { applyFilters } from "@/lib/dashboard-filters"
@@ -121,7 +121,7 @@ describe("change from a month", () => {
   test("months before the change keep the old amount", () => {
     const rows = expandRecurringCosts({ costs, manualRows: [], currentMonth: "2026-11" })
     expect(byMonth(rows)).toEqual({ "2026-06": 4000, "2026-07": 4000, "2026-08": 4000, "2026-09": 5000, "2026-10": 5000, "2026-11": 5000 })
-    expect(rows.every((r) => r.model_name === SEAT_MODEL)).toBe(true)
+    expect(rows.every((r) => r.model_name === RECURRING_SEAT_MODEL)).toBe(true)
     expect(rows.find((r) => r.month === "2026-09")?.total_requests).toBe(25)
   })
   test("segmentFor finds the segment in force for a month", () => {
@@ -295,6 +295,44 @@ describe("projection", () => {
     const rows = attributeRecurringRows(expandRecurringCosts({ costs: [seg(LOVABLE, "2026-09", null, 250)], manualRows: [], currentMonth: "2026-11" }))
     const p = projectPeriod(rows, monthRange("2026-11"), ctx)!
     expect(p).toMatchObject({ actual: 250, projected: 250, seatActual: 250, usageActual: 0 })
+  })
+
+  const ctxFor = () =>
+    projectionContext(
+      [
+        { id: LOVABLE, name: "lovable", last_collected_at: null },
+        { id: ULTRA, name: "claude-max", last_collected_at: null },
+      ],
+      new Date("2026-11-03T12:00:00Z")
+    )
+  const nov = monthRange("2026-11")
+
+  test("a recurring cost that ended last month is not carried into this month's projection", () => {
+    const rows = attributeRecurringRows(
+      expandRecurringCosts({
+        costs: [seg(LOVABLE, "2026-09", "2026-10", 250), seg(ULTRA, "2026-09", "2026-10", 400, 2, 200)],
+        manualRows: [],
+        currentMonth: "2026-11",
+      })
+    )
+    expect(rows.some((r) => r.date >= "2026-11-01")).toBe(false)
+    expect(projectPeriod(rows, nov, ctxFor())).toMatchObject({ actual: 0, projected: 0, seatProjected: 0 })
+  })
+
+  test("a current-month manual override replaces the recurring cost in the projection too", () => {
+    const manualRows = [manual(LOVABLE, "2026-11", 300)]
+    const rows: { date: string; provider_id: string; model_name: string; total_cost_usd: number | string }[] = [
+      ...attributeRecurringRows(expandRecurringCosts({ costs: [seg(LOVABLE, "2026-09", null, 250)], manualRows, currentMonth: "2026-11" })),
+      { date: "2026-11-01", provider_id: LOVABLE, model_name: "manual", total_cost_usd: 300 },
+    ]
+    const p = projectPeriod(rows, nov, ctxFor())!
+    expect(p.seatProjected).toBe(0) // October's recurring 250 is not carried
+    expect(p.actual).toBe(300)
+  })
+
+  test("manual seat entries are still carried into a month without one (unchanged behavior)", () => {
+    const rows = [{ date: "2026-10-01", provider_id: ULTRA, model_name: SEAT_MODEL_NAME, total_cost_usd: 4000 }]
+    expect(projectPeriod(rows, nov, ctxFor())).toMatchObject({ actual: 0, seatProjected: 4000 })
   })
 })
 
