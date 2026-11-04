@@ -21,8 +21,15 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
   count). Editable from the admin area. Filtering the dashboard to a team or department
   projects that unit: its plateau is the org plateau times its trailing 3-month share of
   attributed spend (Unassigned is its own unit, so units sum to the org forecast), with
-  optional per-unit plateau or headcount overrides in the admin area. Person and API-key
-  views show a trailing 3-month average instead.
+  optional per-unit plateau or headcount overrides in the admin area. Person, API-key and
+  project views show the projected current month and a trailing 3-month average of complete
+  months instead.
+- 📈 **Projected current month** — while a period is in progress, every trend (KPI cards,
+  tools table, the Change column in the org tables) compares a **projected** period total with
+  the previous full period and is labelled "projected", instead of a partial month vs a full
+  one. Spend Trends and Spend Forecast draw actuals solid through the last complete month and
+  the current month dotted. Weekday-aware, lag-aware and seat-aware; see
+  [docs/projections.md](docs/projections.md). Actual totals are never changed.
 - 🗂️ **Tools table** — per-tool spend, description, a link to the provider's billing
   console, and a "Last updated" timestamp.
 - 🔁 **Automated daily collection** — Vercel Cron triggers in-process TypeScript

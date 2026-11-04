@@ -380,19 +380,24 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
 
             {/* Dashboard */}
             <TabsContent value="dashboard" className="space-y-6">
-              <KPICards kpis={data!.kpis} />
+              <KPICards kpis={data!.kpis} projection={data!.projection} />
               <div className="grid gap-6 lg:grid-cols-2">
                 <SpendBreakdownChart tools={data!.tools} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
-              <TrendChart trends={data!.trends} />
+              <TrendChart trends={data!.trends} currentMonth={data!.projection?.currentMonth} />
             </TabsContent>
 
             {/* Trends */}
             <TabsContent value="trends" className="space-y-6">
               <div className="grid gap-6 lg:grid-cols-2">
-                <TrendChart trends={data!.trends} />
-                <ForecastChart forecast={data!.forecast} meta={data!.forecastMeta} unitLabel={forecastUnitLabel} />
+                <TrendChart trends={data!.trends} currentMonth={data!.projection?.currentMonth} />
+                <ForecastChart
+                  forecast={data!.forecast}
+                  meta={data!.forecastMeta}
+                  unitLabel={forecastUnitLabel}
+                  currentMonth={data!.projection?.currentMonth}
+                />
               </div>
               <div className="grid gap-6 lg:grid-cols-2">
                 <SpendBreakdownChart tools={data!.tools} />
@@ -402,8 +407,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
 
             {/* Tools */}
             <TabsContent value="tools" className="space-y-6">
-              <KPICards kpis={data!.kpis} />
-              <ToolsTable tools={data!.tools} />
+              <KPICards kpis={data!.kpis} projection={data!.projection} />
+              <ToolsTable tools={data!.tools} projection={data!.projection} />
             </TabsContent>
 
             {/* Org: department / team / person / API key drill-downs */}

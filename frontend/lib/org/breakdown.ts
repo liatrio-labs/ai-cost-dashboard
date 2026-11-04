@@ -6,12 +6,16 @@
  * rows and org tables; tests feed it fixtures.
  *
  * Invariant: at every level, the rows (Unassigned included) sum to `total`.
+ *
+ * Issue #39: when the period contains today, each row (and the total, under
+ * `projection`) also carries `projectedCost` and `projectedChangePercent`
+ * (projected period vs prevCost, the previous full period); see
+ * lib/projection.ts. cost, prevCost and changePercent stay actual vs actual.
  */
 
 import {
   buildProviderMeta,
-  monthBounds,
-  previousWindow,
+  comparisonPeriod,
   resolvePeriod,
   type PeriodParams,
   type ProviderRow,
@@ -32,6 +36,15 @@ import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
 import { canAttribute, coverageFor, type CoverageLevel, type CoverageSupport } from "./coverage"
 import { rollup, UNASSIGNED_LABEL, type RollupLevel } from "./rollup"
 import type { AttributedDailyRow, OrgData, OrgIndex } from "./types"
+import {
+  periodStatus,
+  projectByKey,
+  projectedChangePercent,
+  projectionContext,
+  projectPeriod,
+  type PeriodProjection,
+  type PeriodStatus,
+} from "@/lib/projection"
 
 export interface CoverageNote {
   provider: string // slug
@@ -48,6 +61,13 @@ export interface BreakdownEntity {
   prevCost: number
   /** Percent change vs the comparison period; null when there was no prior spend. */
   changePercent: number | null
+  /**
+   * Issue #39: the period projected to its end (lib/projection.ts) when it
+   * contains today, else null. cost stays the actual.
+   */
+  projectedCost: number | null
+  /** projectedCost vs prevCost (the previous full period); null when not projected or no prior spend ("new"). */
+  projectedChangePercent: number | null
   tokens: number
   /** provider slug -> cost */
   byProvider: Record<string, number>
@@ -84,6 +104,8 @@ export interface BreakdownProject {
   cost: number
   prevCost: number
   changePercent: number | null
+  projectedCost: number | null
+  projectedChangePercent: number | null
   tokens: number
 }
 
@@ -151,6 +173,17 @@ export interface BreakdownData {
   level: DrillLevel
   orgConfigured: boolean
   total: { cost: number; prevCost: number; changePercent: number | null }
+  /**
+   * Issue #39: whether the period is past, contains today (projected) or is in
+   * the future, how it was projected, and the projected total.
+   */
+  projection: {
+    status: PeriodStatus
+    today: string
+    completeDays: number | null
+    completeThrough: string | null
+    total: { projectedCost: number; projectedChangePercent: number | null } | null
+  }
   department: BreakdownEntity[]
   team: BreakdownEntity[]
   person: BreakdownEntity[]
@@ -195,15 +228,7 @@ export function pctChange(cur: number, prev: number): number | null {
   return Math.round(((cur - prev) / prev) * 1000) / 10
 }
 
-/** Month mode compares with the previous calendar month; ranges with the preceding equal-length window. */
-export function comparisonPeriod(p: { start: string; end: string; mode: "month" | "range" }) {
-  if (p.mode === "month") {
-    const [y, m] = p.start.split("-").map(Number)
-    const d = new Date(Date.UTC(y, m - 2, 1))
-    return monthBounds(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
-  }
-  return previousWindow(p.start, p.end)
-}
+export { comparisonPeriod }
 
 const ID_FIELD = {
   department: "department_id",
@@ -224,13 +249,21 @@ function byProviderAt(rows: AttributedDailyRow[], level: RollupLevel, slugOf: (i
   return out
 }
 
+/** Projection fields for an entity, given the projection map for its level (null when not projecting). */
+function projected(proj: Map<string, PeriodProjection> | null, key: string, cost: number, prevCost: number) {
+  if (!proj) return { projectedCost: null, projectedChangePercent: null }
+  const p = proj.get(key)?.projected ?? round2(cost)
+  return { projectedCost: p, projectedChangePercent: projectedChangePercent(p, prevCost) }
+}
+
 function entitiesAt(
   level: RollupLevel,
   cur: AttributedDailyRow[],
   prev: AttributedDailyRow[],
   index: OrgIndex,
   slugOf: (id: string) => string,
-  activeProviders: BreakdownProvider[]
+  activeProviders: BreakdownProvider[],
+  proj: Map<string, PeriodProjection> | null
 ): BreakdownEntity[] {
   const curB = rollup(cur, level, index)
   const prevB = rollup(prev, level, index)
@@ -270,6 +303,7 @@ function entitiesAt(
       cost,
       prevCost,
       changePercent: pctChange(b.total_cost_usd, prevByKey.get(b.key)?.total_cost_usd ?? 0),
+      ...projected(proj, b.key, b.total_cost_usd, prevByKey.get(b.key)?.total_cost_usd ?? 0),
       tokens: b.total_tokens,
       byProvider,
       coverage,
@@ -283,7 +317,8 @@ function projectEntities(
   org: OrgData,
   index: OrgIndex,
   slugOf: (id: string) => string,
-  nameOf: (id: string) => string
+  nameOf: (id: string) => string,
+  proj: Map<string, PeriodProjection> | null
 ): BreakdownProject[] {
   type Acc = { cost: number; prev: number; tokens: number; providerId: string | null; workspace: boolean }
   const acc = new Map<string, Acc>()
@@ -322,6 +357,7 @@ function projectEntities(
       cost: round2(a.cost),
       prevCost: round2(a.prev),
       changePercent: pctChange(a.cost, a.prev),
+      ...projected(proj, key, a.cost, a.prev),
       tokens: a.tokens,
     }
   })
@@ -372,10 +408,19 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
   const total = cur.reduce((s, r) => s + num(r.total_cost_usd), 0)
   const prevTotal = prev.reduce((s, r) => s + num(r.total_cost_usd), 0)
 
-  const department = entitiesAt("department", cur, prev, index, slugOf, activeProviders)
-  const team = entitiesAt("team", cur, prev, index, slugOf, activeProviders)
-  const person = entitiesAt("person", cur, prev, index, slugOf, activeProviders)
-  const api_key: BreakdownApiKey[] = entitiesAt("api_key", cur, prev, index, slugOf, activeProviders).map((e) => {
+  // Issue #39: a period containing today is projected per entity from the
+  // filtered rows (lib/projection.ts); actual costs above are unchanged.
+  const ctx = projectionContext(providers, now)
+  const status = periodStatus(period, ctx.today)
+  const totalProj = projectPeriod(filtered, period, ctx)
+  const projAt = (keyOf: (r: AttributedDailyRow) => string) => (totalProj ? projectByKey(filtered, keyOf, period, ctx) : null)
+  const levelProj = (level: RollupLevel) => projAt((r) => r[ID_FIELD[level]] ?? UNASSIGNED_FILTER)
+
+  const department = entitiesAt("department", cur, prev, index, slugOf, activeProviders, levelProj("department"))
+  const team = entitiesAt("team", cur, prev, index, slugOf, activeProviders, levelProj("team"))
+  const person = entitiesAt("person", cur, prev, index, slugOf, activeProviders, levelProj("person"))
+  const keyProj = levelProj("api_key")
+  const api_key: BreakdownApiKey[] = entitiesAt("api_key", cur, prev, index, slugOf, activeProviders, keyProj).map((e) => {
     const k = e.id ? index.apiKeysById.get(e.id) : undefined
     const owner = k?.owner_person_id ? index.peopleById.get(k.owner_person_id) : undefined
     const keyTeam = k?.team_id ? index.teamsById.get(k.team_id) : undefined
@@ -388,8 +433,8 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     }
   })
 
-  const project = projectEntities(cur, prev, org, index, slugOf, nameOf)
-  const key_groups = keyGroups({ api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf })
+  const project = projectEntities(cur, prev, org, index, slugOf, nameOf, projAt((r) => effectiveProjectId(r) || UNASSIGNED_FILTER))
+  const key_groups = keyGroups({ api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj })
   const hasProjects = providerScoped.some((r) => !!effectiveProjectId(r))
 
   // provider x model detail for whatever the filters select.
@@ -432,6 +477,13 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     level: drillLevel(filters),
     orgConfigured: org.departments.length + org.teams.length + org.people.length + org.apiKeys.length > 0,
     total: { cost: round2(round6(total)), prevCost: round2(round6(prevTotal)), changePercent: pctChange(total, prevTotal) },
+    projection: {
+      status,
+      today: ctx.today,
+      completeDays: totalProj?.completeDays ?? null,
+      completeThrough: totalProj?.completeThrough ?? null,
+      total: totalProj ? { projectedCost: totalProj.projected, projectedChangePercent: projectedChangePercent(totalProj.projected, prevTotal) } : null,
+    },
     department,
     team,
     person,
@@ -505,8 +557,9 @@ function keyGroups(input: {
   providerIdForFilter: string | null
   slugOf: (id: string) => string
   nameOf: (id: string) => string
+  keyProj: Map<string, PeriodProjection> | null
 }): ProviderGroup<BreakdownKeyItem>[] {
-  const { api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf } = input
+  const { api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj } = input
   // key id -> project -> cost, preferring the period's rows over all loaded rows.
   const projectByKey = (rows: AttributedDailyRow[]) => {
     const acc = new Map<string, Map<string, number>>()
@@ -559,6 +612,7 @@ function keyGroups(input: {
       cost: e?.cost ?? 0,
       prevCost: e?.prevCost ?? 0,
       changePercent: e?.changePercent ?? null,
+      ...(e ? { projectedCost: e.projectedCost, projectedChangePercent: e.projectedChangePercent } : projected(keyProj, k.id, 0, 0)),
       tokens: e?.tokens ?? 0,
       byProvider: e?.byProvider ?? {},
       coverage: e?.coverage ?? [],

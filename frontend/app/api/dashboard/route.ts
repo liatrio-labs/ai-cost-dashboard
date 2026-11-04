@@ -19,7 +19,8 @@
  * cost_records_daily_attributed instead and narrow KPIs, trend, tools and
  * models. A team or department filter (alone, or a team within its
  * department) projects that unit's forecast (issue #9, lib/unit-forecast.ts);
- * person/key filters get a trailing 3-month average instead of a projection.
+ * person/key/project filters get a trailing 3-month average of complete
+ * months and the projected current month (issue #39, lib/projection.ts).
  * The aggregation itself lives in lib/dashboard-compute.ts.
  */
 
@@ -31,12 +32,14 @@ import {
   computeUnitForecasts,
   forecastUnitForFilters,
   monthlyTotals,
+  prevMonth,
   trailingAverage as trailingAverageOf,
   type UnitForecast,
   type UnitLevel,
 } from "@/lib/unit-forecast"
 import type { AttributedDailyRow } from "@/lib/org/types"
-import { computeDashboard, type DailyRow } from "@/lib/dashboard-compute"
+import { computeDashboard, type DailyRow, type ProviderRow } from "@/lib/dashboard-compute"
+import { projectionContext } from "@/lib/projection"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
   fetchAllPaged,
@@ -62,6 +65,7 @@ export async function GET(request: NextRequest) {
     const providers = await fetchProviders(supabase)
 
     const forecastSettings = await getForecastSettings()
+    const now = new Date()
 
     let daily: DailyRow[]
     let unitForecast: UnitForecast | null = null
@@ -73,13 +77,17 @@ export async function GET(request: NextRequest) {
       // narrow in memory.
       const all = await fetchAttributedDaily(supabase, {}, null)
       daily = applyFilters(all, filters, null)
-      unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings)
+      unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
       daily = applyFilters(await fetchAttributedDaily(supabase, filters, providerId), filters, providerId)
-      // Person / key (or provider) views get a trailing average, not a forecast.
-      const last = monthlyTotals(daily).at(-1)?.month
-      if (last && (filters.person || filters.key || filters.project)) trailingAverage = trailingAverageOf(daily, last)
+      // Person / key / project views get a trailing average, not a forecast
+      // (plus the projected current month, from computeDashboard). The
+      // average ends at the last complete month, never the partial one (#39).
+      const lastData = monthlyTotals(daily).at(-1)?.month
+      const lastComplete = prevMonth(now.toISOString().slice(0, 7))
+      const last = lastData && lastData < lastComplete ? lastData : lastComplete
+      if (lastData && (filters.person || filters.key || filters.project)) trailingAverage = trailingAverageOf(daily, last)
     } else {
       // Pull the daily rollup (real automated data).
       daily = await fetchAllPaged<DailyRow>(
@@ -95,6 +103,7 @@ export async function GET(request: NextRequest) {
         providers,
         params: { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") },
         forecastSettings,
+        now,
         projectForecast: !filtered,
         unitForecast,
         trailingAverage,
@@ -118,13 +127,22 @@ async function unitForecastForFilters(
   all: AttributedDailyRow[],
   filters: DashboardFilters,
   sel: { level: UnitLevel; key: string },
-  settings: ForecastSettings
+  settings: ForecastSettings,
+  providers: ProviderRow[],
+  now: Date
 ): Promise<UnitForecast | null> {
   if (filters.team && filters.department) {
     const teamRows = applyFilters(all, { team: filters.team })
     if (applyFilters(teamRows, { department: filters.department }).length !== teamRows.length) return null
   }
   const overrides = await getForecastUnitOverrides()
-  const result = computeUnitForecasts({ rows: all, level: sel.level, settings, overrides, include: [sel.key] })
+  const result = computeUnitForecasts({
+    rows: all,
+    level: sel.level,
+    settings,
+    overrides,
+    include: [sel.key],
+    current: projectionContext(providers, now),
+  })
   return result.units.find((u) => u.key === sel.key) ?? null
 }

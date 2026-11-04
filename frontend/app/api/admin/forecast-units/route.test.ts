@@ -7,9 +7,11 @@
 
 import { NextRequest } from "next/server"
 import { FakeSupabase } from "@/lib/org/admin/testing/fake-supabase"
-import { attributedRows } from "@/lib/org/dashboard-fixtures"
+import { PROVIDERS, attributedRows } from "@/lib/org/dashboard-fixtures"
 import { D, T, orgData } from "@/lib/org/test-fixtures"
-import type { UnitOverrides } from "@/lib/forecast-settings"
+import { FORECAST_DEFAULTS, type UnitOverrides } from "@/lib/forecast-settings"
+import { computeUnitForecasts } from "@/lib/unit-forecast"
+import { projectionContext } from "@/lib/projection"
 
 const mockAuth = { user: null as null | { id: string; email: string } }
 const mockState = { db: null as unknown as FakeSupabase, overrides: {} as UnitOverrides }
@@ -72,18 +74,23 @@ async function call(method: "GET" | "PUT", body?: unknown) {
   return { status: res.status, body: (await res.json()) as Payload }
 }
 
+// Issue #39: unit forecasts anchor on the projected current month, so pin the clock.
+const NOW = new Date("2026-11-03T12:00:00Z")
 const savedEnv = { ...process.env }
 beforeAll(() => {
   process.env.ADMIN_EMAILS = ADMIN.email
+  jest.useFakeTimers({ now: NOW, doNotFake: ["setTimeout", "clearTimeout", "setImmediate", "nextTick", "queueMicrotask"] })
 })
 afterAll(() => {
   process.env = savedEnv
+  jest.useRealTimers()
 })
 beforeEach(() => {
   const org = orgData()
   mockState.db = new FakeSupabase({
     departments: org.departments,
     teams: org.teams,
+    providers: PROVIDERS,
     cost_records_daily_attributed: attributedRows(org),
   })
   mockState.overrides = {}
@@ -102,6 +109,18 @@ describe("/api/admin/forecast-units", () => {
     expect(body.team.find((u) => u.key === T.orphan)).toMatchObject({ share: 0, plateau: 0, nextMonth: { month: "2026-12", total: 0 } })
     const sum = body.team.reduce((a, u) => a + u.allocatedPlateau, 0)
     expect(Math.abs(sum - 58000)).toBeLessThanOrEqual(1)
+  })
+
+  it("next month is anchored on the projected current month, matching the dashboard's unit forecast (issue #39)", async () => {
+    const { body } = await call("GET")
+    const rows = attributedRows(orgData())
+    const current = projectionContext(PROVIDERS, NOW)
+    const dash = computeUnitForecasts({ rows, level: "team", settings: FORECAST_DEFAULTS, current }).units.find((u) => u.key === T.data)!
+    const legacy = computeUnitForecasts({ rows, level: "team", settings: FORECAST_DEFAULTS }).units.find((u) => u.key === T.data)!
+    expect(body.team.find((u) => u.key === T.data)!.nextMonth).toEqual(dash.projection[0])
+    // Data has $70 on Nov 1-2; the projected November is higher, so December is too.
+    expect(dash.anchor).toBeGreaterThan(legacy.anchor)
+    expect(dash.projection[0].total).toBeGreaterThan(legacy.projection[0].total)
   })
 
   it("sets and clears one unit's override without touching the others", async () => {

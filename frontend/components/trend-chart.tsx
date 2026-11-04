@@ -3,6 +3,7 @@
 import {
   AreaChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -10,47 +11,58 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { formatCurrency, formatMonthLabel, type DashboardTrend } from "@/lib/dashboard-types"
+import { formatCurrency, type CurrentMonthProjection, type DashboardTrend } from "@/lib/dashboard-types"
+import { trendSeries, type ChartPoint } from "@/lib/chart-series"
 
 interface TrendChartProps {
   trends: DashboardTrend[]
+  /** Issue #39: the current month, projected; drawn dotted instead of as a partial-month drop. */
+  currentMonth?: CurrentMonthProjection | null
 }
 
 const LINE_COLOR = "#24AE1D" // Liatrio Primary Green
+const PROJECTED_COLOR = "#C068F9" // Liatrio Violet (as in Spend Forecast)
 
-export function TrendChart({ trends }: TrendChartProps) {
-  const chartData = (trends || []).map((t) => ({
-    month: formatMonthLabel(t.month),
-    total: Number(t.total) || 0,
-  }))
+function CustomTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number | null; dataKey: string; payload: ChartPoint }>
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  const point = payload[0].payload
+  const isProjected = point.actual === null && point.projected !== null
+  const value = isProjected ? point.projected : point.actual
+  if (value === null) return null
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
+      <div className="mb-1 flex items-center gap-2">
+        <p className="font-medium text-foreground">{label}</p>
+        {isProjected && <span className="rounded bg-primary/20 px-1.5 py-0.5 text-xs text-primary">Projected</span>}
+      </div>
+      <p className="text-sm font-medium" style={{ color: isProjected ? PROJECTED_COLOR : LINE_COLOR }}>
+        {formatCurrency(value)}
+      </p>
+      {isProjected && point.actualToDate !== undefined && (
+        <p className="text-xs text-muted-foreground">Actual to date {formatCurrency(point.actualToDate)}</p>
+      )}
+    </div>
+  )
+}
 
-  const CustomTooltip = ({
-    active,
-    payload,
-    label,
-  }: {
-    active?: boolean
-    payload?: Array<{ value: number }>
-    label?: string
-  }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
-          <p className="mb-1 font-medium text-foreground">{label}</p>
-          <p className="text-sm font-medium" style={{ color: LINE_COLOR }}>
-            {formatCurrency(payload[0].value)}
-          </p>
-        </div>
-      )
-    }
-    return null
-  }
+export function TrendChart({ trends, currentMonth }: TrendChartProps) {
+  const chartData = trendSeries(trends, currentMonth)
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">Spend Trends</CardTitle>
-        <CardDescription>Total monthly spend over time</CardDescription>
+        <CardDescription>
+          {currentMonth ? "Monthly spend (solid) with the current month projected (dotted)" : "Total monthly spend over time"}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (
@@ -87,12 +99,25 @@ export function TrendChart({ trends }: TrendChartProps) {
                 <Tooltip content={<CustomTooltip />} />
                 <Area
                   type="monotone"
-                  dataKey="total"
+                  dataKey="actual"
                   name="Total Spend"
                   stroke={LINE_COLOR}
                   fill="url(#gradientTotal)"
                   strokeWidth={2}
+                  connectNulls={false}
                 />
+                {currentMonth && (
+                  <Line
+                    type="monotone"
+                    dataKey="projected"
+                    name="Projected"
+                    stroke={PROJECTED_COLOR}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={{ r: 3, fill: PROJECTED_COLOR }}
+                    connectNulls={false}
+                  />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>

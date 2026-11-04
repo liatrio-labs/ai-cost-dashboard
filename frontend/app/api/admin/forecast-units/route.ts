@@ -4,7 +4,8 @@
  * GET /api/admin/forecast-units
  *   -> { orgPlateau, employees, trailingMonths, department: Unit[], team: Unit[] }
  *   Each unit: its trailing share, allocated plateau, effective plateau,
- *   override (if any) and next projected month.
+ *   override (if any) and next projected month. Like the dashboard, the
+ *   projection is anchored on the projected current month (issue #39).
  *
  * PUT /api/admin/forecast-units
  *   { level: "team" | "department", key: <id | "unassigned">,
@@ -19,7 +20,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
-import { fetchAttributedDaily, type SupabaseLike } from "@/lib/dashboard-data"
+import { fetchAttributedDaily, fetchProviders, type SupabaseLike } from "@/lib/dashboard-data"
 import {
   getForecastSettings,
   getForecastUnitOverrides,
@@ -30,6 +31,7 @@ import {
   type UnitOverrides,
 } from "@/lib/forecast-settings"
 import { computeUnitForecasts } from "@/lib/unit-forecast"
+import { projectionContext } from "@/lib/projection"
 import { UNASSIGNED_KEY, UNASSIGNED_LABEL } from "@/lib/org/rollup"
 
 export const runtime = "nodejs"
@@ -61,11 +63,16 @@ async function loadUnits(admin: SupabaseClient): Promise<Record<UnitLevel, Named
 
 async function payload(admin: SupabaseClient, units: Record<UnitLevel, NamedUnit[]>, overrides: UnitOverrides) {
   const settings = await getForecastSettings()
-  const rows = await fetchAttributedDaily(admin as unknown as SupabaseLike, {}, null)
+  const [rows, providers] = await Promise.all([
+    fetchAttributedDaily(admin as unknown as SupabaseLike, {}, null),
+    fetchProviders(admin as unknown as SupabaseLike),
+  ])
+  // Same anchor as /api/dashboard's unit forecasts: the projected current month.
+  const current = projectionContext(providers, new Date())
   const out: Record<string, unknown> = { employees: settings.employees }
   for (const level of UNIT_LEVELS) {
     const names = new Map(units[level].map((u) => [u.id, u.name]))
-    const result = computeUnitForecasts({ rows, level, settings, overrides, include: units[level].map((u) => u.id) })
+    const result = computeUnitForecasts({ rows, level, settings, overrides, include: units[level].map((u) => u.id), current })
     out.orgPlateau = result.orgPlateau
     out.trailingMonths = result.trailingMonths
     out[level] = result.units.map((u) => ({

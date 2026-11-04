@@ -14,16 +14,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import {
   forecastDescription,
   formatCurrency,
-  formatMonthLabel,
+  type CurrentMonthProjection,
   type DashboardForecast,
   type DashboardForecastMeta,
 } from "@/lib/dashboard-types"
+import { forecastSeries, type ChartPoint } from "@/lib/chart-series"
 
 interface ForecastChartProps {
   forecast: DashboardForecast[]
   meta?: DashboardForecastMeta
   /** Display name of the filtered team/department (issue #9). */
   unitLabel?: string
+  /** Issue #39: the projected current month (person/key/project views describe it). */
+  currentMonth?: CurrentMonthProjection | null
 }
 
 const ACTUAL_COLOR = "#24AE1D" // Liatrio Primary Green
@@ -35,13 +38,15 @@ function CustomTooltip({
   label,
 }: {
   active?: boolean
-  payload?: Array<{ value: number; dataKey: string }>
+  payload?: Array<{ value: number; dataKey: string; payload: ChartPoint }>
   label?: string
 }) {
   if (active && payload && payload.length) {
     const point = payload.find((p) => p.value != null)
     if (!point) return null
-    const isProjected = point.dataKey === "projected"
+    // The last actual month is on both lines; report it as actual.
+    const isProjected = point.payload.actual === null
+    const value = isProjected ? point.payload.projected! : point.payload.actual!
     return (
       <div className="rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
         <div className="flex items-center gap-2">
@@ -56,37 +61,28 @@ function CustomTooltip({
           className="mt-1 text-lg font-bold"
           style={{ color: isProjected ? PROJECTED_COLOR : ACTUAL_COLOR }}
         >
-          {formatCurrency(point.value)}
+          {formatCurrency(value)}
         </p>
+        {isProjected && point.payload.actualToDate !== undefined && (
+          <p className="text-xs text-muted-foreground">Actual to date {formatCurrency(point.payload.actualToDate)}</p>
+        )}
       </div>
     )
   }
   return null
 }
 
-export function ForecastChart({ forecast, meta, unitLabel }: ForecastChartProps) {
+export function ForecastChart({ forecast, meta, unitLabel, currentMonth }: ForecastChartProps) {
   const rows = forecast || []
-
-  // Find the index of the last historical (non-projected) point so the
-  // projected series can start there, keeping the line visually continuous.
-  const lastActualIndex = rows.reduce(
-    (acc, r, i) => (!r.projected ? i : acc),
-    -1
-  )
-
-  const chartData = rows.map((r, i) => ({
-    month: formatMonthLabel(r.month),
-    // actual line: only historical points (plus a null tail)
-    actual: !r.projected ? r.total : null,
-    // projected line: starts at the last actual point, then projected points
-    projected: r.projected || i === lastActualIndex ? r.total : null,
-  }))
+  // Actual line through the last complete month; the projected line starts
+  // there (lib/chart-series.ts).
+  const chartData = forecastSeries(rows)
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">Spend Forecast</CardTitle>
-        <CardDescription>{forecastDescription(meta, unitLabel, rows.some((r) => r.projected))}</CardDescription>
+        <CardDescription>{forecastDescription(meta, unitLabel, rows.some((r) => r.projected), currentMonth)}</CardDescription>
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (
