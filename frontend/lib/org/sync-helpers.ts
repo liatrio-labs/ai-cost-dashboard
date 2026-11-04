@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { backfillDefaultDisplayNames, newPersonDisplayName, type PersonNameRow } from "./display-name"
 
 /** True when a Postgres / PostgREST error says a column doesn't exist (an unapplied migration). */
 export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
@@ -60,26 +61,29 @@ export function must<T>(res: { data: T | null; error: { message: string; code?: 
 /**
  * people.id for every wanted email (lower-cased; value = display name for a
  * new row). Existing people are matched by email; the rest are created with no
- * team. A concurrent insert (23505) is read back.
+ * team. A concurrent insert (23505) is read back. New people get a real given
+ * name or else the firstname.lastname default; matched people with a
+ * placeholder name get that default filled in (issue #66).
  */
 export async function ensurePeople(
   admin: SupabaseClient,
   wanted: Map<string, string | null>
-): Promise<{ personByEmail: Map<string, string>; created: number }> {
+): Promise<{ personByEmail: Map<string, string>; created: number; named: number }> {
   const personByEmail = new Map<string, string>()
   let created = 0
-  if (!wanted.size) return { personByEmail, created }
+  if (!wanted.size) return { personByEmail, created, named: 0 }
   const emails = [...wanted.keys()]
-  const found = must(await admin.from("people").select("id, email").in("email", emails), "Failed to read people") as {
-    id: string
-    email: string
-  }[]
+  const found = must(
+    await admin.from("people").select("id, email, display_name").in("email", emails),
+    "Failed to read people"
+  ) as PersonNameRow[]
   for (const p of found ?? []) personByEmail.set(p.email, p.id)
+  const named = await backfillDefaultDisplayNames(admin, found ?? [])
   for (const email of emails) {
     if (personByEmail.has(email)) continue
     const res = await admin
       .from("people")
-      .insert({ email, display_name: wanted.get(email) ?? null, team_id: null, active: true })
+      .insert({ email, display_name: newPersonDisplayName(wanted.get(email), email), team_id: null, active: true })
       .select("id, email")
       .single()
     if (res.error?.code === "23505") {
@@ -90,7 +94,7 @@ export async function ensurePeople(
     personByEmail.set(email, (must(res, "Failed to create person") as { id: string }).id)
     created++
   }
-  return { personByEmail, created }
+  return { personByEmail, created, named }
 }
 
 /**

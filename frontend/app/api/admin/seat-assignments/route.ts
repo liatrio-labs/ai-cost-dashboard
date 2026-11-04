@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { newPersonDisplayName } from "@/lib/org/display-name"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
 import { refreshRollups } from "@/lib/org/admin/repo"
 import {
@@ -150,7 +151,7 @@ export const PUT = adminRoute(async (request, _params, admin) => {
     )
     const missing = emails.filter((e) => !known.has(e))
     if (missing.length) {
-      must(await admin.from("people").insert(missing.map((email) => ({ email, display_name: null, team_id: null, active: true }))))
+      must(await admin.from("people").insert(missing.map((email) => ({ email, display_name: newPersonDisplayName(null, email), team_id: null, active: true }))))
     }
   }
 
