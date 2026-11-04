@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import {
   drillInto,
   FILTER_KEYS,
+  AUTOMATION_FILTER,
   UNASSIGNED_FILTER,
   type DashboardFilters,
   type DrillLevel,
@@ -32,6 +33,7 @@ import type {
   BreakdownProvider,
   CoverageNote,
 } from "@/lib/org/breakdown"
+import { AUTOMATION_LABEL, ROLLUP_LEVELS } from "@/lib/org/rollup"
 import { considerRevoking, DEFAULT_KEY_FILTER, filterGroups, filterKeys, hasSpend, matchesQuery, type KeyFilter } from "@/lib/org/key-filter"
 import { ConsiderRevoking, isoDay, KeyFilterBar } from "./key-filter-bar"
 import { ExportCsvButton } from "./export-csv-button"
@@ -659,17 +661,22 @@ export function OrgFilterBar({
   // Does a filter value accept an entity id? "unassigned" accepts null.
   const accepts = (want: string | undefined, have: string | null) =>
     !want || (want === UNASSIGNED_FILTER ? have === null : have === want)
+  // Offer the automation line when it has spend in view or is selected.
+  const automationShown = ROLLUP_LEVELS.some((l) => data?.[l].some((e) => e.automation))
   const deptOfTeam = (teamId: string | null) =>
     teamId ? (o?.teams.find((t) => t.id === teamId)?.departmentId ?? null) : null
+  // The Cursor automation line (issue #51) only nests in itself (or no filter).
   const teamFits = (teamId: string, f: DashboardFilters) =>
-    accepts(f.department, teamId === UNASSIGNED_FILTER ? null : deptOfTeam(teamId))
+    teamId === AUTOMATION_FILTER || f.department === AUTOMATION_FILTER
+      ? teamId === AUTOMATION_FILTER && (!f.department || f.department === AUTOMATION_FILTER)
+      : accepts(f.department, teamId === UNASSIGNED_FILTER ? null : deptOfTeam(teamId))
   // Can this person's spend appear under the team / department filters?
   // Uses where their spend lands (API key teams included), not just home team.
   const inScope = (want: string | undefined, ids: string[]) => !want || ids.includes(want)
   const personFits = (p: { teamIds: string[]; departmentIds: string[] }, f: DashboardFilters) =>
     inScope(f.team, p.teamIds) && inScope(f.department, p.departmentIds)
 
-  const teams = o?.teams.filter((t) => accepts(filters.department, t.departmentId)) ?? []
+  const teams = filters.department === AUTOMATION_FILTER ? [] : (o?.teams.filter((t) => accepts(filters.department, t.departmentId)) ?? [])
   const people = o?.people.filter((p) => personFits(p, filters) || p.id === filters.person) ?? []
   // A team-less row has no department, so "Unassigned" team only makes sense
   // without a specific department.
@@ -687,7 +694,16 @@ export function OrgFilterBar({
     }
     onFiltersChange(next)
   }
-  const field = (k: keyof DashboardFilters, label: string, opts: { value: string; label: string }[], unassigned = true) => (
+  const teamAutomationOk = !filters.department || filters.department === AUTOMATION_FILTER
+  const field = (
+    k: keyof DashboardFilters,
+    label: string,
+    opts: { value: string; label: string }[],
+    unassigned = true,
+    automationOk = unassigned
+  ) => {
+    const automation = automationOk && k !== "project" && (automationShown || filters[k] === AUTOMATION_FILTER)
+    return (
     <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
       {label}
       <select aria-label={label} className={selectClass} value={filters[k] ?? ""} onChange={(e) => set(k, e.target.value)}>
@@ -697,15 +713,17 @@ export function OrgFilterBar({
             {x.label}
           </option>
         ))}
+        {automation && <option value={AUTOMATION_FILTER}>{AUTOMATION_LABEL}</option>}
         {unassigned && <option value="unassigned">Unassigned</option>}
       </select>
     </label>
-  )
+    )
+  }
   const active = FILTER_KEYS.some((k) => filters[k])
   return (
     <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filters">
       {field("department", "Department", o?.departments.map((d) => ({ value: d.id, label: d.label })) ?? [])}
-      {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk)}
+      {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk, teamAutomationOk)}
       {field("person", "Person", people.map((p) => ({ value: p.id, label: p.label })))}
       {field("key", "API key", o?.apiKeys.map((k) => ({ value: k.id, label: k.label })) ?? [])}
       {field("project", "Project", o?.projects?.map((p) => ({ value: p.id, label: p.label })) ?? [])}
