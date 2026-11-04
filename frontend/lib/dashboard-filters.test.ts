@@ -33,6 +33,8 @@ describe("project filter and workspaces (issue #28)", () => {
       is: (c) => (calls.push(`is ${c}`), q),
       order: () => q,
       range: () => q,
+      gte: () => q,
+      lt: () => q,
       then: undefined as never,
     }
     narrowAttributed({ project: "wrk_1", team: "t1" }, null)(q)

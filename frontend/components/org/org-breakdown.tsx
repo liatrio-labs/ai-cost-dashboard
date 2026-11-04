@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
 import { splitHeaderLabel } from "@/lib/header-label"
+import { ClaudeAiProductSplit } from "@/components/claude-ai-products"
 import { cn } from "@/lib/utils"
 import {
   drillInto,
@@ -665,6 +666,10 @@ export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; o
       <OrgBreadcrumbs data={data} onFiltersChange={onFiltersChange} />
       {/* At team level the People table is the drill-down (it adds per-provider columns). */}
       {data.level !== "person" && <DrilldownTable data={data} onFiltersChange={onFiltersChange} />}
+      {/* Person view (issue #48): Claude.ai spend by product, summing to its detail rows. */}
+      {data.level === "detail" && data.claudeAiProducts && (
+        <ClaudeAiProductSplit products={data.claudeAiProducts.products} total={data.claudeAiProducts.total} />
+      )}
       {data.level !== "detail" && <PeopleTable data={data} onFiltersChange={onFiltersChange} />}
       <ApiKeysTable data={data} onFiltersChange={onFiltersChange} />
       <ProjectsTable data={data} onFiltersChange={onFiltersChange} />
