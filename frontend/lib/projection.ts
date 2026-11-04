@@ -10,8 +10,9 @@
  *   Rows on incomplete days count as actuals but don't drive the rate.
  * - Seat vs usage. Rows dated the 1st of a month from a monthly-seat provider
  *   (ChatGPT Business, Claude Ultra `claude-max`), or any row on the 1st with
- *   model_name 'seats' (e.g. Cursor seat rows, if any), are seat spend.
- *   Everything else is usage.
+ *   model_name 'seats' (e.g. Cursor seat rows, if any) or 'recurring' (a
+ *   recurring flat monthly cost, issue #59), are seat spend. Everything else
+ *   is usage.
  * - Usage. Per provider, for each remaining day of the period (days after the
  *   provider's last complete day), expected spend =
  *     w x period average for that day type + (1 - w) x trailing average for it
@@ -36,6 +37,8 @@ export const TRAILING_DAYS = 28
 /** providers.name of providers billed as one seat row on the 1st of each month. */
 export const MONTHLY_SEAT_PROVIDERS = ["chatgpt", "claude-max"] as const
 export const SEAT_MODEL = "seats"
+/** model_name of a recurring flat monthly cost row (issue #59, lib/recurring-costs.ts). */
+export const RECURRING_MODEL = "recurring"
 
 const DAY_MS = 86400000
 
@@ -155,7 +158,7 @@ export function periodStatus(period: Period, today: string): PeriodStatus {
 
 export function isSeatRow(r: ProjectionRow, ctx: ProjectionContext): boolean {
   if (!r.date.endsWith("-01")) return false
-  return r.model_name === SEAT_MODEL || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
+  return r.model_name === SEAT_MODEL || r.model_name === RECURRING_MODEL || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
 }
 
 const completeThroughOf = (ctx: ProjectionContext, providerId: string) =>

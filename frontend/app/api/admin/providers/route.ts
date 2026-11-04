@@ -3,7 +3,11 @@
  *
  * GET  /api/admin/providers           — list active providers
  * POST /api/admin/providers           — create a new tool/provider
- *      { display_name, slug?, seat_based?, notes? }
+ *      { display_name, slug?, seat_based?, notes?,
+ *        recurring?: { from_month, monthly_cost_usd? | seats + price_per_seat, end_month?, notes? } }
+ *      `recurring` also sets up a recurring monthly cost from from_month
+ *      (issue #59, lib/recurring-costs.ts). Without migration 022 the tool is
+ *      still created and the response says the recurring cost wasn't saved.
  *
  * Used by the admin page to register new tools (typically manual / seat-based
  * subscriptions that have no collection API). New providers immediately show up
@@ -14,6 +18,9 @@ import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { requireAdmin, errorResponse, successResponse } from "@/lib/db"
 import { createAdminClient, refreshDailyAggregates } from "@/lib/supabase/admin"
+import { HttpError } from "@/lib/org/admin/http"
+import { parseRecurringInput, RecurringInputError, type RecurringInput } from "@/lib/recurring-costs"
+import { applyRecurringCost } from "@/lib/recurring-costs-admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -50,9 +57,19 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies()
-    await requireAdmin(cookieStore)
+    const user = await requireAdmin(cookieStore)
 
     const body = await request.json().catch(() => ({}))
+    // Validate the optional recurring cost before creating anything.
+    let recurring: RecurringInput | null = null
+    if (body.recurring) {
+      try {
+        recurring = parseRecurringInput({ ...body.recurring, provider_id: "pending" })
+      } catch (e) {
+        if (e instanceof RecurringInputError) return errorResponse(e.message, 400)
+        throw e
+      }
+    }
     const displayName = String(body.display_name || "").trim()
     if (!displayName) return errorResponse("display_name is required", 400)
 
@@ -87,7 +104,24 @@ export async function POST(request: NextRequest) {
       .single()
     if (error) throw error
 
-    return successResponse({ message: "Tool created", provider: data }, 201)
+    let recurringWarning: string | undefined
+    if (recurring) {
+      try {
+        await applyRecurringCost(admin, { ...recurring, provider_id: (data as { id: string }).id }, user.id)
+      } catch (e) {
+        if (!(e instanceof HttpError)) throw e
+        recurringWarning = `Tool created, but its recurring cost wasn't saved: ${e.message}`
+      }
+    }
+
+    return successResponse(
+      {
+        message: recurringWarning ?? (recurring ? "Tool created with a recurring monthly cost" : "Tool created"),
+        provider: data,
+        recurring_saved: recurring ? !recurringWarning : undefined,
+      },
+      201
+    )
   } catch (e: any) {
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
