@@ -47,7 +47,8 @@ export async function GET() {
       .order("display_name")
     if (error) throw error
     return successResponse(data || [])
-  } catch (e: any) {
+  } catch (err) {
+    const e = err as { message?: string } | null
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
     return errorResponse(e?.message || "Failed to list providers", 500)
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
           source: "admin_ui",
           notes: body.notes ? String(body.notes) : undefined,
         },
-      } as any)
+      })
       .select("id, name, display_name, metadata")
       .single()
     if (error) throw error
@@ -122,7 +123,8 @@ export async function POST(request: NextRequest) {
       },
       201
     )
-  } catch (e: any) {
+  } catch (err) {
+    const e = err as { message?: string } | null
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
     return errorResponse(e?.message || "Failed to create tool", 500)
@@ -160,21 +162,22 @@ export async function PATCH(request: NextRequest) {
     }
     if (typeof body.description === "string") {
       patch.metadata = {
-        ...((existing as any).metadata || {}),
+        ...((existing as { metadata?: Record<string, unknown> | null }).metadata || {}),
         description: body.description.trim() || undefined,
       }
     }
 
     const { data, error } = await admin
       .from("providers")
-      .update(patch as any)
+      .update(patch)
       .eq("id", id)
       .select("id, name, display_name, documentation_url, metadata")
       .single()
     if (error) throw error
 
     return successResponse({ message: "Tool updated", provider: data })
-  } catch (e: any) {
+  } catch (err) {
+    const e = err as { message?: string } | null
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
     return errorResponse(e?.message || "Failed to update tool", 500)
@@ -208,8 +211,9 @@ export async function DELETE(request: NextRequest) {
     if (delErr) throw new Error(`Failed to delete tool: ${delErr.message}`)
 
     await refreshDailyAggregates()
-    return successResponse({ message: `Deleted "${(prov as any).name}" and its cost records` })
-  } catch (e: any) {
+    return successResponse({ message: `Deleted "${(prov as { name: string }).name}" and its cost records` })
+  } catch (err) {
+    const e = err as { message?: string } | null
     if (e?.message === "Unauthorized") return errorResponse("Unauthorized", 401)
     if (e?.message === "Forbidden") return errorResponse("Forbidden", 403)
     return errorResponse(e?.message || "Failed to delete tool", 500)

@@ -92,8 +92,8 @@ function ToolEditor({
       }
       setMsg({ ok: true, text: "Saved." })
       onChanged()
-    } catch (e: any) {
-      setMsg({ ok: false, text: e?.message || "Request failed" })
+    } catch (e) {
+      setMsg({ ok: false, text: (e instanceof Error && e.message) || "Request failed" })
     } finally {
       setSaving(false)
     }
@@ -113,8 +113,8 @@ function ToolEditor({
         return
       }
       onChanged()
-    } catch (e: any) {
-      setMsg({ ok: false, text: e?.message || "Request failed" })
+    } catch (e) {
+      setMsg({ ok: false, text: (e instanceof Error && e.message) || "Request failed" })
     } finally {
       setDeleting(false)
     }

@@ -75,7 +75,7 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
         if (!res.ok) throw new Error("Failed to load providers")
         const data = await res.json()
         // /api/providers returns the provider array directly (successResponse).
-        const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: any) => ({
+        const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: { id: string; name: string; display_name?: string | null }) => ({
           id: p.id,
           name: p.display_name || p.name,
         }))
