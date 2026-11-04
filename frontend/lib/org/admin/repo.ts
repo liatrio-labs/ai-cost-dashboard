@@ -15,6 +15,8 @@ export const KEY_COLUMNS_015 =
 export const KEY_COLUMNS = `${KEY_COLUMNS_BASE}, ${KEY_COLUMNS_015}`
 /** Migration 017 (issue #32): Anthropic key status and why the sync left a key without an owner. */
 export const KEY_COLUMNS_017 = `${KEY_COLUMNS}, external_status, unresolved_reason`
+/** Migration 018 (issue #44): the provider's key creation date, shown by issue #45 when present. */
+export const KEY_COLUMNS_018 = `${KEY_COLUMNS_017}, provider_created_at`
 
 /** True for PostgREST / Postgres "column does not exist" (migration 015 not applied). */
 export function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
@@ -22,8 +24,8 @@ export function isMissingColumn(error: { code?: string; message?: string } | nul
 }
 
 async function loadKeys(admin: SupabaseClient): Promise<{ data: unknown[] | null; error: { code?: string; message: string } | null }> {
-  // Newest column set first; fall back while 017 / 015 aren't applied.
-  for (const columns of [KEY_COLUMNS_017, KEY_COLUMNS, KEY_COLUMNS_BASE]) {
+  // Newest column set first; fall back while 018 / 017 / 015 aren't applied.
+  for (const columns of [KEY_COLUMNS_018, KEY_COLUMNS_017, KEY_COLUMNS, KEY_COLUMNS_BASE]) {
     const res = await admin.from("org_api_keys").select(columns as string)
     if (columns === KEY_COLUMNS_BASE || !isMissingColumn(res.error)) return res
   }

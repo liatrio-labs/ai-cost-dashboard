@@ -85,6 +85,8 @@ export interface OrgApiKey {
   external_status?: string | null
   /** Why the key sync left the key without an owner (migration 017, issue #32). */
   unresolved_reason?: string | null
+  /** When the provider created the key (migration 018, issue #44); absent/null = unknown. */
+  provider_created_at?: string | null
 }
 
 /** Provider project metadata (migration 011) with the team that owns its spend. */

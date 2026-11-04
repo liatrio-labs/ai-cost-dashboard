@@ -33,6 +33,7 @@ import {
 } from "@/lib/dashboard-filters"
 import { buildOrgIndex } from "./attribution"
 import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
+import { keyActivity } from "./key-filter"
 import { canAttribute, coverageFor, type CoverageLevel, type CoverageSupport } from "./coverage"
 import { rollup, UNASSIGNED_LABEL, type RollupLevel } from "./rollup"
 import type { AttributedDailyRow, OrgData, OrgIndex } from "./types"
@@ -119,6 +120,13 @@ export interface BreakdownKeyItem extends BreakdownApiKey {
   /** = cost, for grouping. */
   total_cost_usd: number
   name: string | null
+  /** Provider key status (org_api_keys.external_status, migration 017); null when unknown. */
+  status: string | null
+  /** Issue #45: spend in the 90 days to today, whatever the period, and the last date with non-zero spend (null = never). */
+  spend_90d: number
+  last_spend: string | null
+  /** When the provider created the key (migration 018); null when unknown or 018 isn't applied. */
+  provider_created_at: string | null
 }
 
 export interface BreakdownDetail {
@@ -434,7 +442,7 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
   })
 
   const project = projectEntities(cur, prev, org, index, slugOf, nameOf, projAt((r) => effectiveProjectId(r) || UNASSIGNED_FILTER))
-  const key_groups = keyGroups({ api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj })
+  const key_groups = keyGroups({ api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj, now })
   const hasProjects = providerScoped.some((r) => !!effectiveProjectId(r))
 
   // provider x model detail for whatever the filters select.
@@ -558,8 +566,15 @@ function keyGroups(input: {
   slugOf: (id: string) => string
   nameOf: (id: string) => string
   keyProj: Map<string, PeriodProjection> | null
+  now: Date
 }): ProviderGroup<BreakdownKeyItem>[] {
-  const { api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj } = input
+  const { api_key, org, index, cur, prev, providerScoped, providers, filters, providerIdForFilter, slugOf, nameOf, keyProj, now } = input
+  // Issue #45: each key's last-90-days spend and last spend date from all
+  // loaded rows (provider filter only), independent of the selected period.
+  const activity = keyActivity(
+    providerScoped.map((r) => ({ key: r.org_api_key_id, date: r.date, cost: num(r.total_cost_usd) })),
+    now
+  )
   // key id -> project -> cost, preferring the period's rows over all loaded rows.
   const projectByKey = (rows: AttributedDailyRow[]) => {
     const acc = new Map<string, Map<string, number>>()
@@ -626,6 +641,10 @@ function keyGroups(input: {
       org_project_id: k.org_project_id ?? null,
       total_cost_usd: e?.cost ?? 0,
       name: k.name ?? null,
+      status: k.external_status ?? null,
+      spend_90d: activity.get(k.id)?.spend ?? 0,
+      last_spend: activity.get(k.id)?.lastSpend ?? null,
+      provider_created_at: k.provider_created_at ?? null,
     }
     if (filters.project) {
       const pid = keyProjectId(item, projectsById)

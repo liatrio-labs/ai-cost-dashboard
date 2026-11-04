@@ -9,6 +9,7 @@
 import { buildOrgIndex, getAttribution, normalizeEmail, resolveAttribution } from "../attribution"
 import type { OrgApiKey, OrgData, OrgProject } from "../types"
 import type { OrgSnapshot } from "./schemas"
+import { keyActivity } from "../key-filter"
 
 /** The slice of a cost_records row these summaries need. */
 export interface ObservedRecord {
@@ -185,6 +186,11 @@ export interface KeyRow {
   total_cost_usd: number
   record_count: number
   last_seen: string | null
+  /** Issue #45: spend in the last 90 days and the last date with non-zero spend (null = never). */
+  spend_90d: number
+  last_spend: string | null
+  /** When the provider created the key (migration 018); null when unknown or 018 isn't applied. */
+  provider_created_at: string | null
 }
 
 export interface ProjectRow {
@@ -221,8 +227,9 @@ const bySpend = <T extends { total_cost_usd: number; provider_id: string }>(a: T
   b.total_cost_usd - a.total_cost_usd || a.provider_id.localeCompare(b.provider_id)
 
 /** Every key seen in attribution.api_key_id, merged with registered org_api_keys. */
-export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): KeyRow[] {
+export function listKeys(records: ObservedRecord[], registered: OrgApiKey[], now: Date = new Date()): KeyRow[] {
   const seen = new Map<string, Seen>()
+  const activityRows: { key: string; date: string | undefined; cost: number }[] = []
   // A key's project / workspace comes from its most recent row (ties: the
   // costlier row), never from scan order, which is by row id and changes when
   // an older range is re-pulled.
@@ -244,9 +251,15 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
     if (!a?.api_key_id) continue
     bump(seen, pkey(r.provider_id, a.api_key_id), r, a.api_key_name)
     const k = pkey(r.provider_id, a.api_key_id)
+    activityRows.push({ key: k, date: r.timestamp, cost: num(r.cost_usd) })
     if (a.project_id && newer(projectPick, k, r)) keyProject.set(k, a.project_id)
     if (a.workspace_id && newer(workspacePick, k, r)) keyWorkspace.set(k, a.workspace_id)
   }
+  const activity = keyActivity(activityRows, now)
+  const recent = (key: string) => ({
+    spend_90d: activity.get(key)?.spend ?? 0,
+    last_spend: activity.get(key)?.lastSpend ?? null,
+  })
   const rows = new Map<string, KeyRow>()
   for (const k of registered) {
     const s = seen.get(pkey(k.provider_id, k.external_key_id))
@@ -270,6 +283,8 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       total_cost_usd: round6(s?.total ?? 0),
       record_count: s?.count ?? 0,
       last_seen: s?.last ?? null,
+      ...recent(pkey(k.provider_id, k.external_key_id)),
+      provider_created_at: k.provider_created_at ?? null,
     })
   }
   for (const [key, s] of seen) {
@@ -295,6 +310,8 @@ export function listKeys(records: ObservedRecord[], registered: OrgApiKey[]): Ke
       total_cost_usd: round6(s.total),
       record_count: s.count,
       last_seen: s.last,
+      ...recent(key),
+      provider_created_at: null,
     })
   }
   return [...rows.values()].sort(bySpend)

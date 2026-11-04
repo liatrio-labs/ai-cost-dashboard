@@ -109,6 +109,27 @@ describe("helpers", () => {
     ])
   })
 
+  it("listKeys adds 90-day spend, last spend date and provider_created_at (issue #45)", () => {
+    const now = new Date("2026-11-15T00:00:00Z")
+    const rows = listKeys(
+      [
+        { provider_id: "p", timestamp: "2026-11-01T00:00:00Z", cost_usd: 2, attribution: { api_key_id: "k_live", granularity: "api_key" } },
+        { provider_id: "p", timestamp: "2026-05-01T00:00:00Z", cost_usd: 7, attribution: { api_key_id: "k_live", granularity: "api_key" } },
+        { provider_id: "p", timestamp: "2026-06-01T00:00:00Z", cost_usd: 4, attribution: { api_key_id: "k_stale", granularity: "api_key" } },
+        { provider_id: "p", timestamp: "2026-11-02T00:00:00Z", cost_usd: 0, attribution: { api_key_id: "k_stale", granularity: "api_key" } },
+      ],
+      [
+        { id: "r1", provider_id: "p", external_key_id: "k_stale", owner_person_id: null, team_id: null, provider_created_at: "2025-01-01T00:00:00Z" },
+        { id: "r2", provider_id: "p", external_key_id: "k_never", owner_person_id: null, team_id: null },
+      ],
+      now
+    )
+    const by = (id: string) => rows.find((r) => r.external_key_id === id)
+    expect(by("k_live")).toMatchObject({ spend_90d: 2, last_spend: "2026-11-01", provider_created_at: null, total_cost_usd: 9 })
+    expect(by("k_stale")).toMatchObject({ spend_90d: 0, last_spend: "2026-06-01", provider_created_at: "2025-01-01T00:00:00Z" })
+    expect(by("k_never")).toMatchObject({ spend_90d: 0, last_spend: null, provider_created_at: null })
+  })
+
   it("unassignedGatewayKeys: gateway keys with no owner, team or project (key or row)", () => {
     const rows = listKeys(
       [
