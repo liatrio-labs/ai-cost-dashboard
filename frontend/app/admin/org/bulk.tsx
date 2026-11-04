@@ -92,6 +92,7 @@ export function BulkTeamBar({
 }) {
   const [team, setTeam] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   if (!count) return null
   const teamName = team ? (org.teams.find((t) => t.id === team)?.name ?? "team") : noneLabel
   return (
@@ -109,8 +110,16 @@ export function BulkTeamBar({
         disabled={busy}
         onClick={async () => {
           setBusy(true)
-          const ok = await onAssign(team)
-          setBusy(false)
+          setError(null)
+          let ok = false
+          try {
+            ok = await onAssign(team)
+          } catch (e) {
+            // A network or parse failure: report it and keep the selection so it can be retried.
+            setError(e instanceof Error && e.message ? e.message : "Request failed")
+          } finally {
+            setBusy(false)
+          }
           if (ok) onClear()
         }}
       >
@@ -120,6 +129,12 @@ export function BulkTeamBar({
       <Button size="sm" variant="ghost" onClick={onClear}>
         Clear
       </Button>
+      {error && (
+        <span className="flex items-center gap-1 text-destructive" role="alert">
+          <AlertCircle className="h-4 w-4" />
+          {error}
+        </span>
+      )}
     </div>
   )
 }
@@ -159,11 +174,17 @@ export function CsvImportCard({ org, onApplied }: { org: Org; onApplied: () => P
   }
 
   async function send(confirm: boolean): Promise<CsvResponse | null> {
-    const res = await fetch("/api/admin/org/import/csv", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, csv, confirm, create_teams: createTeams }),
-    })
+    let res: Response
+    try {
+      res = await fetch("/api/admin/org/import/csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, csv, confirm, create_teams: createTeams }),
+      })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error && e.message ? `Request failed: ${e.message}` : "Request failed" })
+      return null
+    }
     const data = (await res.json().catch(() => ({}))) as CsvResponse
     if (!res.ok) {
       setMsg({ ok: false, text: data.error || `Request failed (${res.status})` })
@@ -175,16 +196,23 @@ export function CsvImportCard({ org, onApplied }: { org: Org; onApplied: () => P
   async function runPreview() {
     setBusy("preview")
     setMsg(null)
-    const data = await send(false)
-    setBusy(null)
-    if (data) setPreview(data)
+    try {
+      const data = await send(false)
+      if (data) setPreview(data)
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function apply() {
     setBusy("apply")
     setMsg(null)
-    const data = await send(true)
-    setBusy(null)
+    let data: CsvResponse | null
+    try {
+      data = await send(true)
+    } finally {
+      setBusy(null)
+    }
     if (!data) return
     const created = data.created_teams?.length ? `; created ${data.created_teams.length} team(s): ${data.created_teams.map((t) => t.name).join(", ")}` : ""
     setMsg({ ok: true, text: `Applied ${data.applied ?? 0} change(s)${created}. Unmatched and invalid rows were not changed.` })

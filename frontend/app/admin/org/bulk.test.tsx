@@ -88,6 +88,30 @@ describe("bulk team assignment UI (#43)", () => {
     expect(screen.getByText(/Applied 1 change/)).toBeInTheDocument()
   })
 
+  it("a thrown request (network failure) re-enables Assign team and keeps the selection", async () => {
+    const user = userEvent.setup()
+    const onAssign = jest.fn<Promise<boolean>, [string[], string | null]>().mockRejectedValueOnce(new Error("Failed to fetch")).mockResolvedValueOnce(true)
+    render(<Harness rows={["a"]} onAssign={onAssign} />)
+    await user.click(screen.getByRole("checkbox", { name: "Select a" }))
+    const button = screen.getByRole("button", { name: "Assign team: Unassigned" })
+    await user.click(button)
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed to fetch")
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(onAssign).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole("region", { name: "Bulk assign people" })).toBeNull()
+  })
+
+  it("a thrown CSV request shows the error and re-enables Preview", async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockRejectedValue(new Error("Failed to fetch")) as unknown as typeof fetch
+    render(<CsvImportCard org={org} onApplied={async () => undefined} />)
+    await user.type(screen.getByRole("textbox", { name: "CSV" }), "x")
+    await user.click(screen.getByRole("button", { name: "Preview (dry run)" }))
+    expect(screen.getByText("Request failed: Failed to fetch")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Preview (dry run)" })).toBeEnabled()
+  })
+
   it("editing the CSV discards the preview so an unpreviewed CSV can't be applied", async () => {
     const user = userEvent.setup()
     global.fetch = jest.fn().mockResolvedValue({
