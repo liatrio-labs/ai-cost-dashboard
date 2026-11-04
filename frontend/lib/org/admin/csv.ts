@@ -242,6 +242,8 @@ export function previewPeopleCsv(text: string, org: CsvOrg, opts: { createTeams?
     byIdentity.set(e, s)
   }
   const seen = new Set<string>()
+  /** person id -> first line that matched them (an email and an alias of the same person). */
+  const personLine = new Map<string, number>()
   const out: CsvRowResult[] = []
 
   for (const { line, cells } of dataRows(text, "people")) {
@@ -275,6 +277,12 @@ export function previewPeopleCsv(text: string, org: CsvOrg, opts: { createTeams?
       out.push({ line, input: email, status: "unmatched", message: "No person with this email", team: resolved.team })
       continue
     }
+    const first = personLine.get(person.id)
+    if (first !== undefined) {
+      out.push({ ...base, input: email, status: "invalid", message: `Same person as line ${first}; only that row is used` })
+      continue
+    }
+    personLine.set(person.id, line)
     out.push({
       line,
       input: email,

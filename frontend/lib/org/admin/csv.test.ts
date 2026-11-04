@@ -115,6 +115,16 @@ describe("previewPeopleCsv", () => {
     expect(p.counts.unknown_team).toBe(0)
   })
 
+  it("an email and an alias of the same person: only the first row is used", () => {
+    const p = previewPeopleCsv("dave@liatrio.com,Field\ndave.alias@liatrio.com,Platform", org())
+    expect(p.rows.map((r) => [r.input, r.status])).toEqual([
+      ["dave@liatrio.com", "change"],
+      ["dave.alias@liatrio.com", "invalid"],
+    ])
+    expect(p.rows[1].message).toBe("Same person as line 1; only that row is used")
+    expect(p.counts.changes).toBe(1)
+  })
+
   it("an identity email shared by two people does not match", () => {
     const o = org()
     o.identities!.push({ person_id: PE.erin, external_id: "dave.alias@liatrio.com" })
