@@ -27,6 +27,11 @@ const org: Org = {
   ],
 } as unknown as Org
 
+/** Issue #45: $0 keys are hidden by default; these tests cover every key. */
+async function showZeroKeys() {
+  await userEvent.setup().click(screen.getByRole("checkbox", { name: "Show $0 keys" }))
+}
+
 const records: ObservedRecord[] = [
   { provider_id: OA, timestamp: "2026-11-01T00:00:00Z", cost_usd: 40, attribution: { api_key_id: "oa_a", api_key_name: "pipeline", project_id: "proj_data", granularity: "api_key" } },
   { provider_id: AN, timestamp: "2026-11-02T00:00:00Z", cost_usd: 30, attribution: { api_key_id: "an_a", workspace_id: "wrk_r", granularity: "api_key" } },
@@ -40,6 +45,7 @@ describe("KeysByProjectCard (issue #28)", () => {
   it("groups keys by provider and project/workspace, lists $0 keys, and assigns inline", async () => {
     const mutate = jest.fn(async () => true)
     render(<KeysByProjectCard org={org} mutate={mutate} keys={listKeys(records, registered)} projects={[]} />)
+    await showZeroKeys()
 
     const openai = screen.getByRole("region", { name: "OpenAI API" })
     expect(within(openai).getByRole("group", { name: "Project: Data" })).toHaveTextContent("pipeline")
@@ -92,8 +98,9 @@ describe("KeysByProjectCard (issue #32)", () => {
     { id: "g5", provider_id: GW, external_key_id: "gw_nocreator", name: "no creator", owner_person_id: null, team_id: null, spend_attribution: "team" },
   ]
 
-  it("lists Anthropic keys under workspace projects with status, creator and owner; unresolved ones with their reason", () => {
+  it("lists Anthropic keys under workspace projects with status, creator and owner; unresolved ones with their reason", async () => {
     render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys(records, anKeys)} projects={[]} />)
+    await showZeroKeys()
     const anthropic = screen.getByRole("region", { name: "Anthropic API" })
     const research = within(anthropic).getByRole("group", { name: "Workspace: Research" })
     expect(research).toHaveTextContent("alice key")
@@ -122,6 +129,7 @@ describe("KeysByProjectCard (issue #32)", () => {
       { id: "g7", provider_id: GW, external_key_id: "gw_mine_user", name: "mine too", owner_person_id: "p-alice", team_id: null, spend_attribution: "user", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
     ]
     render(<KeysByProjectCard org={anOrg} mutate={mutate} keys={listKeys([], keys)} projects={[]} />)
+    await showZeroKeys()
     const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
     const buttons = within(gateway).getAllByRole("button", { name: /to creator/ }).map((b) => b.getAttribute("aria-label"))
     // Unowned keys (team, unset, user) and gw_owned (owned by Alice, created by Bob); not gw_nocreator, gw_mine or gw_mine_user.
@@ -131,16 +139,70 @@ describe("KeysByProjectCard (issue #32)", () => {
     expect(mutate).toHaveBeenCalledWith("/keys/assign-creator", "POST", { provider_id: GW, external_key_id: "gw_team" }, "Assigned to bob@liatrio.com")
   })
 
-  it("issue #34: lists gateway keys with no owner under Unassigned keys with the same reason labels", () => {
+  it("issue #34: lists gateway keys with no owner under Unassigned keys with the same reason labels", async () => {
     const keys: OrgApiKey[] = [
       { id: "u1", provider_id: GW, external_key_id: "gw_nc", name: "no creator key", owner_person_id: null, team_id: null, spend_attribution: "team", unresolved_reason: "no_creator" },
       { id: "u2", provider_id: GW, external_key_id: "gw_um", name: "unmatched key", owner_person_id: null, team_id: null, spend_attribution: null, external_created_by: "uid_x", unresolved_reason: "unmatched_creator" },
       { id: "u3", provider_id: GW, external_key_id: "gw_ok", name: "owned key", owner_person_id: "p-alice", team_id: null, spend_attribution: "team", external_created_by_email: "alice@liatrio.com", assignment_source: "auto" },
     ]
     render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys([], keys)} projects={[]} />)
+    await showZeroKeys()
     const gateway = screen.getByRole("region", { name: "Vercel AI Gateway" })
     const unassigned = within(gateway).getByRole("group", { name: "Unassigned keys" })
     const items = within(unassigned).getAllByTestId("unassigned-key").map((li) => li.textContent?.replace(/\s+/g, " "))
     expect(items.sort()).toEqual(["no creator key: no creator recorded · $0.00", "unmatched key: creator has no email to match · $0.00"])
+  })
+})
+
+describe("KeysByProjectCard filters (issue #45)", () => {
+  const NOW = new Date("2026-11-15T00:00:00Z")
+  const anOrg = { ...org, people: [...org.people, { id: "p-bob", email: "bob@liatrio.com", display_name: "Bob", team_id: null }] } as unknown as Org
+  const anRecords: ObservedRecord[] = [
+    { provider_id: AN, timestamp: "2026-11-02T00:00:00Z", cost_usd: 30, attribution: { api_key_id: "an_live", granularity: "api_key" } },
+    { provider_id: AN, timestamp: "2026-06-01T00:00:00Z", cost_usd: 8, attribution: { api_key_id: "an_stale", granularity: "api_key" } },
+  ]
+  const anKeys: OrgApiKey[] = [
+    { id: "a1", provider_id: AN, external_key_id: "an_live", name: "live key", owner_person_id: "p-alice", team_id: null, external_status: "active" },
+    { id: "a2", provider_id: AN, external_key_id: "an_stale", name: "stale key", owner_person_id: "p-bob", team_id: null, external_status: "active", provider_created_at: "2025-02-03T00:00:00Z" },
+    { id: "a3", provider_id: AN, external_key_id: "an_never", name: "never key", owner_person_id: null, team_id: null, external_status: "active" },
+    { id: "a4", provider_id: AN, external_key_id: "an_off", name: "off key", owner_person_id: null, team_id: null, external_status: "inactive" },
+    { id: "a5", provider_id: AN, external_key_id: "an_gone", name: "gone key", owner_person_id: null, team_id: null, external_status: "archived" },
+  ]
+  const renderCard = () =>
+    render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys(anRecords, anKeys, NOW)} projects={[]} />)
+  const rowNames = () => screen.queryAllByTestId("admin-key-row").map((r) => r.querySelector(".font-medium")?.textContent)
+
+  it("hides $0 keys by default with a count; search and chips combine and keep order", async () => {
+    const user = userEvent.setup()
+    renderCard()
+    expect(rowNames()).toEqual(["live key", "stale key"])
+    expect(screen.getByTestId("key-count")).toHaveTextContent("2 of 5 keys with spend")
+    await user.click(screen.getByRole("checkbox", { name: "Show $0 keys" }))
+    expect(rowNames()).toEqual(["live key", "stale key", "gone key", "never key", "off key"])
+    const status = screen.getByRole("group", { name: "Admin API keys status" })
+    expect(within(status).getByRole("button", { name: /^Active/ })).toHaveTextContent("Active3")
+    expect(within(status).getByRole("button", { name: /^Deleted/ })).toHaveTextContent("Deleted1")
+    await user.click(within(status).getByRole("button", { name: /^Active/ }))
+    expect(rowNames()).toEqual(["live key", "stale key", "never key"])
+    await user.type(screen.getByRole("searchbox", { name: "Search Admin API keys" }), "bob")
+    expect(rowNames()).toEqual(["stale key"])
+    await user.clear(screen.getByRole("searchbox", { name: "Search Admin API keys" }))
+    await user.type(screen.getByRole("searchbox", { name: "Search Admin API keys" }), "zzz")
+    expect(screen.getByTestId("admin-keys-empty")).toBeInTheDocument()
+  })
+
+  it("lists active keys with $0 in the last 90 days to consider revoking, with owner, last spend and created date", async () => {
+    const user = userEvent.setup()
+    renderCard()
+    const box = screen.getByTestId("consider-revoking")
+    expect(screen.getByTestId("consider-revoking-count")).toHaveTextContent("2")
+    await user.click(within(box).getByText(/Consider revoking/))
+    const rows = within(box).getAllByTestId("revoke-row").map((r) => Array.from(r.querySelectorAll("td")).map((td) => td.textContent))
+    expect(rows).toEqual([
+      ["never key", "Anthropic API", "—", "never", "—"],
+      ["stale key", "Anthropic API", "Bob", "2026-06-01", "2025-02-03"],
+    ])
+    expect(within(box).queryByRole("button")).toBeNull()
+    expect(screen.getByText(/created 2025-02-03/)).toBeInTheDocument()
   })
 })

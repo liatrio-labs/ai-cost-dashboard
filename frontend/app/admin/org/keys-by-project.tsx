@@ -21,16 +21,23 @@
  * that creator. Issue #46: OpenAI keys are synced too (owner = the creator
  * when their email matches a person), so they show here and in a person's
  * key list like the others.
+ *
+ * Issue #45: keys with $0 spend are hidden by default (this page has no
+ * period, so spend is all collected data), with search, status chips and a
+ * read-only "Consider revoking" list (active keys with $0 in 90 days). The
+ * provider's creation date shows when migration 018 is applied.
  */
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Loader2, Trash2, UserCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { KeyRow, ProjectRow } from "@/lib/org/admin/observed"
 import { groupKeys } from "@/lib/org/key-groups"
+import { considerRevoking, DEFAULT_KEY_FILTER, filterGroups, filterKeys, type KeyFilter } from "@/lib/org/key-filter"
 import { canAssignToCreator, unresolvedReasonText } from "@/lib/org/key-status"
+import { ConsiderRevoking, isoDay, KeyFilterBar } from "@/components/org/key-filter-bar"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "never")
@@ -46,11 +53,12 @@ export function KeysByProjectCard({
   keys: KeyRow[] | null
   projects: ProjectRow[] | null
 }) {
-  const groups = useMemo(() => {
+  const allGroups = useMemo(() => {
     if (!keys) return null
     const observedNames = new Map((projects ?? []).map((p) => [`${p.provider_id}:${p.external_project_id}`, p.name]))
     return groupKeys(keys, { providers: org.providers, projects: org.projects, observedNames })
   }, [keys, projects, org.providers, org.projects])
+  const [keyFilter, setKeyFilter] = useState<KeyFilter>(DEFAULT_KEY_FILTER)
 
   const personLabel = (id: string | null) => {
     const p = id ? org.people.find((x) => x.id === id) : undefined
@@ -58,19 +66,46 @@ export function KeysByProjectCard({
   }
   const personEmail = (id: string | null) => (id ? (org.people.find((x) => x.id === id)?.email ?? null) : null)
 
+  // Group order (spend) is kept; filters only drop keys (lib/org/key-filter).
+  const ordered = allGroups?.flatMap((pg) => pg.projects.flatMap((g) => g.keys)) ?? []
+  const result = filterKeys(ordered, keyFilter, (k) => ({
+    spend: k.total_cost_usd,
+    status: k.external_status,
+    text: [k.name, k.external_key_id, personLabel(k.owner_person_id), personEmail(k.owner_person_id), k.external_created_by_email],
+  }))
+  const groups = allGroups ? filterGroups(allGroups, new Set(result.keys)) : null
+  const providerLabel = new Map((allGroups ?? []).map((pg) => [pg.provider_id, pg.label]))
+  const revoke = considerRevoking(ordered, (k) => ({
+    status: k.external_status,
+    spend90d: k.spend_90d,
+    lastSpend: k.last_spend,
+    label: k.name || k.external_key_id,
+  }))
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>API keys by project</CardTitle>
         <CardDescription>
           Every key seen in collected data plus registered keys, under its project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway).
-          Keys with no spend yet are listed too. A key&apos;s team wins over its owner&apos;s team, which wins over its project&apos;s team. Assigning
+          Keys with $0 spend (all collected data) are hidden unless you show them. A key&apos;s team wins over its owner&apos;s team, which wins over its project&apos;s team. Assigning
           here marks the key <em>manual</em>. Key ids only; secrets are never stored.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {!groups && <Loader2 className="h-4 w-4 animate-spin" />}
-        {groups?.length === 0 && <p className="text-sm text-muted-foreground">No keys observed or registered yet.</p>}
+        {allGroups && allGroups.length > 0 && <KeyFilterBar filter={keyFilter} onChange={setKeyFilter} result={result} label="Admin API keys" />}
+        {allGroups?.length === 0 && <p className="text-sm text-muted-foreground">No keys observed or registered yet.</p>}
+        {allGroups && allGroups.length > 0 && groups?.length === 0 && (
+          <p className="text-sm text-muted-foreground" data-testid="admin-keys-empty">
+            No keys match these filters.
+            {!keyFilter.showAll && (
+              <button type="button" className="ml-2 underline hover:text-foreground" onClick={() => setKeyFilter({ ...keyFilter, showAll: true })}>
+                Show $0 keys
+              </button>
+            )}
+          </p>
+        )}
         {groups?.map((pg) => (
           <section key={pg.provider_id} aria-label={pg.label} data-testid="key-provider-group">
             <h3 className="flex items-baseline justify-between text-sm font-semibold">
@@ -114,6 +149,16 @@ export function KeysByProjectCard({
             </div>
           </section>
         ))}
+        <ConsiderRevoking
+          items={revoke.map((k) => ({
+            key: `${k.provider_id}:${k.external_key_id}`,
+            label: k.name || k.external_key_id,
+            provider: providerLabel.get(k.provider_id) ?? null,
+            owner: personLabel(k.owner_person_id),
+            lastSpend: k.last_spend,
+            createdAt: k.provider_created_at,
+          }))}
+        />
       </CardContent>
     </Card>
   )
@@ -194,7 +239,8 @@ function KeyLine({
         <p className="text-xs text-muted-foreground">
           <code>{k.external_key_id}</code> · owner {owner ?? "none"}
           {!owner && k.unresolved_reason && ` (${unresolvedReasonText(k.unresolved_reason, providerSlug)})`} · team {team ?? "none"}
-          {creator && ` · created by ${creator}`} · last seen {day(k.last_seen)} · {usd(k.total_cost_usd)}
+          {creator && ` · created by ${creator}`}
+          {k.provider_created_at && ` · created ${isoDay(k.provider_created_at)}`} · last seen {day(k.last_seen)} · {usd(k.total_cost_usd)}
         </p>
       </div>
       <div className="flex items-center gap-1">

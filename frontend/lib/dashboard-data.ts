@@ -106,17 +106,28 @@ const KEY_COLUMNS_BASE = "id, provider_id, external_key_id, name, owner_person_i
 
 /**
  * org_api_keys with the key's assigned project (migration 015), so the
- * dashboard can place keys with no spend under their project (issue #28).
- * Falls back to the pre-015 columns when org_project_id doesn't exist yet.
+ * dashboard can place keys with no spend under their project (issue #28),
+ * plus the provider key status (017) and the provider's creation date (018)
+ * for the API keys table filters (issue #45). Newest column set first; falls
+ * back while 018 / 017 / 015 aren't applied.
  */
+const KEY_COLUMN_TIERS = [
+  `${KEY_COLUMNS_BASE}, org_project_id, external_status, provider_created_at`,
+  `${KEY_COLUMNS_BASE}, org_project_id, external_status`,
+  `${KEY_COLUMNS_BASE}, org_project_id`,
+  KEY_COLUMNS_BASE,
+]
+
 async function fetchOrgKeys(supabase: SupabaseLike) {
-  const res = (await supabase.from("org_api_keys").select(`${KEY_COLUMNS_BASE}, org_project_id`).order("name")) as {
-    data: unknown[] | null
-    error: { code?: string; message?: string } | null
+  type Res = { data: unknown[] | null; error: { code?: string; message?: string } | null }
+  let res: Res = { data: null, error: null }
+  for (const columns of KEY_COLUMN_TIERS) {
+    res = (await supabase.from("org_api_keys").select(columns).order("name")) as Res
+    const missing =
+      !!res.error && (res.error.code === "42703" || res.error.code === "PGRST204" || /column .* does not exist/i.test(res.error.message ?? ""))
+    if (!missing) return res
   }
-  const missing =
-    !!res.error && (res.error.code === "42703" || res.error.code === "PGRST204" || /column .* does not exist/i.test(res.error.message ?? ""))
-  return missing ? supabase.from("org_api_keys").select(KEY_COLUMNS_BASE).order("name") : res
+  return res
 }
 
 /** Org tables (authenticated SELECT, migrations 010/011/015). Identities aren't needed for labels. */

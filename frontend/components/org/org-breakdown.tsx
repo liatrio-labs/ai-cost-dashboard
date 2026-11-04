@@ -26,10 +26,13 @@ import type {
   BreakdownApiKey,
   BreakdownData,
   BreakdownEntity,
+  BreakdownKeyItem,
   BreakdownProject,
   BreakdownProvider,
   CoverageNote,
 } from "@/lib/org/breakdown"
+import { considerRevoking, DEFAULT_KEY_FILTER, filterGroups, filterKeys, hasSpend, matchesQuery, type KeyFilter } from "@/lib/org/key-filter"
+import { ConsiderRevoking, isoDay, KeyFilterBar } from "./key-filter-bar"
 
 type OnFilters = (f: DashboardFilters) => void
 
@@ -360,16 +363,33 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
 /** Wrapping, width-capped Name cell so a long key name or note can't widen the table (issue #41). */
 const NAME_CELL = "min-w-40 max-w-xs whitespace-normal"
 
+const UNASSIGNED_KEY_LABEL = "Unassigned (no registered key)"
+const keyFields = (k: BreakdownKeyItem) => ({ spend: k.cost, status: k.status, text: [k.label, k.owner, k.external_key_id] })
+
 export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
-  const unassigned = data.api_key.filter((k) => k.unassigned && visible(k)) as BreakdownApiKey[]
-  const groups = data.key_groups ?? []
+  // Issue #45: $0 keys hidden by default; search and status chips combine with
+  // it and never reorder (lib/org/key-filter).
+  const [keyFilter, setKeyFilter] = useState<KeyFilter>(DEFAULT_KEY_FILTER)
+  const allGroups = data.key_groups ?? []
+  const allKeys = allGroups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
+  const result = filterKeys(allKeys, keyFilter, keyFields)
+  const groups = filterGroups(allGroups, new Set(result.keys))
+  // The Unassigned spend row isn't a key: it has no status and shows with spend unless a status chip is on.
+  const unassigned = (data.api_key.filter((k) => k.unassigned && visible(k)) as BreakdownApiKey[]).filter(
+    (k) =>
+      keyFilter.status === "all" &&
+      (keyFilter.showAll || hasSpend(k.cost)) &&
+      matchesQuery([UNASSIGNED_KEY_LABEL], keyFilter.query)
+  )
+  const revoke = considerRevoking(allKeys, (k) => ({ status: k.status, spend90d: k.spend_90d, lastSpend: k.last_spend, label: k.label }))
   // An identical "Not included" note shows once (issue #41): in the description
   // when every registered key shares it, else in a group's header row when every
-  // key in that group shares it. Any other row keeps its own note.
-  const allKeys = groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
-  const tableNote = allKeys.length > 1 ? sharedCoverageText(allKeys.map((k) => k.coverage)) : null
+  // key in that group shares it. Any other row keeps its own note. Only the
+  // rows the key filters leave count (issue #45).
+  const tableNote = result.keys.length > 1 ? sharedCoverageText(result.keys.map((k) => k.coverage)) : null
   const groupNote = (keys: { coverage: CoverageNote[] }[]) =>
     tableNote || keys.length < 2 ? null : sharedCoverageText(keys.map((k) => k.coverage))
+  const empty = groups.length === 0 && unassigned.length === 0
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
@@ -377,7 +397,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
         <CardDescription>
           Registered provider API keys under their project (OpenAI), workspace (Anthropic) or Vercel project (AI Gateway), including keys with no
           spend yet. A person, team or department filter shows the keys they own plus any key with spend from them. Select a project to filter
-          by it.
+          by it. Keys with $0 in the period are hidden unless you show them.
           {tableNote && (
             <span className="mt-1 block text-xs" data-testid="coverage-shared">
               Not included for every key: {tableNote}
@@ -386,6 +406,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <KeyFilterBar filter={keyFilter} onChange={setKeyFilter} result={result} />
         <Table aria-label="API keys">
           <TableHeader>
             <TableRow>
@@ -438,6 +459,11 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                       >
                         {k.label}
                       </button>
+                      {k.provider_created_at && (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid="key-created">
+                          created {isoDay(k.provider_created_at)}
+                        </p>
+                      )}
                       {!tableNote && !shared && <Coverage notes={k.coverage} unassigned={false} />}
                     </TableCell>
                     <TableCell>{k.owner ?? "—"}</TableCell>
@@ -460,7 +486,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     className="text-left font-medium hover:underline"
                     onClick={() => onFiltersChange({ ...data.filters, key: k.key })}
                   >
-                    Unassigned (no registered key)
+                    {UNASSIGNED_KEY_LABEL}
                   </button>
                   <Coverage notes={k.coverage} unassigned />
                 </TableCell>
@@ -472,8 +498,30 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                 </TableCell>
               </TableRow>
             ))}
+            {empty && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-4 text-center text-sm text-muted-foreground" data-testid="keys-empty">
+                  {allKeys.length === 0 ? "No API keys for this selection." : "No keys match these filters."}
+                  {!keyFilter.showAll && allKeys.length > 0 && (
+                    <button type="button" className="ml-2 underline hover:text-foreground" onClick={() => setKeyFilter({ ...keyFilter, showAll: true })}>
+                      Show $0 keys
+                    </button>
+                  )}
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
+        <ConsiderRevoking
+          items={revoke.map((k) => ({
+            key: k.key,
+            label: k.label,
+            provider: k.providerName,
+            owner: k.owner,
+            lastSpend: k.last_spend,
+            createdAt: k.provider_created_at,
+          }))}
+        />
       </CardContent>
     </Card>
   )
