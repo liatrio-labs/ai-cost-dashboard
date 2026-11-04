@@ -17,6 +17,7 @@ import { AssignToCreatorButton, KeysByProjectCard } from "./keys-by-project"
 import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./bulk"
+import { ReviewTab } from "./review-inbox"
 
 const API = "/api/admin/org"
 
@@ -119,14 +120,18 @@ export function OrgAdminClient() {
         {!org ? (
           !loadError && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : (
-          <Tabs defaultValue="unassigned">
+          <Tabs defaultValue="review">
             <TabsList>
+              <TabsTrigger value="review">Needs review</TabsTrigger>
               <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
               <TabsTrigger value="structure">Departments & teams</TabsTrigger>
               <TabsTrigger value="people">People</TabsTrigger>
               <TabsTrigger value="keys">API keys & projects</TabsTrigger>
               <TabsTrigger value="import">Import</TabsTrigger>
             </TabsList>
+            <TabsContent value="review">
+              <ReviewTab org={org} mutate={mutate} reloadKey={reloadKey} />
+            </TabsContent>
             <TabsContent value="unassigned">
               <UnassignedTab org={org} mutate={mutate} reloadKey={reloadKey} />
             </TabsContent>

@@ -423,6 +423,36 @@ read-only. The provider's key creation date (`org_api_keys.provider_created_at`,
 migration 018 from #44) shows when that column exists; without it the column is
 left out and nothing fails.
 
+The key syncs fill `provider_created_at` (issue #44) from Anthropic's
+`created_at` (RFC 3339), OpenAI's `created_at` (epoch seconds) and Vercel's
+`createdAt` (epoch ms) when the provider reports one. A listing without a date
+(e.g. an OpenAI key seen only on cost rows) keeps the stored date. Our own
+`created_at` remains the date the row was first synced.
+
+### Needs-review inbox (issue #44)
+
+`/admin/org` → **Needs review** lists, computed live from
+`cost_records_daily_attributed` (`frontend/lib/org/review-inbox.ts`):
+
+- **Person spikes**: a person's month spend over 2x the previous month and
+  over $500, for the last complete month (actual) and the current month (the
+  #39 projection, labelled projected). No spend the month before counts once
+  over $500.
+- **Person-days**: one person's spend on one day over $300 (all providers),
+  from the 1st of the last complete month.
+- **Newly unassigned spend**: spend with no team, grouped by person, else API
+  key, else project, else provider, whose group was first seen in the last 7
+  days (today included).
+- **Newly active keys**: keys whose `provider_created_at` is in the last 7 days
+  and that have spend since. Keys without a stored provider date never show.
+
+Acknowledge (or Assign, which runs the Unassigned queue's assign flow) records
+the item and its amount in `review_items` (migration 018) with an optional
+note. The item stays hidden until its amount exceeds 1.25x the recorded amount,
+then comes back showing the earlier decision. Without 018 the items still
+list, Acknowledge is hidden behind a "migration 018 not applied" notice, and
+`POST /api/admin/org/review` answers 409 `migration_018_not_applied`.
+
 On the dashboard, an Anthropic `workspace_id` stands in for a missing
 `project_id`: the Projects table shows workspaces (marked "workspace") and the
 `project` filter matches either column. The table shows whenever any loaded row

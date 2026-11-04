@@ -144,7 +144,7 @@ describe("OpenAI: created_at (epoch seconds) -> provider_created_at", () => {
   })
 
   test("parseOpenAIKey and the admin list read created_at", async () => {
-    expect(parseOpenAIKey({ id: "k", created_at: 1735787045 }, "p").created_at).toBe("2025-01-02T03:04:05.000Z")
+    expect(parseOpenAIKey({ id: "k", created_at: 1735787045 }, "p")?.created_at).toBe("2025-01-02T03:04:05.000Z")
     expect(parseOpenAIKey({ id: "k" }, "p")).not.toHaveProperty("created_at")
     global.fetch = jest.fn(async (url: any) => {
       const u = new URL(String(url))
