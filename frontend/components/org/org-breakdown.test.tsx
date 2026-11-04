@@ -2,13 +2,14 @@ import "@testing-library/jest-dom"
 import { useState } from "react"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable, ProjectsTable } from "./org-breakdown"
+import { ApiKeysTable, OrgBreakdown, OrgFilterBar, PeopleTable, ProjectsTable, sharedCoverageText } from "./org-breakdown"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { EMPTY_ORG, PROVIDERS, RECORDS, attributedRows } from "@/lib/org/dashboard-fixtures"
 import { D, P, PE, T, orgData } from "@/lib/org/test-fixtures"
 import { buildOrgIndex } from "@/lib/org/attribution"
 import { toAttributedDailyRows, type CostRecordLike } from "@/lib/org/rollup"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
+import type { BreakdownData } from "@/lib/org/breakdown"
 
 const NOW = new Date("2026-11-15T00:00:00Z")
 const breakdown = (filters: DashboardFilters = {}, org = orgData()) =>
@@ -41,7 +42,11 @@ describe("OrgBreakdown drill-down", () => {
     expect(eng.changePercent).toBe(112.5)
     const engChange = within(rowOf(depts, "Engineering")).getByText(`+${eng.projectedChangePercent}% proj.`)
     expect(engChange).toHaveAttribute("title", expect.stringMatching(/^Projected from 14 complete days \(through Nov 14\); actual to date \$170\.00/))
-    expect(within(depts).getByText("Change (projected)")).toBeInTheDocument()
+    // Two-line header: "Change" / "(projected)" (issue #41).
+    const changeHead = within(depts).getAllByRole("columnheader")[3]
+    expect(changeHead).toHaveTextContent("Change (projected)")
+    expect(within(changeHead).getByText("Change")).toBeInTheDocument()
+    expect(within(changeHead).getByText("(projected)")).toBeInTheDocument()
     expect(within(rowOf(depts, "Unassigned")).getByText("$30.00")).toBeInTheDocument()
     expect(within(rowOf(depts, "Engineering")).getByTestId("coverage")).toHaveTextContent(
       "Not included: Windsurf (CascadeAnalytics): org-level only"
@@ -116,6 +121,115 @@ describe("ApiKeysTable", () => {
 
     await user.click(within(table).getByRole("button", { name: "Data pipeline key" }))
     expect(onChange).toHaveBeenCalledWith({ key: "k-team" })
+  })
+})
+
+describe("org table layout (issue #41)", () => {
+  const clone = (d: BreakdownData): BreakdownData => JSON.parse(JSON.stringify(d))
+  const keyRowCoverage = (table: HTMLElement) =>
+    within(table)
+      .getAllByTestId("key-row")
+      .filter((r) => !within(r).queryByRole("button", { name: "Unassigned (no registered key)" }))
+      .map((r) => within(r).queryByTestId("coverage")?.textContent ?? null)
+
+  it("People: provider headers wrap the parenthetical onto line 2; plain headers stay one line", () => {
+    render(<PeopleTable data={breakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "People" })
+    const sortBtn = within(table).getByRole("button", { name: "Sort by Anthropic (Claude API)" })
+    const label = within(sortBtn).getByTestId("header-label")
+    const lines = Array.from(label.children).map((c) => c.textContent)
+    expect(lines).toEqual(["Anthropic", "(Claude API)"])
+    expect(label).toHaveClass("flex-col", "items-end")
+    expect(within(within(table).getByRole("button", { name: "Sort by Cursor (Admin API)" })).getByTestId("header-label").children[1]).toHaveTextContent(
+      "(Admin API)"
+    )
+    // No parenthetical: unchanged, one line.
+    for (const name of ["Sort by OpenAI API", "Sort by Spend", "Sort by Name"]) {
+      expect(within(within(table).getByRole("button", { name })).queryByTestId("header-label")).not.toBeInTheDocument()
+    }
+    expect(within(table).getByRole("button", { name: "Sort by OpenAI API" })).toHaveTextContent(/^OpenAI API$/)
+  })
+
+  it("People: sorting by a two-line provider header still works and sets aria-sort", async () => {
+    const user = userEvent.setup()
+    render(<PeopleTable data={breakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "People" })
+    const btn = within(table).getByRole("button", { name: "Sort by Anthropic (Claude API)" })
+    const th = btn.closest("th") as HTMLElement
+    expect(th).toHaveClass("text-right")
+    await user.click(btn)
+    const names = within(table).getAllByTestId("person-row").map((r) => within(r).getAllByRole("button")[0].textContent)
+    expect(names.slice(0, 2)).toEqual(["Alice", "Bob"]) // 100 then 50 on Anthropic
+    expect(th).toHaveAttribute("aria-sort", "descending")
+    expect(within(table).getAllByRole("columnheader")[1]).not.toHaveAttribute("aria-sort")
+    await user.click(btn)
+    expect(th).toHaveAttribute("aria-sort", "ascending")
+    // Numeric cells stay right-aligned and nowrap.
+    const cell = within(rowOf(table, "Alice")).getByText("$100.00").closest("td") as HTMLElement
+    expect(cell).toHaveClass("text-right", "tabular-nums", "whitespace-nowrap")
+    expect(cell).not.toHaveClass("whitespace-normal")
+  })
+
+  it("API keys: the Name cell and its note wrap instead of widening the table", () => {
+    render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    const nameCell = within(table).getByRole("button", { name: "Data pipeline key" }).closest("td") as HTMLElement
+    expect(nameCell).toHaveClass("whitespace-normal", "max-w-xs")
+    expect(within(nameCell).getByTestId("coverage")).toHaveClass("whitespace-normal", "break-words")
+    const spendCell = within(rowOf(table, "Data pipeline key")).getByText("$40.00").closest("td") as HTMLElement
+    expect(spendCell).toHaveClass("text-right", "whitespace-nowrap")
+  })
+
+  it("API keys: rows whose notes differ keep their own note", () => {
+    render(<ApiKeysTable data={breakdown()} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    // key_owner has no spend, so no note; the other two keep theirs.
+    expect(keyRowCoverage(table)).toEqual([
+      expect.stringMatching(/^Not included: Cursor \(Admin API\): per person; no API keys; Windsurf/),
+      expect.stringMatching(/^Not included: Cursor/),
+      null,
+    ])
+    expect(screen.queryByTestId("coverage-shared")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("coverage-group")).not.toBeInTheDocument()
+  })
+
+  it("API keys: a note every key shares shows once in the description", () => {
+    const data = clone(breakdown())
+    const keys = data.key_groups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
+    for (const k of keys) k.coverage = keys[0].coverage
+    render(<ApiKeysTable data={data} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    expect(screen.getByTestId("coverage-shared")).toHaveTextContent(/^Not included for every key: Cursor \(Admin API\): per person; no API keys/)
+    expect(keyRowCoverage(table)).toEqual([null, null, null])
+    // The Unassigned row's "Includes" note is about different spend and stays.
+    expect(within(rowOf(table, "Unassigned (no registered key)")).getByTestId("coverage")).toHaveTextContent(/^Includes /)
+  })
+
+  it("API keys: a note every key in a group shares shows once in the group row", () => {
+    const data = clone(breakdown())
+    const group = data.key_groups[0].projects[0]
+    for (const k of group.keys) k.coverage = group.keys[0].coverage
+    const other = { ...clone(data).key_groups[0].projects[0], key: "proj-other", label: "Other project", external_id: "proj-other" }
+    other.keys = [{ ...other.keys[0], key: "k-other", label: "Other key", coverage: [] }, { ...other.keys[1], key: "k-other2", label: "Other key 2" }]
+    data.key_groups[0].projects.push(other)
+    render(<ApiKeysTable data={data} onFiltersChange={() => {}} />)
+    const table = screen.getByRole("table", { name: "API keys" })
+    expect(screen.queryByTestId("coverage-shared")).not.toBeInTheDocument()
+    const groupRows = within(table).getAllByTestId("key-group-row")
+    expect(within(groupRows[0]).getByTestId("coverage-group")).toHaveTextContent(/^Not included: Cursor \(Admin API\)/)
+    expect(within(groupRows[1]).queryByTestId("coverage-group")).not.toBeInTheDocument()
+    // Group 1's rows drop the note; group 2's differing rows keep their own.
+    expect(keyRowCoverage(table)).toEqual([null, null, null, null, expect.stringMatching(/^Not included: Cursor/)])
+  })
+
+  it("sharedCoverageText returns the note only when every list matches", () => {
+    const a = [{ provider: "cursor", providerName: "Cursor (Admin API)", note: "per person; no API keys" }]
+    const b = [{ provider: "x", providerName: "X", note: "y" }]
+    expect(sharedCoverageText([a, a])).toBe("Cursor (Admin API): per person; no API keys")
+    expect(sharedCoverageText([a, b])).toBeNull()
+    expect(sharedCoverageText([a, []])).toBeNull()
+    expect(sharedCoverageText([[], []])).toBeNull()
+    expect(sharedCoverageText([])).toBeNull()
   })
 })
 
