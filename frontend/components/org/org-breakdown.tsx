@@ -219,7 +219,7 @@ export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData;
                   >
                     {e.label}
                   </button>
-                  <Coverage notes={e.coverage} unassigned={e.unassigned} />
+                  <Coverage notes={e.coverage} unassigned={e.unassigned || !!e.automation} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(e.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(e.prevCost)}</TableCell>
@@ -394,6 +394,7 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
 const NAME_CELL = "min-w-40 max-w-xs whitespace-normal"
 
 const UNASSIGNED_KEY_LABEL = "Unassigned (no registered key)"
+const spendRowLabel = (k: { automation?: boolean }) => (k.automation ? AUTOMATION_LABEL : UNASSIGNED_KEY_LABEL)
 /** A CSV row of the API keys table: a registered key (item) under its group, or the Unassigned spend row. */
 type KeyCsvRow = { k: BreakdownApiKey; item: BreakdownKeyItem | null; group: string | null }
 const keyFields = (k: BreakdownKeyItem) => ({ spend: k.cost, status: k.status, text: [k.label, k.owner, k.external_key_id] })
@@ -406,12 +407,13 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
   const allKeys = allGroups.flatMap((pg) => pg.projects.flatMap((g) => g.keys))
   const result = filterKeys(allKeys, keyFilter, keyFields)
   const groups = filterGroups(allGroups, new Set(result.keys))
-  // The Unassigned spend row isn't a key: it has no status and shows with spend unless a status chip is on.
-  const unassigned = (data.api_key.filter((k) => k.unassigned && visible(k)) as BreakdownApiKey[]).filter(
+  // The Unassigned spend row, and the Cursor – Bugbot/automation row before it
+  // (issue #51), aren't keys: no status, and they show with spend unless a status chip is on.
+  const unassigned = (data.api_key.filter((k) => (k.unassigned || k.automation) && visible(k)) as BreakdownApiKey[]).filter(
     (k) =>
       keyFilter.status === "all" &&
       (keyFilter.showAll || hasSpend(k.cost)) &&
-      matchesQuery([UNASSIGNED_KEY_LABEL], keyFilter.query)
+      matchesQuery([spendRowLabel(k)], keyFilter.query)
   )
   const revoke = considerRevoking(allKeys, (k) => ({ status: k.status, spend90d: k.spend_90d, lastSpend: k.last_spend, label: k.label }))
   // An identical "Not included" note shows once (issue #41): in the description
@@ -430,7 +432,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
   const csvColumns: CsvColumn<KeyCsvRow>[] = [
     { header: "Provider", value: (r) => r.item?.providerName },
     { header: "Project / workspace", value: (r) => r.group },
-    { header: "Name", value: (r) => r.item?.label ?? UNASSIGNED_KEY_LABEL },
+    { header: "Name", value: (r) => r.item?.label ?? spendRowLabel(r.k) },
     { header: "Key ID", value: (r) => r.item?.external_key_id },
     { header: "Status", value: (r) => r.item?.status },
     { header: "Created", value: (r) => isoDay(r.item?.provider_created_at) },
@@ -538,7 +540,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     className="text-left font-medium hover:underline"
                     onClick={() => onFiltersChange({ ...data.filters, key: k.key })}
                   >
-                    {UNASSIGNED_KEY_LABEL}
+                    {spendRowLabel(k)}
                   </button>
                   <Coverage notes={k.coverage} unassigned />
                 </TableCell>
@@ -675,6 +677,14 @@ export function OrgFilterBar({
   const inScope = (want: string | undefined, ids: string[]) => !want || ids.includes(want)
   const personFits = (p: { teamIds: string[]; departmentIds: string[] }, f: DashboardFilters) =>
     inScope(f.team, p.teamIds) && inScope(f.department, p.departmentIds)
+  // Issue #51: the automation line nests only in itself, and Unassigned never
+  // nests under it (those rows are exactly the automation ones).
+  const parentIsAutomation = (f: DashboardFilters) => f.department === AUTOMATION_FILTER || f.team === AUTOMATION_FILTER
+  const parentIsReal = (v: string | undefined) => !!v && v !== AUTOMATION_FILTER && v !== UNASSIGNED_FILTER
+  const specialPersonFits = (person: string, f: DashboardFilters) =>
+    person === AUTOMATION_FILTER
+      ? !parentIsReal(f.department) && !parentIsReal(f.team) && f.department !== UNASSIGNED_FILTER && f.team !== UNASSIGNED_FILTER
+      : !parentIsAutomation(f)
 
   const teams = filters.department === AUTOMATION_FILTER ? [] : (o?.teams.filter((t) => accepts(filters.department, t.departmentId)) ?? [])
   const people = o?.people.filter((p) => personFits(p, filters) || p.id === filters.person) ?? []
@@ -689,8 +699,10 @@ export function OrgFilterBar({
     // instead of leaving a combination that matches nothing.
     if (k === "department" || k === "team") {
       if (next.team && !teamFits(next.team, next)) delete next.team
-      const person = next.person && next.person !== UNASSIGNED_FILTER ? o?.people.find((p) => p.id === next.person) : undefined
+      const special = next.person === UNASSIGNED_FILTER || next.person === AUTOMATION_FILTER
+      const person = next.person && !special ? o?.people.find((p) => p.id === next.person) : undefined
       if (person && !personFits(person, next)) delete next.person
+      if (special && !specialPersonFits(next.person!, next)) delete next.person
     }
     onFiltersChange(next)
   }
@@ -724,7 +736,13 @@ export function OrgFilterBar({
     <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filters">
       {field("department", "Department", o?.departments.map((d) => ({ value: d.id, label: d.label })) ?? [])}
       {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk, teamAutomationOk)}
-      {field("person", "Person", people.map((p) => ({ value: p.id, label: p.label })))}
+      {field(
+        "person",
+        "Person",
+        people.map((p) => ({ value: p.id, label: p.label })),
+        !parentIsAutomation(filters),
+        specialPersonFits(AUTOMATION_FILTER, filters)
+      )}
       {field("key", "API key", o?.apiKeys.map((k) => ({ value: k.id, label: k.label })) ?? [])}
       {field("project", "Project", o?.projects?.map((p) => ({ value: p.id, label: p.label })) ?? [])}
       {field("provider", "Provider", o?.providers.map((p) => ({ value: p.slug, label: p.label })) ?? [], false)}

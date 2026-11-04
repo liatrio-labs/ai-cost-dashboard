@@ -98,4 +98,38 @@ describe("Possible duplicates card (issue #51)", () => {
       "Moves 1 identity, 1 API key, 2 seat rows, 3 email aliases; adopts team Field and name"
     )
   })
+
+  it("a network failure shows an error and re-enables the buttons (Bugbot review)", async () => {
+    const user = userEvent.setup()
+    mockFetch(true)
+    const ok = global.fetch
+    render(<DuplicatesCard org={org} onMerged={jest.fn()} />)
+    await screen.findByText("Possible duplicates (1)")
+    global.fetch = jest.fn(async () => {
+      throw new Error("offline")
+    }) as unknown as typeof fetch
+    await user.click(screen.getByRole("button", { name: "Preview merge" }))
+    expect(await screen.findByText("Request failed: offline")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Preview merge" })).toBeEnabled()
+    global.fetch = ok
+    await user.click(screen.getByRole("button", { name: "Preview merge" }))
+    expect(await screen.findByTestId("merge-preview-p2")).toBeInTheDocument()
+  })
+})
+
+it("a failing merge (network) shows the error and re-enables Merge (Bugbot review)", async () => {
+  const user = userEvent.setup()
+  mockFetch(true)
+  const ok = global.fetch
+  window.confirm = jest.fn(() => true)
+  render(<DuplicatesCard org={org} onMerged={jest.fn()} />)
+  await user.click(await screen.findByRole("button", { name: "Preview merge" }))
+  await screen.findByTestId("merge-preview-p2")
+  global.fetch = jest.fn(async () => {
+    throw new Error("offline")
+  }) as unknown as typeof fetch
+  await user.click(screen.getByRole("button", { name: /Merge into Dave/ }))
+  expect(await screen.findByText("Request failed: offline")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: /Merge into Dave/ })).toBeEnabled()
+  global.fetch = ok
 })

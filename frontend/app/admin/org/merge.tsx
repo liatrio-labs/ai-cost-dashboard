@@ -23,10 +23,15 @@ interface DuplicatesResponse {
   groups: DuplicateGroup[]
 }
 
+/** Never throws: a network failure comes back as { ok: false, data: { error } } so the buttons re-enable. */
 async function post<T>(path: string, body: unknown): Promise<{ ok: boolean; data: T & { error?: string } }> {
-  const res = await fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-  const data = await res.json().catch(() => ({}))
-  return { ok: res.ok, data }
+  try {
+    const res = await fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    const data = await res.json().catch(() => ({}))
+    return { ok: res.ok, data }
+  } catch (e) {
+    return { ok: false, data: { error: `Request failed: ${e instanceof Error ? e.message : "network error"}` } as T & { error?: string } }
+  }
 }
 
 const label = (m: Pick<DuplicateMember, "display_name" | "email">) => m.display_name || m.email
@@ -77,21 +82,31 @@ function GroupRow({
   const preview = async (secondary: DuplicateMember) => {
     setBusy(`preview:${secondary.id}`)
     setError(null)
-    const res = await post<{ preview?: MergePreview; result?: MergeResult }>("/merge", { primary_id: primary.id, secondary_id: secondary.id, preview: true })
-    setBusy(null)
-    if (!res.ok || !res.data.preview) return setError(res.data.error || (res.data.result?.already_merged ? "Already merged" : "Preview failed"))
-    setPreviews((p) => ({ ...p, [`${primary.id}:${secondary.id}`]: res.data.preview! }))
+    try {
+      const res = await post<{ preview?: MergePreview; result?: MergeResult }>("/merge", { primary_id: primary.id, secondary_id: secondary.id, preview: true })
+      if (!res.ok || !res.data.preview) return setError(res.data.error || (res.data.result?.already_merged ? "Already merged" : "Preview failed"))
+      setPreviews((p) => ({ ...p, [`${primary.id}:${secondary.id}`]: res.data.preview! }))
+    } catch (e) {
+      setError(`Preview failed: ${e instanceof Error ? e.message : "unknown error"}`)
+    } finally {
+      setBusy(null)
+    }
   }
 
   const merge = async (secondary: DuplicateMember) => {
     if (!window.confirm(`Merge ${secondary.email} into ${primary.email}? ${secondary.email} is removed; its identities, keys and seat assignments move to ${primary.email}.`)) return
     setBusy(`merge:${secondary.id}`)
     setError(null)
-    const res = await post<{ result?: MergeResult }>("/merge", { primary_id: primary.id, secondary_id: secondary.id })
-    setBusy(null)
-    if (!res.ok || !res.data.result) return setError(res.data.error || "Merge failed")
-    const r = res.data.result
-    await onMerged(r.already_merged ? `${secondary.email} was already merged into ${primary.email}` : `Merged ${secondary.email} into ${primary.email}. ${describeMerge(r, teamName(secondary.team_id))}.`)
+    try {
+      const res = await post<{ result?: MergeResult }>("/merge", { primary_id: primary.id, secondary_id: secondary.id })
+      if (!res.ok || !res.data.result) return setError(res.data.error || "Merge failed")
+      const r = res.data.result
+      await onMerged(r.already_merged ? `${secondary.email} was already merged into ${primary.email}` : `Merged ${secondary.email} into ${primary.email}. ${describeMerge(r, teamName(secondary.team_id))}.`)
+    } catch (e) {
+      setError(`Merge failed: ${e instanceof Error ? e.message : "unknown error"}`)
+    } finally {
+      setBusy(null)
+    }
   }
 
   return (
@@ -155,7 +170,11 @@ export function DuplicatesCard({ org, onMerged }: { org: Org; onMerged: (text: s
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const res = await fetch(`${API}/duplicates`)
+    const res = await fetch(`${API}/duplicates`).catch(() => null)
+    if (!res) {
+      setError("Failed to load duplicates (network error)")
+      return
+    }
     const body = (await res.json().catch(() => ({}))) as DuplicatesResponse & { error?: string }
     if (!res.ok) {
       setError(body.error || `Failed to load duplicates (${res.status})`)

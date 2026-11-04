@@ -7,7 +7,7 @@ import "@testing-library/jest-dom"
 import { useState } from "react"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { OrgBreakdown, OrgFilterBar } from "./org-breakdown"
+import { ApiKeysTable, OrgBreakdown, OrgFilterBar } from "./org-breakdown"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { PROVIDERS, RECORDS } from "@/lib/org/dashboard-fixtures"
 import { buildOrgIndex } from "@/lib/org/attribution"
@@ -87,5 +87,56 @@ describe("Cursor – Bugbot/automation row (issue #51)", () => {
     const plain = computeBreakdown({ rows: toAttributedDailyRows(RECORDS, buildOrgIndex(org)), org, providers: PROVIDERS, filters: {}, params: { month: "2026-11" }, now: NOW })
     render(<OrgFilterBar data={plain} filters={{}} onFiltersChange={jest.fn()} />)
     expect(within(screen.getByLabelText("Department")).getAllByRole("option").map((o) => o.textContent)).not.toContain(AUTOMATION_LABEL)
+  })
+
+  it("API keys table lists the automation spend row, so it still sums to the total (Bugbot review)", async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+    const d = breakdown()
+    render(<ApiKeysTable data={d} onFiltersChange={onChange} />)
+    const btn = screen.getByRole("button", { name: AUTOMATION_LABEL })
+    const row = btn.closest("tr") as HTMLElement
+    expect(within(row).getByText("$70.00")).toBeInTheDocument()
+    expect(within(row).getByTestId("coverage")).toHaveTextContent(/^Includes /)
+    expect(screen.getByRole("button", { name: "Unassigned (no registered key)" })).toBeInTheDocument()
+    await user.click(btn)
+    expect(onChange).toHaveBeenLastCalledWith({ key: AUTOMATION_KEY })
+    // Under key=cursor-automation the card shows the row, not "empty".
+    render(<ApiKeysTable data={breakdown({ key: AUTOMATION_KEY })} onFiltersChange={jest.fn()} />)
+    expect(screen.queryAllByTestId("keys-empty")).toHaveLength(0)
+  })
+
+  it("department row's coverage note reads Includes, not Not included (Bugbot review)", () => {
+    render(<Harness onChange={jest.fn()} />)
+    const depts = screen.getByRole("table", { name: "Departments" })
+    const row = within(depts).getByRole("button", { name: AUTOMATION_LABEL }).closest("tr") as HTMLElement
+    expect(within(row).getByTestId("coverage")).toHaveTextContent(/^Includes Cursor/)
+  })
+
+  it("person automation / unassigned are dropped when the parent can't contain them (Bugbot review)", async () => {
+    const user = userEvent.setup()
+    const onChange = jest.fn()
+    const f1 = { person: AUTOMATION_KEY }
+    const { rerender } = render(<OrgFilterBar data={breakdown(f1)} filters={f1} onFiltersChange={onChange} />)
+    await user.selectOptions(screen.getByLabelText("Department"), "unassigned")
+    expect(onChange).toHaveBeenLastCalledWith({ department: "unassigned" })
+
+    // (Options from unfiltered data: e.g. a shared link with both set.)
+    const f2 = { person: "unassigned" }
+    rerender(<OrgFilterBar data={breakdown()} filters={f2} onFiltersChange={onChange} />)
+    await user.selectOptions(screen.getByLabelText("Department"), AUTOMATION_KEY)
+    expect(onChange).toHaveBeenLastCalledWith({ department: AUTOMATION_KEY })
+
+    // Kept when compatible.
+    rerender(<OrgFilterBar data={breakdown(f1)} filters={f1} onFiltersChange={onChange} />)
+    await user.selectOptions(screen.getByLabelText("Department"), AUTOMATION_KEY)
+    expect(onChange).toHaveBeenLastCalledWith({ department: AUTOMATION_KEY, person: AUTOMATION_KEY })
+
+    // Under an automation department the Person select has no Unassigned option.
+    const f3 = { department: AUTOMATION_KEY }
+    rerender(<OrgFilterBar data={breakdown(f3)} filters={f3} onFiltersChange={onChange} />)
+    const opts = within(screen.getByLabelText("Person")).getAllByRole("option").map((o) => o.textContent)
+    expect(opts).toContain(AUTOMATION_LABEL)
+    expect(opts).not.toContain("Unassigned")
   })
 })
