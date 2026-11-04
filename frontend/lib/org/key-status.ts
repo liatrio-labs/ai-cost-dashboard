@@ -16,9 +16,19 @@ export const UNRESOLVED_REASON_TEXT: Record<UnresolvedReason, string> = {
   unmatched_creator: "creator has no email to match",
 }
 
-export function unresolvedReasonText(reason: string | null | undefined): string | null {
+/**
+ * OpenAI (issue #46) stores unmatched_creator when the creator's email
+ * matches no person (the OpenAI sync never creates people), so the label
+ * differs for that provider.
+ */
+const PROVIDER_REASON_TEXT: Record<string, Partial<Record<UnresolvedReason, string>>> = {
+  openai: { unmatched_creator: "creator's email matches no person" },
+}
+
+export function unresolvedReasonText(reason: string | null | undefined, providerSlug?: string | null): string | null {
   if (!reason) return null
-  return (UNRESOLVED_REASON_TEXT as Record<string, string>)[reason] ?? reason
+  const byProvider = providerSlug ? (PROVIDER_REASON_TEXT[providerSlug] as Record<string, string> | undefined) : undefined
+  return byProvider?.[reason] ?? (UNRESOLVED_REASON_TEXT as Record<string, string>)[reason] ?? reason
 }
 
 export const GATEWAY_PROVIDER = "vercel-ai-gateway"

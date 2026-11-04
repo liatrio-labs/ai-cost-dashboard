@@ -19,6 +19,7 @@ import { collector as cursor } from "./cursor"
 import { collector as vercelAiGateway } from "./vercel-ai-gateway"
 import { syncGatewayKeys } from "@/lib/org/gateway-sync"
 import { syncAnthropicKeys } from "@/lib/org/anthropic-key-sync"
+import { syncOpenAIKeys } from "@/lib/org/openai-key-sync"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -51,12 +52,15 @@ export interface PostCollectCtx {
   apiKey?: string
   teamId?: string
   auxApiKey?: string
+  organizationId?: string
+  /** The records this collection just stored (OpenAI: keys seen on them, issue #46). */
+  records?: CostRecord[]
 }
 
 /**
  * Optional per-provider step after a successful store: keeps org metadata in
  * step with the provider (AI Gateway: the key sync, issue #24; Anthropic: the
- * key sync, issue #32). Best-effort: a failure is reported in the summary as
+ * key sync, issue #32; OpenAI: the key sync, issue #46). Best-effort: a failure is reported in the summary as
  * key_sync and never fails collection.
  */
 export const POST_COLLECT_SYNC: Record<
@@ -66,6 +70,17 @@ export const POST_COLLECT_SYNC: Record<
   anthropic: async (admin, ctx) => {
     if (!ctx.apiKey) return null
     return { ...(await syncAnthropicKeys(admin, { adminKey: ctx.apiKey, providerId: ctx.providerId })) }
+  },
+  openai: async (admin, ctx) => {
+    if (!ctx.apiKey) return null
+    return {
+      ...(await syncOpenAIKeys(admin, {
+        adminKey: ctx.apiKey,
+        providerId: ctx.providerId,
+        organizationId: ctx.organizationId,
+        records: ctx.records,
+      })),
+    }
   },
   "vercel-ai-gateway": async (admin, ctx) => {
     if (!ctx.auxApiKey) return null // no VERCEL_TOKEN: keys can't be listed
@@ -261,8 +276,8 @@ export async function runCollectionForProvider(
     // Stamp the tool's "Last updated" time on every successful pull.
     await touchProvidersCollected([(prov as { id: string }).id])
 
-    // Org metadata sync (AI Gateway / Anthropic keys -> people / projects). Best-effort.
-    const keySync = await runPostCollectSync(provider, admin, ctx)
+    // Org metadata sync (AI Gateway / Anthropic / OpenAI keys -> people / projects). Best-effort.
+    const keySync = await runPostCollectSync(provider, admin, { ...ctx, records: toStore })
 
     return {
       status: "success",

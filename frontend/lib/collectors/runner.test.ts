@@ -133,6 +133,8 @@ describe("runPostCollectSync (issue #24)", () => {
   test("providers without a sync, and the gateway without VERCEL_TOKEN, report nothing", async () => {
     expect(await runPostCollectSync("anthropic", admin, { providerId: "p" })).toBeUndefined()
     expect(await runPostCollectSync("vercel-ai-gateway", admin, { providerId: "p" })).toBeUndefined()
+    // OpenAI key sync (issue #46) needs the admin key.
+    expect(await runPostCollectSync("openai", admin, { providerId: "p" })).toBeUndefined()
   })
 
   test("a failing sync is reported, never thrown", async () => {
