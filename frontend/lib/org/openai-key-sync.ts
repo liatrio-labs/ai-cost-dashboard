@@ -38,6 +38,10 @@
  * No migration is needed: org_api_keys has no provider constraint and 017's
  * unresolved_reason values cover every OpenAI case. Migration 017 is optional
  * at runtime, as in the Anthropic sync.
+ *
+ * Migration 018 (issue #44, optional): a listed key's created_at (epoch
+ * seconds) is stored in provider_created_at. Cost-row-only keys carry no
+ * date, so a stored one is kept.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -45,7 +49,7 @@ import { fetchWithRetry } from "@/lib/collectors/http"
 import { normalizeEmail } from "./attribution"
 import { planAnthropicKey, type AnthropicKeyRow, type CreatorResolution, type UnresolvedKey } from "./anthropic-key-sync"
 import { isManual } from "./gateway-sync"
-import { ensureProjects, isMissingColumn, must } from "./sync-helpers"
+import { ensureProjects, must, parseProviderTimestamp, selectKeyTier } from "./sync-helpers"
 
 const API_BASE_URL = "https://api.openai.com/v1/organization"
 const PAGE_LIMIT = 100
@@ -76,6 +80,8 @@ export interface OpenAIApiKey {
   owner: OpenAIKeyOwner | null
   /** api = listed by the Admin API; cost_records = seen only on cost rows (e.g. a deleted key). */
   source: "api" | "cost_records"
+  /** When OpenAI created the key (ISO, from created_at); null/absent = unknown. */
+  created_at?: string | null
 }
 
 export interface OpenAIProject {
@@ -138,7 +144,10 @@ export function parseOpenAIKey(k: any, projectId: string): OpenAIApiKey | null {
       owner = { type, id: null, email: null, name: null }
     }
   }
-  return { id, name: s(k.name), project_id: projectId, owner, source: "api" }
+  const out: OpenAIApiKey = { id, name: s(k.name), project_id: projectId, owner, source: "api" }
+  const createdAt = parseProviderTimestamp(k.created_at)
+  if (createdAt) out.created_at = createdAt
+  return out
 }
 
 /** Every project (archived included) and every project's API keys. Strict: throws OpenAIKeySyncError. */
@@ -309,6 +318,7 @@ export interface OpenAISyncSummary {
 const KEY_COLUMNS_015 =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
 const KEY_COLUMNS_017 = `${KEY_COLUMNS_015}, unresolved_reason`
+const KEY_COLUMNS_018 = `${KEY_COLUMNS_017}, provider_created_at`
 
 /** Apply the sync for an already-fetched listing. Exported for tests and the strict admin route. */
 export async function applyOpenAIKeySync(admin: SupabaseClient, providerId: string, listing: OpenAIKeyListing): Promise<OpenAISyncSummary> {
@@ -336,15 +346,13 @@ export async function applyOpenAIKeySync(admin: SupabaseClient, providerId: stri
   summary.projects_created = ensured.created
   if (!keys.length) return summary
 
-  // Existing keys (017's unresolved_reason when present).
-  let has017 = true
+  // Existing keys (018's provider_created_at and 017's unresolved_reason when present).
   const ids = keys.map((k) => k.id)
-  const readKeys = (columns: string) => admin.from("org_api_keys").select(columns).eq("provider_id", providerId).in("external_key_id", ids)
-  let res = await readKeys(KEY_COLUMNS_017)
-  if (isMissingColumn(res.error)) {
-    has017 = false
-    res = await readKeys(KEY_COLUMNS_015)
-  }
+  const { res, tier } = await selectKeyTier([KEY_COLUMNS_018, KEY_COLUMNS_017, KEY_COLUMNS_015], (columns) =>
+    admin.from("org_api_keys").select(columns).eq("provider_id", providerId).in("external_key_id", ids)
+  )
+  const has018 = tier === 0
+  const has017 = tier <= 1
   const existing = new Map(((must(res, "Failed to read org_api_keys") as unknown as AnthropicKeyRow[]) ?? []).map((r) => [r.external_key_id, r]))
 
   // People: match every creator email (read-only; never creates a person).
@@ -362,7 +370,7 @@ export async function applyOpenAIKeySync(admin: SupabaseClient, providerId: stri
     const manual = !!row && isManual(row)
     if (manual) summary.manual_kept++
     const plan = planAnthropicKey(
-      { id: k.id, name: k.name, status: null, workspace_id: null, created_by: null, principal: null },
+      { id: k.id, name: k.name, status: null, workspace_id: null, created_by: null, principal: null, created_at: k.created_at ?? null },
       row,
       {
         creator,
@@ -370,6 +378,7 @@ export async function applyOpenAIKeySync(admin: SupabaseClient, providerId: stri
         orgProjectId: k.project_id ? (ensured.projectByExternal.get(k.project_id) ?? null) : null,
         // OpenAI keys have no status: write unresolved_reason only, never external_status.
         has017,
+        has018,
       },
       providerId
     )

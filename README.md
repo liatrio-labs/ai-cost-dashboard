@@ -252,7 +252,16 @@ workspaces become projects (issue #32, see `docs/attribution.md`); the same sync
 after every Anthropic collection. Migration 017 stores Anthropic key status and the
 reason a key has no owner; the sync works without it. OpenAI keys are owned by their
 creator when the creator's email matches an existing person (issue #46, no migration);
-the same sync runs after every OpenAI collection.
+the same sync runs after every OpenAI collection. With migration 018 every sync also
+stores the provider's key creation date (`provider_created_at`, issue #44).
+
+`/admin/org` opens on **Needs review** (issue #44): person spikes (month spend over 2x
+the previous month and over $500; the current month uses the projection), person-days
+over $300, Unassigned spend first seen in the last 7 days and keys the provider created
+in the last 7 days. Each item can be acknowledged or assigned (the existing assign
+flow) with a note; it stays hidden unless its amount grows more than 25%. Without
+migration 018 the items still show, with a "migration 018 not applied" notice and no
+Acknowledge.
 
 ```bash
 BASE=https://your-deployment.example.com

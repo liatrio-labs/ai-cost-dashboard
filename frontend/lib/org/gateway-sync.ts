@@ -33,6 +33,10 @@
  *
  * Migration 017 (unresolved_reason) is optional at runtime: without it the
  * reason isn't stored and everything else works.
+ *
+ * Migration 018 (issue #44, optional): the key's createdAt is stored in
+ * provider_created_at when Vercel reports it; a key listed without one keeps
+ * the stored date.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -40,7 +44,7 @@ import { fetchWithRetry } from "@/lib/collectors/http"
 import { listGatewayKeysWithProjects, type GatewayKey } from "@/lib/collectors/vercel-ai-gateway"
 import { normalizeEmail } from "./attribution"
 import type { UnresolvedReason } from "./key-status"
-import { ensurePeople, ensureProjects, isMissingColumn, must } from "./sync-helpers"
+import { ensurePeople, ensureProjects, must, providerCreatedAtChange, selectKeyTier } from "./sync-helpers"
 
 const TEAM_MEMBERS_URL = "https://api.vercel.com/v3/teams"
 const MAX_MEMBERS = 2000
@@ -62,6 +66,8 @@ export interface SyncKeyRow {
   assignment_source: AssignmentSource | null
   /** Migration 017; absent when it isn't applied. */
   unresolved_reason?: string | null
+  /** Migration 018; absent when it isn't applied. */
+  provider_created_at?: string | null
 }
 
 export interface TeamMember {
@@ -91,6 +97,8 @@ export interface KeyPlanContext {
   membersComplete?: boolean
   /** Migration 017 (unresolved_reason) is applied (default false). */
   has017?: boolean
+  /** Migration 018 (provider_created_at) is applied (default false). */
+  has018?: boolean
 }
 
 export type KeyPlan =
@@ -136,6 +144,7 @@ export function planKey(key: GatewayKey, existing: SyncKeyRow | undefined, ctx: 
       assignment_source: owner || project ? "auto" : null,
     }
     if (has017) row.unresolved_reason = owner ? null : ownerlessReason(key, transient, null)
+    if (ctx.has018 && key.createdAt) row.provider_created_at = key.createdAt
     return { op: "insert", row }
   }
 
@@ -143,6 +152,10 @@ export function planKey(key: GatewayKey, existing: SyncKeyRow | undefined, ctx: 
   const cur = existing as unknown as Record<string, unknown>
   for (const [k, v] of Object.entries(meta)) {
     if (cur[k] !== v) patch[k] = v
+  }
+  if (ctx.has018) {
+    const created = providerCreatedAtChange(existing.provider_created_at, key.createdAt)
+    if (created) patch.provider_created_at = created
   }
 
   let reason: string | null
@@ -270,6 +283,7 @@ export interface GatewaySyncSummary {
 const KEY_COLUMNS =
   "id, provider_id, external_key_id, name, owner_person_id, team_id, org_project_id, external_created_by, external_created_by_email, spend_attribution, assignment_source"
 const KEY_COLUMNS_017 = `${KEY_COLUMNS}, unresolved_reason`
+const KEY_COLUMNS_018 = `${KEY_COLUMNS_017}, provider_created_at`
 
 export interface ApplyGatewaySyncOptions {
   /** The members map is the whole team (default: true when it isn't empty). */
@@ -322,15 +336,12 @@ export async function applyGatewayKeySync(
   const projectByExternal = projects.projectByExternal
   summary.projects_created += projects.created
 
-  // Existing keys (with 017's unresolved_reason when it's applied).
-  let has017 = true
-  const readKeys = (columns: string) =>
+  // Existing keys (with 018's provider_created_at and 017's unresolved_reason when applied).
+  const { res, tier } = await selectKeyTier([KEY_COLUMNS_018, KEY_COLUMNS_017, KEY_COLUMNS], (columns) =>
     admin.from("org_api_keys").select(columns).eq("provider_id", providerId).in("external_key_id", keys.map((k) => k.id))
-  let res = await readKeys(KEY_COLUMNS_017)
-  if (isMissingColumn(res.error)) {
-    has017 = false
-    res = await readKeys(KEY_COLUMNS)
-  }
+  )
+  const has018 = tier === 0
+  const has017 = tier <= 1
   const existingRows = must(res, "Failed to read org_api_keys") as unknown as SyncKeyRow[]
   const existing = new Map((existingRows ?? []).map((r) => [r.external_key_id, r]))
 
@@ -365,6 +376,7 @@ export async function applyGatewayKeySync(
         orgProjectId: k.projectId ? (projectByExternal.get(k.projectId) ?? null) : null,
         membersComplete,
         has017,
+        has018,
       },
       providerId
     )
