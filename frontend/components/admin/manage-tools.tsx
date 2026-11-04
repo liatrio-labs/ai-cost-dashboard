@@ -5,35 +5,60 @@ import { Loader2, Save, Trash2, ExternalLink, CheckCircle2, AlertCircle } from "
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RecurringCostEditor, useRecurringCosts } from "@/components/admin/recurring-cost"
+import type { RecurringCost } from "@/lib/recurring-costs"
 
 export interface ToolRow {
   id: string
   name: string
   display_name: string
   documentation_url: string | null
-  metadata?: { description?: string; collection_method?: string } | null
+  metadata?: { description?: string; collection_method?: string; billing?: string; cost_basis?: string } | null
 }
 
 interface ManageToolsProps {
   tools: ToolRow[]
   /** Called after a successful save/delete so the parent can reload. */
   onChanged: () => void
+  /** Bump to reload recurring costs (e.g. after a tool is added with one). */
+  reloadKey?: number
 }
 
-export function ManageTools({ tools, onChanged }: ManageToolsProps) {
+export function ManageTools({ tools, onChanged, reloadKey = 0 }: ManageToolsProps) {
+  // Issue #59: every tool's recurring monthly cost, loaded once.
+  const recurring = useRecurringCosts(reloadKey)
   if (!tools.length) {
     return <p className="text-sm text-muted-foreground">No tools yet.</p>
   }
   return (
     <div className="divide-y divide-border/50">
       {tools.map((t) => (
-        <ToolEditor key={t.id} tool={t} onChanged={onChanged} />
+        <ToolEditor
+          key={t.id}
+          tool={t}
+          onChanged={onChanged}
+          recurring={recurring.costs}
+          recurringAvailable={recurring.available}
+          onRecurringChanged={recurring.reload}
+        />
       ))}
     </div>
   )
 }
 
-function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void }) {
+function ToolEditor({
+  tool,
+  onChanged,
+  recurring,
+  recurringAvailable,
+  onRecurringChanged,
+}: {
+  tool: ToolRow
+  onChanged: () => void
+  recurring: RecurringCost[]
+  recurringAvailable: boolean | null
+  onRecurringChanged: () => void
+}) {
   const [displayName, setDisplayName] = useState(tool.display_name || "")
   const [description, setDescription] = useState(tool.metadata?.description || "")
   const [adminUrl, setAdminUrl] = useState(tool.documentation_url || "")
@@ -67,8 +92,8 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
       }
       setMsg({ ok: true, text: "Saved." })
       onChanged()
-    } catch (e: any) {
-      setMsg({ ok: false, text: e?.message || "Request failed" })
+    } catch (e) {
+      setMsg({ ok: false, text: (e instanceof Error && e.message) || "Request failed" })
     } finally {
       setSaving(false)
     }
@@ -88,8 +113,8 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
         return
       }
       onChanged()
-    } catch (e: any) {
-      setMsg({ ok: false, text: e?.message || "Request failed" })
+    } catch (e) {
+      setMsg({ ok: false, text: (e instanceof Error && e.message) || "Request failed" })
     } finally {
       setDeleting(false)
     }
@@ -156,6 +181,16 @@ function ToolEditor({ tool, onChanged }: { tool: ToolRow; onChanged: () => void 
           />
         </div>
       </div>
+
+      {!isApi ? (
+        <RecurringCostEditor
+          providerId={tool.id}
+          seatBasedDefault={tool.metadata?.billing === "seat" || tool.metadata?.cost_basis === "seat_subscription"}
+          costs={recurring}
+          available={recurringAvailable}
+          onChanged={onRecurringChanged}
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={save} disabled={saving || !dirty} className="gap-2">

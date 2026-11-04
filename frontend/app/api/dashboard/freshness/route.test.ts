@@ -83,4 +83,36 @@ describe("GET /api/dashboard/freshness", () => {
     expect(byId["p-gpt"].warning).toBe(true)
     expect(byId["p-anth"].lastSyncedAt).toBe("2026-11-10T14:00:00.000Z")
   })
+
+  // Issue #59
+  test("a manual provider covered by a recurring cost this month has no 'no entry' warning", async () => {
+    mockState.db.table("recurring_costs").push({
+      id: "rc1", provider_id: "p-gpt", start_month: "2026-09-01", end_month: null, monthly_cost_usd: "600.00", seats: null, price_per_seat: null,
+    })
+    const { status, body } = await call()
+    expect(status).toBe(200)
+    const gpt = body.providers.find((p: { id: string }) => p.id === "p-gpt")
+    expect(gpt.state).toBe("manual_ok")
+    expect(gpt.warning).toBe(false)
+  })
+
+  test("a recurring cost that ended last month doesn't suppress the warning", async () => {
+    mockState.db.table("recurring_costs").push({
+      id: "rc1", provider_id: "p-gpt", start_month: "2026-01-01", end_month: "2026-10-01", monthly_cost_usd: "600.00", seats: null, price_per_seat: null,
+    })
+    const { body } = await call()
+    expect(body.providers.find((p: { id: string }) => p.id === "p-gpt").state).toBe("manual_missing")
+  })
+
+  test("without migration 022 the warning is as before (no error)", async () => {
+    const db = mockState.db
+    const from = db.from.bind(db)
+    db.from = ((table: string) =>
+      table === "recurring_costs"
+        ? { select: () => ({ order: async () => ({ data: null, error: { code: "42P01", message: 'relation "public.recurring_costs" does not exist' } }) }) }
+        : from(table)) as typeof db.from
+    const { status, body } = await call()
+    expect(status).toBe(200)
+    expect(body.providers.find((p: { id: string }) => p.id === "p-gpt").state).toBe("manual_missing")
+  })
 })

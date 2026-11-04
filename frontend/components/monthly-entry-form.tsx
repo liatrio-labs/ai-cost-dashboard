@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/select"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
-import { CalendarIcon, Check, AlertCircle } from "lucide-react"
+import { CalendarIcon, Check, AlertCircle, Repeat } from "lucide-react"
+import { describeSegment, useRecurringCosts } from "@/components/admin/recurring-cost"
+import { segmentFor } from "@/lib/recurring-costs"
 
 interface ProviderOption {
   id: string
@@ -51,6 +53,11 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
   const seatComputedCost =
     Number.isFinite(seatsNum) && Number.isFinite(priceNum) ? seatsNum * priceNum : 0
 
+  // Issue #59: a recurring cost covering the chosen month is replaced by this
+  // entry for that month only. Admin-only data; without it there is no hint.
+  const recurring = useRecurringCosts()
+  const coveringSegment = providerId ? segmentFor(recurring.costs, providerId, month) : null
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +75,7 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
         if (!res.ok) throw new Error("Failed to load providers")
         const data = await res.json()
         // /api/providers returns the provider array directly (successResponse).
-        const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: any) => ({
+        const list: ProviderOption[] = (Array.isArray(data) ? data : []).map((p: { id: string; name: string; display_name?: string | null }) => ({
           id: p.id,
           name: p.display_name || p.name,
         }))
@@ -292,6 +299,15 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
               />
             </Field>
 
+            {coveringSegment && (
+              <div className="flex items-start gap-2 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  This month already counts a recurring cost ({describeSegment(coveringSegment)}). Saving an
+                  entry replaces it for this month only; other months keep the recurring cost.
+                </span>
+              </div>
+            )}
             {error && (
               <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" />

@@ -6,7 +6,9 @@
  *
  * Reads providers.last_collected_at (migration 008) and, for manual providers,
  * whether cost_records_daily has any row in the current America/Chicago month.
- * Cron schedules come from vercel.json. The state logic is in
+ * A manual provider covered by an active recurring cost this month (issue #59,
+ * migration 022) counts as having its entry, so it gets no "no <month> entry"
+ * warning. Cron schedules come from vercel.json. The state logic is in
  * lib/sync-freshness.ts. Admin only (issue #57): 401 when logged out, 403 for
  * non-admins, same requireAdmin check as the /api/admin routes. Used by the
  * admin page.
@@ -15,6 +17,8 @@
 import { cookies } from "next/headers"
 import { createClient, requireAdmin, errorResponse, successResponse } from "@/lib/db"
 import { chicagoMonthAndDay, computeFreshness, isManualProvider, type CronEntry, type FreshnessProvider } from "@/lib/sync-freshness"
+import { fetchRecurringCosts, type SupabaseLike } from "@/lib/dashboard-data"
+import { coveredProviderIds } from "@/lib/recurring-costs"
 import vercelConfig from "@/vercel.json"
 
 export const dynamic = "force-dynamic"
@@ -62,6 +66,9 @@ export async function GET() {
       if (r.error) throw r.error
       if (r.data?.length) withEntry.add(manualIds[i])
     })
+    // Issue #59: a recurring cost covers the month (none without migration 022).
+    const recurring = await fetchRecurringCosts(supabase as unknown as SupabaseLike)
+    for (const id of coveredProviderIds(recurring, month)) withEntry.add(id)
 
     return successResponse({
       asOf: now.toISOString(),
