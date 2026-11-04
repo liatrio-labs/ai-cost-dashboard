@@ -37,6 +37,7 @@ import {
   type ClaudeAiProductSplit,
   type ProductDayRow,
 } from "@/lib/claude-ai-products"
+import { CURSOR_SLUG, splitCursorByProduct, type CursorProductSplit } from "@/lib/cursor-products"
 import { buildOrgIndex } from "./attribution"
 import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
 import { keyActivity } from "./key-filter"
@@ -221,6 +222,12 @@ export interface BreakdownData {
    * route supplied product rows and the selection has Claude.ai spend.
    */
   claudeAiProducts: ClaudeAiProductSplit | null
+  /**
+   * Issue #65: Cursor spend for the filtered rows by product (Grok Bot,
+   * Bugbot, Agent/Chat, from the model name), summing to the Cursor detail
+   * rows. Null when the selection has no Cursor rows.
+   */
+  cursorProducts: CursorProductSplit | null
   /** Providers with spend in the period (before org filters), with coverage. */
   providers: BreakdownProvider[]
   breadcrumbs: BreakdownCrumb[]
@@ -487,6 +494,11 @@ export function computeBreakdown({
   const claudeAiProducts =
     claudeAiProductRows && claudeAiRows.length > 0 ? splitClaudeAiByProduct(claudeAiRows, claudeAiProductRows) : null
 
+  // Issue #65: Cursor by product, also over the detail rows.
+  const cursorId = providers.find((p) => p.name === CURSOR_SLUG)?.id
+  const cursorRows = cursorId ? cur.filter((r) => r.provider_id === cursorId) : []
+  const cursorProducts = cursorRows.length > 0 ? splitCursorByProduct(cursorRows) : null
+
   const labelFor = (k: FilterKey, v: string): string => {
     if (k === "provider") return providers.find((p) => p.name === v) ? nameOf(providers.find((p) => p.name === v)!.id) : v
     if (v === UNASSIGNED_FILTER) return UNASSIGNED_LABEL
@@ -529,6 +541,7 @@ export function computeBreakdown({
     hasProjects,
     detail,
     claudeAiProducts,
+    cursorProducts,
     providers: activeProviders,
     breadcrumbs,
     options: {

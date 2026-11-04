@@ -9,13 +9,14 @@ import {
   toProductDayRows,
   type ClaudeAiProductSplit,
   type ProductDayRow,
+  UNLABELLED_PRODUCT,
 } from "./claude-ai-products"
 import { computeDashboard } from "./dashboard-compute"
 import { FORECAST_DEFAULTS } from "./forecast-settings"
 import { applyFilters } from "./dashboard-filters"
 import { buildOrgIndex } from "./org/attribution"
 import { computeBreakdown } from "./org/breakdown"
-import { orgData, PE } from "./org/test-fixtures"
+import { orgData, P, PE } from "./org/test-fixtures"
 import { attributedRows, plainDailyRows } from "./org/dashboard-fixtures"
 import {
   CLAUDE_AI,
@@ -45,6 +46,76 @@ describe("productBucket", () => {
 
   it("puts rows without a product label in Other", () => {
     for (const v of [null, undefined, "", "   ", 42, {}]) expect(productBucket(v)).toBe("other")
+  })
+})
+
+describe("productBucket with the Analytics API's real labels (issue #65)", () => {
+  it.each(["chat", "claude_chat", "claude_ai", "chat_cowork_unified", "cowork", "Cowork", "chat-cowork-unified"])("%s is Chat", (label) => {
+    expect(productBucket(label)).toBe("chat")
+  })
+
+  it("keeps Claude Code", () => expect(productBucket("claude_code")).toBe("claude_code"))
+
+  it.each(["claude_design", "claude_tag", "voice_mode", "office_agent", "claude_in_chrome", "research", "code_review"])("%s stays in Other", (label) => {
+    expect(productBucket(label)).toBe("other")
+  })
+})
+
+describe("splitClaudeAiByProduct with the real labels (issue #65)", () => {
+  const rec = (date: string, model: string, product: string | null, cost: number) => ({
+    provider_id: CLAUDE_AI,
+    timestamp: `${date}T00:00:00Z`,
+    model_name: model,
+    cost_usd: cost,
+    product,
+  })
+  // Shaped like October: chat, cowork and chat_cowork_unified are all chat.
+  const raw = [
+    rec("2026-10-01", "opus", "chat", 43.45),
+    rec("2026-10-01", "opus", "cowork", 76.99),
+    rec("2026-10-01", "opus", "chat_cowork_unified", 11.97),
+    rec("2026-10-01", "opus", "claude_code", 200.01),
+    rec("2026-10-02", "sonnet", "claude_design", 3.85),
+    rec("2026-10-02", "sonnet", "claude_tag", 0.4),
+    rec("2026-10-02", "sonnet", "voice_mode", 0.2),
+    rec("2026-10-02", "sonnet", "research", 0.9),
+    rec("2026-10-02", "sonnet", null, 0.1),
+  ]
+  const daily = [
+    { date: "2026-10-01", model_name: "opus", total_cost_usd: 43.45 + 76.99 + 11.97 + 200.01 },
+    { date: "2026-10-02", model_name: "sonnet", total_cost_usd: 3.85 + 0.4 + 0.2 + 0.9 + 0.1 },
+  ]
+
+  it("counts cowork and chat_cowork_unified as Chat and still sums to the Claude.ai total", () => {
+    const s = splitClaudeAiByProduct(daily, toProductDayRows(raw))
+    expect(s.total).toBe(337.87)
+    expect(byProduct(s)).toEqual({ claude_code: 200.01, chat: 132.41, other: 5.45 })
+    expect(sumCents(s)).toBe(cents(s.total))
+  })
+
+  it("lists Other's raw labels, largest first, with unlabelled spend named", () => {
+    const s = splitClaudeAiByProduct(daily, toProductDayRows(raw))
+    expect(s.products.find((p) => p.product === "other")!.labels).toEqual([
+      "claude_design",
+      "research",
+      "claude_tag",
+      "voice_mode",
+      UNLABELLED_PRODUCT,
+    ])
+    // Only Other carries labels.
+    expect(s.products.filter((p) => p.labels).map((p) => p.product)).toEqual(["other"])
+  })
+
+  it("names a rollup row with no matching records as unlabelled", () => {
+    const s = splitClaudeAiByProduct([...daily, { date: "2026-10-03", model_name: "haiku", total_cost_usd: 1 }], toProductDayRows(raw))
+    expect(byProduct(s).other).toBe(6.45)
+    expect(s.products.find((p) => p.product === "other")!.labels).toContain(UNLABELLED_PRODUCT)
+  })
+
+  it("lists no labels when Other is empty", () => {
+    const s = splitClaudeAiByProduct(daily.slice(0, 1), toProductDayRows(raw))
+    expect(byProduct(s).other).toBe(0)
+    expect(s.products.find((p) => p.product === "other")!.labels).toBeUndefined()
   })
 })
 
@@ -118,14 +189,15 @@ describe("computeDashboard with Claude.ai products", () => {
       chat: NOV_CLAUDE_AI.chat,
       other: NOV_CLAUDE_AI.other,
     })
-    // Only Claude.ai gets products; every other figure is unchanged.
-    expect(withProducts.tools.filter((t) => "products" in t).map((t) => t.id)).toEqual([CLAUDE_AI])
+    // Only Claude.ai and Cursor (issue #65, split by model) get products; every other figure is unchanged.
+    expect(withProducts.tools.filter((t) => "products" in t).map((t) => t.id).sort()).toEqual([CLAUDE_AI, P.cursor].sort())
     const strip = (d: typeof without) => ({ ...d, tools: d.tools.map(({ ...t }) => (delete (t as { products?: unknown }).products, t)) })
-    expect(strip(withProducts)).toEqual(without)
+    expect(strip(withProducts)).toEqual(strip(without))
   })
 
   it("adds no products when none were read, or the period has no Claude.ai spend", () => {
-    expect(computeDashboard({ ...base, daily: daily() }).tools.some((t) => "products" in t)).toBe(false)
+    const claudeAi = (d: ReturnType<typeof computeDashboard>) => d.tools.find((t) => t.id === CLAUDE_AI)
+    expect(claudeAi(computeDashboard({ ...base, daily: daily() }))).not.toHaveProperty("products")
     const dec = computeDashboard({ ...base, params: { month: "2026-12" }, daily: daily(), claudeAiProductRows: [] })
     expect(dec.tools.some((t) => "products" in t)).toBe(false)
   })

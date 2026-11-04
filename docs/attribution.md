@@ -93,7 +93,12 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   `metadata.group.product`. The dashboard (Claude.ai sub-rows in the Tools table
   and a "by product" card on the Dashboard tab) and the person view split
   Claude.ai spend into Claude Code (`claude_code`), Chat (`claude_chat`, `chat`,
-  `claude_ai`) and Other (anything else, including legacy rows with no product).
+  `claude_ai`, and since issue #65 `chat_cowork_unified` and `cowork`, which is
+  how the API labels most chat) and Other (anything else, including legacy rows
+  with no product). Small products (`claude_design`, `claude_tag`, `voice_mode`,
+  `office_agent`, `claude_in_chrome`, `research`, `code_review`, ...) stay in
+  Other, and the card lists the raw labels Other contains (largest first, plus
+  a tooltip with all of them).
   The rollups have no product column, so the routes read the period's Claude.ai
   `cost_records` with `product:metadata->group->>product` (no migration) and
   divide each rollup row (date x model, plus the attribution columns when
@@ -102,6 +107,12 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
   remainder, so Claude Code + Chat + Other equals the Claude.ai total to the
   cent. See `lib/claude-ai-products.ts`. If the raw read fails, the dashboard
   renders without the split.
+- Cursor has the same kind of card (issue #65) on the Dashboard tab and the
+  person view, split by model from the rollup rows (no raw read, no
+  migration): Grok Bot (`grok-bot-*`), Bugbot (`github_bugbot`) and Agent/Chat
+  (every other model). It sums to the Cursor total to the cent and follows the
+  filters and period. See `lib/cursor-products.ts`; the shared card is
+  `components/product-breakdown.tsx`.
 
 ### OpenAI (`openai.ts`)
 
