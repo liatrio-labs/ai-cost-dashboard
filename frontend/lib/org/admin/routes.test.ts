@@ -48,6 +48,11 @@ import * as assign from "@/app/api/admin/org/unassigned/assign/route"
 import * as syncGateway from "@/app/api/admin/org/keys/sync-gateway/route"
 import * as syncKeys from "@/app/api/admin/org/keys/sync/route"
 import * as assignCreator from "@/app/api/admin/org/keys/assign-creator/route"
+import * as peopleBulk from "@/app/api/admin/org/people/bulk/route"
+import * as projectsBulk from "@/app/api/admin/org/projects/bulk/route"
+import * as csvImport from "@/app/api/admin/org/import/csv/route"
+import { buildOrgIndex } from "../attribution"
+import { rollup, toAttributedDailyRows, type CostRecordLike } from "../rollup"
 
 const ADMIN = { id: "u-admin", email: "admin@example.com" }
 const OUTSIDER = { id: "u-out", email: "someone@elsewhere.test" }
@@ -114,6 +119,9 @@ const EVERY_HANDLER: [string, unknown, string, string, Record<string, string>][]
   ["POST sync-gateway", syncGateway.POST, "POST", "/api/admin/org/keys/sync-gateway", {}],
   ["POST keys/sync", syncKeys.POST, "POST", "/api/admin/org/keys/sync", {}],
   ["POST keys/assign-creator", assignCreator.POST, "POST", "/api/admin/org/keys/assign-creator", {}],
+  ["POST people/bulk", peopleBulk.POST, "POST", "/api/admin/org/people/bulk", {}],
+  ["POST projects/bulk", projectsBulk.POST, "POST", "/api/admin/org/projects/bulk", {}],
+  ["POST import/csv", csvImport.POST, "POST", "/api/admin/org/import/csv", {}],
 ]
 
 describe("auth", () => {
@@ -838,6 +846,239 @@ describe("gateway key attribution (#24)", () => {
       rows("org_api_keys").push({ id: "an-1", provider_id: P.anthropic, external_key_id: "an_x", name: "x", owner_person_id: null, team_id: null, external_created_by_email: "carol@liatrio.com", spend_attribution: null })
       const r = await call(assignCreator.POST, "POST", "/x", { provider_id: P.anthropic, external_key_id: "an_x" })
       expect(r.status).toBe(409)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Bulk team assignment (issue #43)
+// ---------------------------------------------------------------------------
+
+describe("bulk team assignment (#43)", () => {
+  /** The team rollup over the fake cost_records, from the current org tables (what a refresh would show). */
+  function teamRollup() {
+    const db = mockState.db
+    const index = buildOrgIndex({
+      departments: db.table("departments") as never,
+      teams: db.table("teams") as never,
+      people: db.table("people") as never,
+      identities: db.table("person_identities") as never,
+      apiKeys: db.table("org_api_keys") as never,
+      projects: db.table("org_projects") as never,
+    })
+    const records = db.table("cost_records").map((r) => ({ ...r, model_name: "m" })) as unknown as CostRecordLike[]
+    return Object.fromEntries(rollup(toAttributedDailyRows(records, index), "team", index).map((b) => [b.key, b.total_cost_usd]))
+  }
+  const teamOf = (personId: string) => rows("people").find((p) => p.id === personId)?.team_id
+
+  describe("POST /people/bulk", () => {
+    it("moves every selected person to the team in one update, refreshes, and the team rollup reflects them", async () => {
+      const before = teamRollup()
+      const res = await call(peopleBulk.POST, "POST", "/x", { person_ids: [PE.carol, PE.alice, PE.dave, PE.carol], team_id: T.orphan })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ team_id: T.orphan, updated: 3, unchanged: 0 })
+      expect(res.body.results).toEqual([
+        { key: PE.carol, status: "updated", team_id: T.orphan, previous_team_id: null },
+        { key: PE.alice, status: "updated", team_id: T.orphan, previous_team_id: T.platform },
+        { key: PE.dave, status: "updated", team_id: T.orphan, previous_team_id: T.data },
+      ])
+      expect([PE.carol, PE.alice, PE.dave].map(teamOf)).toEqual([T.orphan, T.orphan, T.orphan])
+      expect(teamOf(PE.bob)).toBe(T.field)
+      expect(writesTo("people")).toHaveLength(1)
+      expect(mockState.refreshes).toBe(1)
+
+      // carol's 0.5 + 100 + alice's 1 + dave's alias 1 move to Orphan (no record of erin's).
+      const after = teamRollup()
+      expect(after[T.orphan]).toBeCloseTo((before[T.orphan] ?? 0) + 102.5)
+      expect(after.unassigned).toBeCloseTo(before.unassigned - 100.5)
+    })
+
+    it("people already on the team are unchanged; team_id null unassigns", async () => {
+      const same = await call(peopleBulk.POST, "POST", "/x", { person_ids: [PE.bob], team_id: T.field })
+      expect(same.body).toMatchObject({ updated: 0, unchanged: 1 })
+      expect(mockState.db.writes).toEqual([])
+      expect(mockState.refreshes).toBe(0)
+
+      const res = await call(peopleBulk.POST, "POST", "/x", { person_ids: [PE.bob, PE.carol], team_id: null })
+      expect(res.body).toMatchObject({ updated: 1, unchanged: 1 })
+      expect(teamOf(PE.bob)).toBeNull()
+    })
+
+    it("rejects an unknown person or team, or an empty selection, and writes nothing", async () => {
+      for (const body of [
+        { person_ids: [PE.alice, "p-ghost"], team_id: T.data },
+        { person_ids: [PE.alice], team_id: "team-ghost" },
+        { person_ids: [], team_id: T.data },
+        { person_ids: [PE.alice] },
+      ]) {
+        expect((await call(peopleBulk.POST, "POST", "/x", body)).status).toBe(400)
+      }
+      expect((await call(peopleBulk.POST, "POST", "/x", { person_ids: ["p-ghost"], team_id: T.data })).body.error).toBe("Unknown person id(s): p-ghost")
+      expect(mockState.db.writes).toEqual([])
+    })
+  })
+
+  describe("POST /projects/bulk", () => {
+    it("updates registered projects and registers observed-only ones on the team", async () => {
+      const before = teamRollup()
+      const res = await call(projectsBulk.POST, "POST", "/x", {
+        projects: [
+          { provider_id: P.openai, external_project_id: "proj_2" },
+          { provider_id: P.openai, external_project_id: "proj_9", name: "Experiments" },
+        ],
+        team_id: T.data,
+      })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ updated: 1, created: 1, unchanged: 0 })
+      expect(rows("org_projects").map((p) => [p.external_project_id, p.name, p.team_id])).toEqual([
+        ["proj_2", "Sales tools", T.data],
+        ["proj_9", "Experiments", T.data],
+      ])
+      expect(mockState.refreshes).toBe(1)
+      // proj_2 (0.75, was Field) and proj_9 (4, was Unassigned) now roll up to Data.
+      expect(teamRollup()[T.data]).toBeCloseTo(before[T.data] + 0.75 + 4)
+    })
+
+    it("rejects an unknown team or provider and writes nothing", async () => {
+      const a = await call(projectsBulk.POST, "POST", "/x", { projects: [{ provider_id: P.openai, external_project_id: "proj_9" }], team_id: "team-ghost" })
+      const b = await call(projectsBulk.POST, "POST", "/x", { projects: [{ provider_id: "prov-ghost", external_project_id: "proj_9" }], team_id: T.data })
+      expect([a.status, b.status]).toEqual([400, 400])
+      expect(mockState.db.writes).toEqual([])
+    })
+
+    it("undoes the registered-project update when registering a new project fails", async () => {
+      // A concurrent insert of proj_9 that the snapshot didn't see: the INSERT fails.
+      const db = mockState.db
+      const realFrom = db.from.bind(db)
+      let inserted = false
+      db.from = ((table: string) => {
+        const q = realFrom(table)
+        if (table === "org_projects" && !inserted) {
+          const insert = q.insert.bind(q)
+          q.insert = ((r: Record<string, unknown> | Record<string, unknown>[]) => {
+            inserted = true
+            db.table("org_projects").push({ id: "pr-race", provider_id: P.openai, external_project_id: "proj_9", team_id: null })
+            return insert(r)
+          }) as typeof q.insert
+        }
+        return q
+      }) as typeof db.from
+      const res = await call(projectsBulk.POST, "POST", "/x", {
+        projects: [
+          { provider_id: P.openai, external_project_id: "proj_9" },
+          { provider_id: P.openai, external_project_id: "proj_2" },
+        ],
+        team_id: T.data,
+      })
+      expect(res.status).toBe(409)
+      expect(rows("org_projects").find((p) => p.id === PR.sales)?.team_id).toBe(T.field)
+      expect(mockState.refreshes).toBe(0)
+    })
+  })
+
+  describe("POST /import/csv", () => {
+    const PEOPLE = "email,team,department\nalice@liatrio.com,Data\ncarol@liatrio.com,Field,Sales\nbob@liatrio.com,Field\nnobody@liatrio.com,Data\nerin@liatrio.com,Ops\nbad,Data"
+
+    it("dry run returns counts, unmatched rows and unknown teams, and writes nothing", async () => {
+      const res = await call(csvImport.POST, "POST", "/x", { kind: "people", csv: PEOPLE })
+      expect(res.status).toBe(200)
+      expect(res.body.dry_run).toBe(true)
+      expect(res.body.counts).toEqual({ rows: 6, matched: 3, changes: 2, unchanged: 1, unmatched: 1, unknown_team: 1, invalid: 1 })
+      expect(res.body.rows.filter((r: { status: string }) => r.status === "unmatched").map((r: { input: string }) => r.input)).toEqual(["nobody@liatrio.com"])
+      expect(res.body.unknown_teams).toEqual([{ name: "Ops", department_id: null, department_name: null, rows: 1 }])
+      expect(mockState.db.writes).toEqual([])
+      expect(mockState.refreshes).toBe(0)
+    })
+
+    it("apply writes only the change rows; unmatched, invalid and unknown-team rows change nothing", async () => {
+      const peopleBefore = rows("people").map((p) => ({ ...p }))
+      const res = await call(csvImport.POST, "POST", "/x", { kind: "people", csv: PEOPLE, confirm: true })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ dry_run: false, applied: 2, created_teams: [] })
+      expect(teamOf(PE.alice)).toBe(T.data)
+      expect(teamOf(PE.carol)).toBe(T.field)
+      expect(teamOf(PE.erin)).toBe(T.orphan)
+      expect(rows("people")).toHaveLength(peopleBefore.length)
+      expect(rows("people").some((p) => p.email === "nobody@liatrio.com")).toBe(false)
+      expect(rows("teams").some((t) => t.name === "Ops")).toBe(false)
+      expect(res.body.rows.map((r: { input: string; result: string }) => [r.input, r.result])).toEqual([
+        ["alice@liatrio.com", "updated"],
+        ["carol@liatrio.com", "updated"],
+        ["bob@liatrio.com", "unchanged"],
+        ["nobody@liatrio.com", "skipped"],
+        ["erin@liatrio.com", "skipped"],
+        ["bad", "skipped"],
+      ])
+      expect(mockState.refreshes).toBe(1)
+    })
+
+    it("create_teams creates the unknown teams on apply and assigns to them", async () => {
+      const dry = await call(csvImport.POST, "POST", "/x", { kind: "people", csv: "erin@liatrio.com,Ops,Engineering\ncarol@liatrio.com,ops,engineering", create_teams: true })
+      expect(dry.body.counts).toMatchObject({ changes: 2, unknown_team: 0 })
+      expect(writesTo("teams")).toEqual([])
+
+      const res = await call(csvImport.POST, "POST", "/x", {
+        kind: "people",
+        csv: "erin@liatrio.com,Ops,Engineering\ncarol@liatrio.com,ops,engineering",
+        create_teams: true,
+        confirm: true,
+      })
+      expect(res.body.created_teams).toHaveLength(1)
+      const ops = rows("teams").find((t) => t.name === "Ops")
+      expect(ops).toMatchObject({ department_id: D.eng })
+      expect([teamOf(PE.erin), teamOf(PE.carol)]).toEqual([ops!.id, ops!.id])
+    })
+
+    it("a failed write mid-batch undoes the earlier ones (team moves and created teams)", async () => {
+      const db = mockState.db
+      const realFrom = db.from.bind(db)
+      let peopleUpdates = 0
+      db.from = ((table: string) => {
+        const q = realFrom(table)
+        if (table === "people") {
+          const update = q.update.bind(q)
+          q.update = ((patch: Record<string, unknown>) => {
+            peopleUpdates += 1
+            // The second team group fails (say, the team was deleted meanwhile).
+            return peopleUpdates === 2 ? update({ ...patch, email: "alice@liatrio.com" }) : update(patch)
+          }) as typeof q.update
+        }
+        return q
+      }) as typeof db.from
+      const teamsBefore = rows("teams").length
+      const res = await call(csvImport.POST, "POST", "/x", {
+        kind: "people",
+        csv: "carol@liatrio.com,Ops\nerin@liatrio.com,Data",
+        create_teams: true,
+        confirm: true,
+      })
+      expect(res.status).toBe(409)
+      expect([teamOf(PE.carol), teamOf(PE.erin)]).toEqual([null, T.orphan])
+      expect(rows("teams")).toHaveLength(teamsBefore)
+      expect(mockState.refreshes).toBe(0)
+    })
+
+    it("projects: matches observed and registered projects by id or name", async () => {
+      const csv = "project,team\nExperiments,Data\nproj_2,Platform\nwrk_1,Data\nproj_404,Data"
+      const dry = await call(csvImport.POST, "POST", "/x", { kind: "projects", csv })
+      expect(dry.body.counts).toMatchObject({ rows: 4, changes: 2, unmatched: 1, invalid: 1 })
+      expect(mockState.db.writes).toEqual([])
+
+      const res = await call(csvImport.POST, "POST", "/x", { kind: "projects", csv, confirm: true })
+      expect(res.body.applied).toBe(2)
+      expect(rows("org_projects").map((p) => [p.external_project_id, p.team_id])).toEqual([
+        ["proj_2", T.platform],
+        ["proj_9", T.data],
+      ])
+    })
+
+    it("validates the request", async () => {
+      for (const body of [{ kind: "teams", csv: "a,b" }, { kind: "people", csv: "  " }, { kind: "people" }, { kind: "people", csv: "a,b", extra: 1 }]) {
+        expect((await call(csvImport.POST, "POST", "/x", body)).status).toBe(400)
+      }
+      const many = Array.from({ length: 5001 }, (_, i) => `p${i}@liatrio.com,Data`).join("\n")
+      expect((await call(csvImport.POST, "POST", "/x", { kind: "people", csv: many })).status).toBe(400)
+      expect(mockState.db.writes).toEqual([])
     })
   })
 })
