@@ -37,8 +37,9 @@ describe("Departments & teams layout (issue #69)", () => {
       expect(row).toHaveClass("flex", "flex-wrap", "lg:flex-nowrap")
       const [name, controls] = Array.from(row.children) as HTMLElement[]
       expect(name).toHaveClass("min-w-0", "grow", "truncate")
-      expect(controls).toHaveClass("shrink-0")
-      expect(controls.querySelector("select")).toBeInTheDocument()
+      // Controls never shrink at lg+, but stay capped to the row width (select can narrow) on phones.
+      expect(controls).toHaveClass("shrink-0", "max-w-full")
+      expect(controls.querySelector("select")).toHaveClass("min-w-0")
       expect(controls).toHaveTextContent("Rename")
     }
 

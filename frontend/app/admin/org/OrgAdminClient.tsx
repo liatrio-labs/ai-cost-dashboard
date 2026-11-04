@@ -222,7 +222,7 @@ export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
           >
             <Input placeholder="Team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
             <div className="flex gap-2">
-              <select aria-label="Department" className={`${selectClass} flex-1`} value={teamDept} onChange={(e) => setTeamDept(e.target.value)}>
+              <select aria-label="Department" className={`${selectClass} min-w-0 flex-1`} value={teamDept} onChange={(e) => setTeamDept(e.target.value)}>
                 <option value="">No department</option>
                 {org.departments.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -267,10 +267,10 @@ export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
                           {c.people} people · {c.keys} keys · {c.projects} projects
                         </span>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
+                      <div className="flex max-w-full shrink-0 items-center gap-1">
                         <select
                           aria-label={`Move ${t.name}`}
-                          className={selectClass}
+                          className={`${selectClass} min-w-0`}
                           value={t.department_id ?? ""}
                           onChange={(e) => mutate(`/teams/${t.id}`, "PATCH", { department_id: e.target.value || null }, "Team moved")}
                         >
