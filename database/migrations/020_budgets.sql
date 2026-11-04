@@ -72,7 +72,7 @@ COMMENT ON TABLE budgets IS
 CREATE TABLE IF NOT EXISTS alert_log (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     subject     TEXT           NOT NULL,
-    period      VARCHAR(7)     NOT NULL,
+    period      VARCHAR(10)    NOT NULL,
     kinds       TEXT[]         NOT NULL DEFAULT '{}',
     dry_run     BOOLEAN        NOT NULL DEFAULT TRUE,
     channels    TEXT[]         NOT NULL DEFAULT '{}',
