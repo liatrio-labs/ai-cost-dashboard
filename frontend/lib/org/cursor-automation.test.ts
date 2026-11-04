@@ -8,7 +8,8 @@
 import { transform } from "@/lib/collectors/cursor"
 import { applyFilters, matchesFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import { narrowAttributed } from "@/lib/dashboard-data"
-import { forecastUnitForFilters } from "@/lib/unit-forecast"
+import { computeUnitForecasts, forecastUnitForFilters } from "@/lib/unit-forecast"
+import { FORECAST_DEFAULTS } from "@/lib/forecast-settings"
 import { computeBreakdown } from "./breakdown"
 import { attributedRows, NOV_TOTAL, OCT_TOTAL, PROVIDERS, RECORDS } from "./dashboard-fixtures"
 import { buildOrgIndex } from "./attribution"
@@ -164,5 +165,27 @@ describe("Cursor – Bugbot/automation line (issue #51)", () => {
     expect(calls).toEqual([["is", "team_id", null]])
     expect(forecastUnitForFilters({ team: AUTOMATION_KEY })).toBeNull()
     expect(forecastUnitForFilters({ department: AUTOMATION_KEY })).toBeNull()
+  })
+
+  it("unit forecasts: automation rows are their own unit, so Unassigned matches the unassigned filter (Bugbot review)", () => {
+    const r = rows()
+    for (const level of ["department", "team"] as const) {
+      const res = computeUnitForecasts({ rows: r, level, settings: FORECAST_DEFAULTS, automationProviderIds: AUTO_IDS })
+      const un = res.units.find((u) => u.key === "unassigned")!
+      const auto = res.units.find((u) => u.key === AUTOMATION_KEY)!
+      expect(auto.unassigned).toBe(false)
+      const histTotal = (h: { total: number }[]) => Math.round(h.reduce((s, x) => s + x.total, 0) * 100) / 100
+      // Unassigned history = exactly the rows the unassigned filter keeps.
+      const field = level === "team" ? "team" : "department"
+      const kept = applyFilters(r, { [field]: "unassigned" }, null, AUTO_IDS)
+      expect(histTotal(un.history)).toBe(Math.round(kept.reduce((s, x) => s + Number(x.total_cost_usd), 0) * 100) / 100)
+      expect(histTotal(auto.history)).toBe(AUTO_NOV + AUTO_OCT)
+      // Without the ids, the old single Unassigned unit holds both.
+      const old = computeUnitForecasts({ rows: r, level, settings: FORECAST_DEFAULTS })
+      expect(old.units.some((u) => u.key === AUTOMATION_KEY)).toBe(false)
+      expect(histTotal(old.units.find((u) => u.key === "unassigned")!.history)).toBe(
+        Math.round((histTotal(un.history) + histTotal(auto.history)) * 100) / 100
+      )
+    }
   })
 })

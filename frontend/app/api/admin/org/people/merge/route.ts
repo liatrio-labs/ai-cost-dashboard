@@ -24,7 +24,7 @@ import { MergePlanError, MIGRATION_021_MESSAGE, planPersonMerge } from "@/lib/or
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-export const POST = adminRoute(async (request, _params, admin) => {
+export const POST = adminRoute(async (request, _params, admin, user) => {
   const body = await parseBody(request, personMergeSchema)
   const [org, migration021] = await Promise.all([loadOrg(admin), has021(admin)])
 
@@ -48,7 +48,7 @@ export const POST = adminRoute(async (request, _params, admin) => {
   if (body.preview) return json({ migration021, ...(migration021 ? {} : { message: MIGRATION_021_MESSAGE }), preview })
 
   if (!migration021) throw new HttpError(409, MIGRATION_021_MESSAGE, { migration021: false })
-  const call = await runMerge(admin, body.primary_id, body.secondary_id, null)
+  const call = await runMerge(admin, body.primary_id, body.secondary_id, user.email)
   if (!call.ok) {
     if (call.missing021) throw new HttpError(409, MIGRATION_021_MESSAGE, { migration021: false })
     throw new HttpError(call.status, call.message)

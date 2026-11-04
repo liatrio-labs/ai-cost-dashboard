@@ -167,7 +167,7 @@ describe("POST /people/merge", () => {
     const preview = (await call(merge.POST, "POST", { primary_id: PE.dave, secondary_id: DUP, preview: true })).body.preview
     const res = await call(merge.POST, "POST", { primary_id: PE.dave, secondary_id: DUP })
     expect(res.status).toBe(200)
-    expect(mockState.db.rpcLog).toEqual([{ name: "merge_people", args: { p_primary: PE.dave, p_secondary: DUP, p_merged_by: null } }])
+    expect(mockState.db.rpcLog).toEqual([{ name: "merge_people", args: { p_primary: PE.dave, p_secondary: DUP, p_merged_by: ADMIN.email } }])
     const counts = ["identities_moved", "keys_moved", "seat_rows_moved", "aliases_added", "team_adopted", "display_name_adopted"]
     for (const c of counts) expect(res.body.result[c]).toBe(preview[c])
     expect(res.body.result.already_merged).toBe(false)

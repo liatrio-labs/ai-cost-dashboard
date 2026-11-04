@@ -166,6 +166,7 @@ async function unitForecastForFilters(
     overrides,
     include: [sel.key],
     current: projectionContext(providers, now),
+    automationProviderIds: automationProviderIds(providers),
   })
   return result.units.find((u) => u.key === sel.key) ?? null
 }

@@ -32,7 +32,7 @@ import {
 } from "@/lib/forecast-settings"
 import { computeUnitForecasts } from "@/lib/unit-forecast"
 import { projectionContext } from "@/lib/projection"
-import { UNASSIGNED_KEY, UNASSIGNED_LABEL } from "@/lib/org/rollup"
+import { AUTOMATION_KEY, AUTOMATION_LABEL, automationProviderIds, UNASSIGNED_KEY, UNASSIGNED_LABEL } from "@/lib/org/rollup"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -72,12 +72,20 @@ async function payload(admin: SupabaseClient, units: Record<UnitLevel, NamedUnit
   const out: Record<string, unknown> = { employees: settings.employees }
   for (const level of UNIT_LEVELS) {
     const names = new Map(units[level].map((u) => [u.id, u.name]))
-    const result = computeUnitForecasts({ rows, level, settings, overrides, include: units[level].map((u) => u.id), current })
+    const result = computeUnitForecasts({
+      rows,
+      level,
+      settings,
+      overrides,
+      include: units[level].map((u) => u.id),
+      current,
+      automationProviderIds: automationProviderIds(providers),
+    })
     out.orgPlateau = result.orgPlateau
     out.trailingMonths = result.trailingMonths
     out[level] = result.units.map((u) => ({
       key: u.key,
-      name: u.unassigned ? UNASSIGNED_LABEL : names.get(u.key) ?? u.key,
+      name: u.unassigned ? UNASSIGNED_LABEL : u.key === AUTOMATION_KEY ? AUTOMATION_LABEL : names.get(u.key) ?? u.key,
       unassigned: u.unassigned,
       trailingSpend: u.trailingSpend,
       share: Math.round(u.share * 10000) / 10000,
@@ -98,7 +106,7 @@ export const GET = adminRoute(async (_request, _params, admin) => {
 export const PUT = adminRoute(async (request, _params, admin) => {
   const body = await parseBody(request, putSchema)
   const units = await loadUnits(admin)
-  if (body.key !== UNASSIGNED_KEY && !units[body.level].some((u) => u.id === body.key)) {
+  if (body.key !== UNASSIGNED_KEY && body.key !== AUTOMATION_KEY && !units[body.level].some((u) => u.id === body.key)) {
     throw new HttpError(404, `Unknown ${body.level}`)
   }
   const overrides = await setForecastUnitOverride(body.level, body.key, {
