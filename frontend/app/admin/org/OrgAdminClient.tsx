@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, ArrowLeft, Loader2, Plus, RefreshCw, Trash2, UserPlus } from "lucide-react"
 
@@ -16,6 +16,7 @@ import { KeySyncButton } from "@/components/admin/gateway-key-sync"
 import { AssignToCreatorButton, KeysByProjectCard } from "./keys-by-project"
 import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
+import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./bulk"
 
 const API = "/api/admin/org"
 
@@ -30,6 +31,10 @@ async function api<T = unknown>(path: string, method = "GET", body?: unknown): P
   const data = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, data }
 }
+
+const projectKey = (p: { provider_id: string; external_project_id: string }) => `${p.provider_id}:${p.external_project_id}`
+
+const teamLabel = (org: Org, teamId: string | null, none = "Unassigned") => (teamId ? (org.teams.find((t) => t.id === teamId)?.name ?? "team") : none)
 
 function Message({ msg }: { msg: { ok: boolean; text: string } | null }) {
   if (!msg) return null
@@ -135,7 +140,7 @@ export function OrgAdminClient() {
               <KeysTab org={org} mutate={mutate} reload={reload} reloadKey={reloadKey} />
             </TabsContent>
             <TabsContent value="import">
-              <ImportTab org={org} mutate={mutate} />
+              <ImportTab org={org} mutate={mutate} reload={reload} />
             </TabsContent>
           </Tabs>
         )}
@@ -301,6 +306,8 @@ function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
       (showInactive || p.active !== false) &&
       (!q || p.email.includes(q) || (p.display_name ?? "").toLowerCase().includes(q))
   )
+  const visibleIds = useMemo(() => people.map((p) => p.id), [people])
+  const sel = useSelection(visibleIds)
 
   return (
     <div className="space-y-4">
@@ -333,6 +340,7 @@ function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>People ({people.length})</CardTitle>
           <div className="flex items-center gap-3">
+            <SelectAllCheckbox label="Select all people shown" all={sel.allSelected} some={sel.someSelected} disabled={!people.length} onChange={sel.setAll} />
             <label className="flex items-center gap-1 text-sm text-muted-foreground">
               <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
               Show inactive
@@ -341,16 +349,32 @@ function PeopleTab({ org, mutate }: { org: Org; mutate: Mutate }) {
           </div>
         </CardHeader>
         <CardContent className="divide-y divide-border/50">
+          <BulkTeamBar
+            org={org}
+            count={sel.selected.size}
+            noun="person"
+            plural="people"
+            onAssign={(teamId) =>
+              mutate("/people/bulk", "POST", { person_ids: [...sel.selected], team_id: teamId }, `Assigned ${sel.selected.size} people to ${teamLabel(org, teamId)}`)
+            }
+            onClear={sel.clear}
+          />
           {people.map((p) => {
             const ids = org.identities.filter((i) => i.person_id === p.id)
             return (
               <div key={p.id} className="space-y-2 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${p.email}`}
+                      checked={sel.selected.has(p.id)}
+                      onChange={(e) => sel.toggle(p.id, e.target.checked)}
+                    />
                     <span className="font-medium">{p.display_name || p.email}</span>
-                    {p.display_name && <span className="ml-2 text-sm text-muted-foreground">{p.email}</span>}
+                    {p.display_name && <span className="text-sm text-muted-foreground">{p.email}</span>}
                     {p.active === false && (
-                      <Badge variant="secondary" className="ml-2">
+                      <Badge variant="secondary">
                         inactive
                       </Badge>
                     )}
@@ -452,6 +476,10 @@ function KeysTab({ org, mutate, reload, reloadKey }: { org: Org; mutate: Mutate;
     return p?.display_name || p?.name || id
   }
   const gatewayId = org.providers.find((p) => p.name === "vercel-ai-gateway")?.id ?? null
+  // Workspace teams don't feed the rollup, so workspaces can't be selected.
+  const assignable = useMemo(() => (projects ?? []).filter((p) => p.kind !== "workspace"), [projects])
+  const assignableKeys = useMemo(() => assignable.map(projectKey), [assignable])
+  const sel = useSelection(assignableKeys)
 
   return (
     <div className="space-y-4">
@@ -461,7 +489,10 @@ function KeysTab({ org, mutate, reload, reloadKey }: { org: Org; mutate: Mutate;
 
       <Card>
         <CardHeader>
-          <CardTitle>Projects</CardTitle>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <CardTitle>Projects</CardTitle>
+            <SelectAllCheckbox label="Select all projects" all={sel.allSelected} some={sel.someSelected} disabled={!assignable.length} onChange={sel.setAll} />
+          </div>
           <CardDescription>
             OpenAI and Vercel projects, and Anthropic workspaces. A project&apos;s team applies only when neither the key nor the person has one. Workspace
             teams don&apos;t feed the rollup yet, so only their names can be set here.
@@ -470,11 +501,37 @@ function KeysTab({ org, mutate, reload, reloadKey }: { org: Org; mutate: Mutate;
         <CardContent className="divide-y divide-border/50">
           {!projects && <Loader2 className="h-4 w-4 animate-spin" />}
           {projects?.length === 0 && <p className="text-sm text-muted-foreground">No projects observed yet.</p>}
+          <BulkTeamBar
+            org={org}
+            count={sel.selected.size}
+            noun="project"
+            noneLabel="No team"
+            onAssign={(teamId) => {
+              const chosen = assignable.filter((p) => sel.selected.has(projectKey(p)))
+              return mutate(
+                "/projects/bulk",
+                "POST",
+                { projects: chosen.map((p) => ({ provider_id: p.provider_id, external_project_id: p.external_project_id, name: p.name })), team_id: teamId },
+                `Assigned ${chosen.length} project(s) to ${teamLabel(org, teamId, "no team")}`
+              )
+            }}
+            onClear={sel.clear}
+          />
           {projects?.map((p) => (
-            <div key={`${p.provider_id}:${p.external_project_id}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <div>
+            <div key={projectKey(p)} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <div className="flex items-center gap-2">
+                {p.kind !== "workspace" ? (
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${p.name || p.external_project_id}`}
+                    checked={sel.selected.has(projectKey(p))}
+                    onChange={(e) => sel.toggle(projectKey(p), e.target.checked)}
+                  />
+                ) : (
+                  <span className="inline-block w-[13px]" aria-hidden />
+                )}
                 <span className="font-medium">{p.name || p.external_project_id}</span>
-                <span className="ml-2 text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {providerName(p.provider_id)} · {p.kind === "workspace" ? "workspace" : "project"} · <code>{p.external_project_id}</code> · {usd(p.total_cost_usd)}
                 </span>
               </div>
@@ -621,7 +678,7 @@ function GatewayKeysCard({
 // Import from observed data
 // ---------------------------------------------------------------------------
 
-function ImportTab({ org, mutate }: { org: Org; mutate: Mutate }) {
+function ImportTab({ org, mutate, reload }: { org: Org; mutate: Mutate; reload: () => Promise<void> }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [team, setTeam] = useState<string | null>(null)
@@ -645,62 +702,65 @@ function ImportTab({ org, mutate }: { org: Org; mutate: Mutate }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Import people from observed data</CardTitle>
-        <CardDescription>
-          Finds every person email in collected cost records that doesn&apos;t match a person or identity yet. Preview first; nothing is created until you confirm.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Button onClick={runPreview} disabled={loading} className="gap-2">
-          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          Preview (dry run)
-        </Button>
-        {error && <Message msg={{ ok: false, text: error }} />}
-        {preview && (
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              {preview.candidates.length} new email(s); {preview.already_known.length} already known.
-            </p>
-            {preview.conflicts.length > 0 && (
+    <div className="space-y-4">
+      <CsvImportCard org={org} onApplied={reload} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Import people from observed data</CardTitle>
+          <CardDescription>
+            Finds every person email in collected cost records that doesn&apos;t match a person or identity yet. Preview first; nothing is created until you confirm.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button onClick={runPreview} disabled={loading} className="gap-2">
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            Preview (dry run)
+          </Button>
+          {error && <Message msg={{ ok: false, text: error }} />}
+          {preview && (
+            <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Not importable ({preview.conflicts.length}): {preview.conflicts.map((c) => c.email).join(", ")}. These already belong to someone through an identity on another
-                provider; add an identity for the unmatched provider to that person instead.
+                {preview.candidates.length} new email(s); {preview.already_known.length} already known.
               </p>
-            )}
-            <div className="max-h-96 divide-y divide-border/50 overflow-auto rounded-md border border-border/50">
-              {preview.candidates.map((c) => (
-                <label key={c.email} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(c.email)}
-                      onChange={(e) => {
-                        const next = new Set(selected)
-                        if (e.target.checked) next.add(c.email)
-                        else next.delete(c.email)
-                        setSelected(next)
-                      }}
-                    />
-                    {c.email}
-                    {c.display_name && <span className="text-muted-foreground">({c.display_name})</span>}
-                  </span>
-                  <span className="text-muted-foreground">{usd(c.total_cost_usd)}</span>
-                </label>
-              ))}
+              {preview.conflicts.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Not importable ({preview.conflicts.length}): {preview.conflicts.map((c) => c.email).join(", ")}. These already belong to someone through an identity on another
+                  provider; add an identity for the unmatched provider to that person instead.
+                </p>
+              )}
+              <div className="max-h-96 divide-y divide-border/50 overflow-auto rounded-md border border-border/50">
+                {preview.candidates.map((c) => (
+                  <label key={c.email} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.email)}
+                        onChange={(e) => {
+                          const next = new Set(selected)
+                          if (e.target.checked) next.add(c.email)
+                          else next.delete(c.email)
+                          setSelected(next)
+                        }}
+                      />
+                      {c.email}
+                      {c.display_name && <span className="text-muted-foreground">({c.display_name})</span>}
+                    </span>
+                    <span className="text-muted-foreground">{usd(c.total_cost_usd)}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Team for imported people:</span>
+                <TeamSelect org={org} value={team} onChange={setTeam} />
+                <Button onClick={confirm} disabled={!selected.size}>
+                  Import {selected.size}
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm">Team for imported people:</span>
-              <TeamSelect org={org} value={team} onChange={setTeam} />
-              <Button onClick={confirm} disabled={!selected.size}>
-                Import {selected.size}
-              </Button>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
