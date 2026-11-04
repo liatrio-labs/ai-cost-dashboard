@@ -323,3 +323,76 @@ export function unassignedAssignSchema(org: Pick<OrgSnapshot, "teams" | "provide
 export const monthSchema = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, { error: "month must be YYYY-MM" })
+
+// ---------------------------------------------------------------------------
+// Bulk team assignment (issue #43)
+// ---------------------------------------------------------------------------
+
+/** Most rows one bulk request may touch. */
+export const MAX_BULK_ROWS = 5000
+
+/** Multi-select "Assign team" on People. team_id null = Unassigned. */
+export function bulkPeopleTeamSchema(org: Pick<OrgSnapshot, "people" | "teams">) {
+  return z
+    .strictObject({
+      person_ids: z
+        .array(id("person_ids"), { error: "person_ids must be a list" })
+        .min(1, { error: "Select at least one person" })
+        .max(MAX_BULK_ROWS),
+      team_id: nullableId("team_id"),
+    })
+    .superRefine((v, ctx) => {
+      checkTeam(org, ctx, v.team_id)
+      const unknown = [...new Set(v.person_ids)].filter((pid) => !org.people.some((p) => p.id === pid))
+      if (unknown.length) {
+        ctx.addIssue({ code: "custom", path: ["person_ids"], message: `Unknown person id(s): ${unknown.join(", ")}` })
+      }
+    })
+    .transform((v) => ({ ...v, person_ids: [...new Set(v.person_ids)] }))
+}
+
+/** Multi-select "Assign team" on Projects (registered or only observed). */
+export function bulkProjectsTeamSchema(org: Pick<OrgSnapshot, "teams" | "providers">) {
+  return z
+    .strictObject({
+      projects: z
+        .array(
+          z.strictObject({
+            provider_id: id("provider_id"),
+            external_project_id: externalId("external_project_id"),
+            name: optionalText(200),
+          }),
+          { error: "projects must be a list" }
+        )
+        .min(1, { error: "Select at least one project" })
+        .max(MAX_BULK_ROWS),
+      team_id: nullableId("team_id"),
+    })
+    .superRefine((v, ctx) => {
+      checkTeam(org, ctx, v.team_id)
+      for (const pid of new Set(v.projects.map((p) => p.provider_id))) {
+        if (!org.providers.some((p) => p.id === pid)) unknownRef(ctx, "projects", "provider", pid)
+      }
+    })
+    .transform((v) => {
+      const seen = new Set<string>()
+      const projects = v.projects.filter((p) => {
+        const k = `${p.provider_id}\u0000${p.external_project_id}`
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
+      return { ...v, projects }
+    })
+}
+
+/** CSV import. confirm !== true is a dry run; create_teams creates the unknown teams on apply. */
+export const csvImportSchema = z.strictObject({
+  kind: z.enum(["people", "projects"], { error: 'kind must be "people" or "projects"' }),
+  csv: z
+    .string({ error: "csv is required" })
+    .max(1_000_000, { error: "CSV is too large (1 MB max)" })
+    .refine((s) => s.trim().length > 0, { error: "CSV is empty" }),
+  confirm: z.boolean().optional(),
+  create_teams: z.boolean().optional(),
+})
