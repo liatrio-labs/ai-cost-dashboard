@@ -7,12 +7,13 @@
  * Reads providers.last_collected_at (migration 008) and, for manual providers,
  * whether cost_records_daily has any row in the current America/Chicago month.
  * Cron schedules come from vercel.json. The state logic is in
- * lib/sync-freshness.ts. Login only (same as /api/dashboard); used by the
- * dashboard and admin pages.
+ * lib/sync-freshness.ts. Admin only (issue #57): 401 when logged out, 403 for
+ * non-admins, same requireAdmin check as the /api/admin routes. Used by the
+ * admin page.
  */
 
 import { cookies } from "next/headers"
-import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
+import { createClient, requireAdmin, errorResponse, successResponse } from "@/lib/db"
 import { chicagoMonthAndDay, computeFreshness, isManualProvider, type CronEntry, type FreshnessProvider } from "@/lib/sync-freshness"
 import vercelConfig from "@/vercel.json"
 
@@ -28,7 +29,7 @@ function nextMonth(ym: string): string {
 export async function GET() {
   try {
     const cookieStore = await cookies()
-    await requireAuth(cookieStore)
+    await requireAdmin(cookieStore)
     const supabase = await createClient(cookieStore)
 
     const { data, error } = await supabase
@@ -69,6 +70,7 @@ export async function GET() {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
     if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
+    if (message === "Forbidden") return errorResponse("Forbidden", 403)
     console.error("GET /api/dashboard/freshness error:", error)
     return errorResponse(message || "Failed to load sync freshness", 500)
   }
