@@ -24,6 +24,15 @@ import type { DashboardFilters } from "@/lib/dashboard-filters"
 import type { UnitForecastMeta } from "@/lib/dashboard-compute"
 import { computeUnitForecasts, unitOverrideKey, type UnitOverrides } from "@/lib/unit-forecast"
 import { monthRange, projectPeriod, projectionContext } from "@/lib/projection"
+import {
+  CLAUDE_AI,
+  NOV_ALICE,
+  NOV_CLAUDE_AI,
+  PROVIDERS_WITH_CLAUDE_AI,
+  claudeAiAttributedRows,
+  claudeAiPlainDailyRows,
+  claudeAiProductCostRows,
+} from "@/lib/claude-ai-product-fixtures"
 
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }))
 const mockOverrides: { value: UnitOverrides } = { value: {} }
@@ -40,6 +49,8 @@ type Row = Record<string, unknown>
 let tables: Record<string, Row[]> = {}
 const reads: string[] = []
 let authed = true
+/** Tables whose reads fail (issue #48: the product split is optional). */
+const failing = new Set<string>()
 
 interface FakeQuery {
   select(): FakeQuery
@@ -52,7 +63,15 @@ interface FakeQuery {
   then(resolve: (v: unknown) => void): void
 }
 
-/** Thenable query builder supporting select/order/range/eq/is/gte/lt (gte/lt compare as strings, fine for ISO timestamps). */
+/** Compare like Postgres would: timestamps as instants, anything else as strings. */
+function cmp(a: unknown, b: unknown): number {
+  const x = Date.parse(String(a))
+  const y = Date.parse(String(b))
+  if (!Number.isNaN(x) && !Number.isNaN(y)) return x - y
+  return String(a).localeCompare(String(b))
+}
+
+/** Thenable query builder supporting select/order/range/eq/is/gte/lt. */
 function fakeFrom(table: string): FakeQuery {
   reads.push(table)
   let rows = [...(tables[table] ?? [])]
@@ -62,11 +81,13 @@ function fakeFrom(table: string): FakeQuery {
     order: () => q,
     eq: (col, v) => ((rows = rows.filter((r) => r[col] === v)), q),
     is: (col, v) => ((rows = rows.filter((r) => (r[col] ?? null) === v)), q),
-    gte: (col, v) => ((rows = rows.filter((r) => String(r[col]) >= String(v))), q),
-    lt: (col, v) => ((rows = rows.filter((r) => String(r[col]) < String(v))), q),
+    gte: (col, v) => ((rows = rows.filter((r) => cmp(r[col], v) >= 0)), q),
+    lt: (col, v) => ((rows = rows.filter((r) => cmp(r[col], v) < 0)), q),
     range: (a, b) => ((range = [a, b]), q),
     then: (resolve) =>
-      resolve({ data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null }),
+      failing.has(table)
+        ? resolve({ data: null, error: { message: `${table} unavailable` } })
+        : resolve({ data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null }),
   }
   return q
 }
@@ -98,6 +119,7 @@ function seed(org: OrgData) {
     org_api_keys: org.apiKeys as unknown as Row[],
   }
   reads.length = 0
+  failing.clear()
 }
 
 const req = (path: string) => new NextRequest(new URL(path, "http://localhost"))
@@ -335,5 +357,71 @@ describe("GET /api/dashboard/breakdown", () => {
   it("returns 401 when not signed in", async () => {
     authed = false
     expect((await getBreakdown(req("/api/dashboard/breakdown"))).status).toBe(401)
+  })
+})
+
+describe("Claude.ai by product (issue #48)", () => {
+  function seedClaudeAi(org: OrgData = orgData()) {
+    seed(org)
+    tables.providers = PROVIDERS_WITH_CLAUDE_AI as unknown as Row[]
+    tables.cost_records_daily = [...plainDailyRows(), ...claudeAiPlainDailyRows()]
+    tables.cost_records_daily_attributed = [...attributedRows(org), ...claudeAiAttributedRows(org)] as unknown as Row[]
+    tables.cost_records = claudeAiProductCostRows() as unknown as Row[]
+    tables.person_identities = org.identities as unknown as Row[]
+  }
+  const split = (products: { product: string; cost: number }[] | undefined) =>
+    Object.fromEntries((products ?? []).map((p) => [p.product, p.cost]))
+  const sumCents = (products: { cost: number }[]) => products.reduce((a, p) => a + Math.round(p.cost * 100), 0)
+
+  beforeEach(() => seedClaudeAi())
+
+  it("splits the Claude.ai tool by product on the dashboard, summing to its spend", async () => {
+    const { status, body } = await dash("/api/dashboard?month=2026-11")
+    expect(status).toBe(200)
+    expect(reads).toContain("cost_records")
+    const tool = body.tools.find((t) => t.id === CLAUDE_AI)!
+    expect(tool.monthlySpend).toBe(NOV_CLAUDE_AI.total)
+    expect(sumCents(tool.products!)).toBe(Math.round(tool.monthlySpend * 100))
+    expect(split(tool.products)).toEqual({ claude_code: 170, chat: 70.25, other: 4.75 })
+    expect(body.kpis.totalSpend).toBe(NOV_TOTAL + NOV_CLAUDE_AI.total)
+  })
+
+  it("splits a person-filtered dashboard by that person's products", async () => {
+    const { body } = await dash(`/api/dashboard?month=2026-11&person=${PE.alice}`)
+    const tool = body.tools.find((t) => t.id === CLAUDE_AI)!
+    expect(tool.monthlySpend).toBe(NOV_ALICE.total)
+    expect(split(tool.products)).toEqual({ claude_code: 120, chat: 40, other: 0 })
+  })
+
+  it("shows the person view's Claude.ai products in the breakdown", async () => {
+    const { status, body } = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.alice}`)
+    expect(status).toBe(200)
+    expect(body.level).toBe("detail")
+    expect(reads).toEqual(expect.arrayContaining(["cost_records", "person_identities"]))
+    expect(body.claudeAiProducts!.total).toBe(NOV_ALICE.total)
+    expect(split(body.claudeAiProducts!.products)).toEqual({ claude_code: 120, chat: 40, other: 0 })
+  })
+
+  it("doesn't read raw records outside the person view", async () => {
+    const { body } = await brk("/api/dashboard/breakdown?month=2026-11")
+    expect(reads).not.toContain("cost_records")
+    expect(body.claudeAiProducts).toBeNull()
+  })
+
+  it("renders without the split when the raw read fails", async () => {
+    failing.add("cost_records")
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const d = await dash("/api/dashboard?month=2026-11")
+      expect(d.status).toBe(200)
+      const tool = d.body.tools.find((t) => t.id === CLAUDE_AI)!
+      expect(tool.monthlySpend).toBe(NOV_CLAUDE_AI.total)
+      expect(tool.products).toBeUndefined()
+      const b = await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.alice}`)
+      expect(b.status).toBe(200)
+      expect(b.body.claudeAiProducts).toBeNull()
+    } finally {
+      errors.mockRestore()
+    }
   })
 })

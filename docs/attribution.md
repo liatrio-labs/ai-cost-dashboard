@@ -89,6 +89,19 @@ has its `project_id`. Rows with no `attribution` (collected before #6) count as
 - Cost is still the source of truth: one row per cost group, with usage joined
   in on the identical group. The 30-day revision lookback from PR #2 is kept.
 - The same 403/404 fallback to the legacy reports applies. Those rows are `org`.
+- Spend by product (issue #48): every row keeps the API's product in
+  `metadata.group.product`. The dashboard (Claude.ai sub-rows in the Tools table
+  and a "by product" card on the Dashboard tab) and the person view split
+  Claude.ai spend into Claude Code (`claude_code`), Chat (`claude_chat`, `chat`,
+  `claude_ai`) and Other (anything else, including legacy rows with no product).
+  The rollups have no product column, so the routes read the period's Claude.ai
+  `cost_records` with `product:metadata->group->>product` (no migration) and
+  divide each rollup row (date x model, plus the attribution columns when
+  filtered) in proportion to the raw records with the same key; a rollup row
+  with no matching raw spend goes to Other. Slices are rounded by largest
+  remainder, so Claude Code + Chat + Other equals the Claude.ai total to the
+  cent. See `lib/claude-ai-products.ts`. If the raw read fails, the dashboard
+  renders without the split.
 
 ### OpenAI (`openai.ts`)
 
