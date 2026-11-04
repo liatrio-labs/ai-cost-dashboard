@@ -232,6 +232,14 @@ the owner from the key's creator (`assignment_source = 'auto'`, never over a
 manual key). Keys it can't give an owner keep the reason in
 `unresolved_reason`. The view is unchanged.
 
+The OpenAI key sync (`frontend/lib/org/openai-key-sync.ts`, issue #46) uses the
+same columns with `provider_id` = openai: one row per key listed by the
+OpenAI Admin API plus keys seen only on cost rows, `org_project_id` = the key's
+OpenAI project, and an `'auto'` owner when the creator's email matches an
+existing person (it never creates people). It needs no migration:
+`org_api_keys` has no provider constraint and 017's reasons cover every
+OpenAI case. Without 017 it skips `unresolved_reason` and works otherwise.
+
 #### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011 and 015)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).

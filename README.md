@@ -239,14 +239,16 @@ gateway key, inside the 300 s function limit). Either way it needs the same
 a set (same rules as below), and runs the gateway key sync afterwards. **Operator step
 after deploying migration 015 and this code; not run as part of the change.**
 
-To register every gateway and Anthropic key (keys with no spend included) without
-collecting, use **Sync keys now** on `/admin` (pull card, per provider) or `/admin/org`
-("API keys & projects", both providers). It reports created / updated / unchanged /
-manual-kept / unresolved-creator counts per provider; a failed Vercel or Anthropic key
-list is an error and changes nothing. Anthropic keys are assigned to their creator and
+To register every gateway, Anthropic and OpenAI key (keys with no spend included)
+without collecting, use **Sync keys now** on `/admin` (pull card, per provider) or
+`/admin/org` ("API keys & projects", every provider). It reports created / updated /
+unchanged / manual-kept / unresolved-creator counts per provider; a failed Vercel,
+Anthropic or OpenAI key list is an error and changes nothing. Anthropic keys are assigned to their creator and
 workspaces become projects (issue #32, see `docs/attribution.md`); the same sync runs
 after every Anthropic collection. Migration 017 stores Anthropic key status and the
-reason a key has no owner; the sync works without it.
+reason a key has no owner; the sync works without it. OpenAI keys are owned by their
+creator when the creator's email matches an existing person (issue #46, no migration);
+the same sync runs after every OpenAI collection.
 
 ```bash
 BASE=https://your-deployment.example.com

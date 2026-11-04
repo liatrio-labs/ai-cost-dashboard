@@ -256,8 +256,9 @@ export function resolveOpenAICreator(key: OpenAIApiKey): CreatorResolution {
   if (o.type && o.type !== "user") {
     return { createdBy: o.id ? `${o.type}:${o.id}` : o.type, email: null, name: o.name, reason: "service_account", transient: false }
   }
-  if (!o.email) return { createdBy: o.id, email: null, name: o.name, reason: "unmatched_creator", transient: false }
-  return { createdBy: o.id, email: o.email, name: o.name, reason: null, transient: false }
+  const email = normalizeEmail(o.email)
+  if (!email) return { createdBy: o.id, email: null, name: o.name, reason: "unmatched_creator", transient: false }
+  return { createdBy: o.id, email, name: o.name, reason: null, transient: false }
 }
 
 /**
