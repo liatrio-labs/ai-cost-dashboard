@@ -240,6 +240,27 @@ existing person (it never creates people). It needs no migration:
 `org_api_keys` has no provider constraint and 017's reasons cover every
 OpenAI case. Without 017 it skips `unresolved_reason` and works otherwise.
 
+Migration 018 (issue #44) adds the provider's key creation date and the
+needs-review inbox decisions:
+
+```sql
+org_api_keys      + provider_created_at TIMESTAMPTZ (Anthropic / OpenAI created_at,
+                                                     Vercel createdAt; NULL = unknown)
+review_items      (id, kind, subject, period, amount, status, note,
+                   acknowledged_by, acknowledged_at, created_at, updated_at)
+                   kind   IN ('person_spike', 'person_day', 'unassigned_new', 'key_new')
+                   status IN ('acknowledged', 'assigned')
+                   UNIQUE (kind, subject, period)
+```
+
+The three key syncs write `provider_created_at` when the provider reports a
+date and never clear a stored one. `review_items` holds only decisions: the
+inbox (`frontend/lib/org/review-inbox.ts`) is computed live from
+`cost_records_daily_attributed`, and a decided item stays hidden until its
+amount exceeds 1.25x the decided amount. `review_items` is admin-only (RLS on,
+no policies, no `anon` / `authenticated` grants; the admin routes use the
+service role).
+
 #### 8. `cost_records_daily_attributed` (MATERIALIZED VIEW, migration 010, recreated by 011 and 015)
 `cost_records_daily` plus attribution, resolved from
 `cost_records.metadata.attribution` (contract in epic #4).
@@ -458,6 +479,14 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   the admin org page fall back to the 015 columns (key status and the
   unresolved reason are then not stored or shown). **Needs Robert's explicit
   approval before it is applied to production.**
+- **018_review_inbox.sql**: needs-review inbox (#44). Nullable
+  `org_api_keys.provider_created_at` and the admin-only `review_items` table
+  (CHECKs on kind / status / period / amount, unique (kind, subject, period)).
+  No view or data change. The app works before it is applied: the inbox lists
+  items live with a "migration 018 not applied" notice and no Acknowledge (POST
+  returns 409 `migration_018_not_applied`), and key creation dates read as
+  unknown. **Needs Robert's explicit approval before it is applied to
+  production.**
 
 ### Testing migrations locally
 
@@ -481,7 +510,9 @@ runs `assertions_017.sql` (the 017 columns and CHECK, and the issue #32
 precedence against the real view: a `user_actor` row on someone else's key
 resolves to the actor, manual owner, auto creator owner, workspace project
 team, Default project via the key, Unassigned; no fan-out, reconciliation,
-grants), then re-applies 010, 011, 014, 015, 016 and 017 over the data. 011 must always follow 010, because 010 recreates the view
+grants), runs `assertions_018.sql` (`provider_created_at` type and NULL
+default, `review_items` CHECKs, one row per item and upsert, RLS and grants,
+totals unchanged), then re-applies 010, 011, 014, 015, 016, 017 and 018 over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

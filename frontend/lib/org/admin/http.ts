@@ -85,14 +85,14 @@ export type RouteParams = Record<string, string>
  * the service-role client. Writes bypass RLS, so every org route goes through here.
  */
 export function adminRoute<P extends RouteParams = RouteParams>(
-  handler: (request: NextRequest, params: P, admin: SupabaseClient) => Promise<Response>
+  handler: (request: NextRequest, params: P, admin: SupabaseClient, user: { id: string; email: string }) => Promise<Response>
 ) {
   return async (request: NextRequest, context: { params: Promise<P> }): Promise<Response> => {
     try {
       const cookieStore = await cookies()
-      await requireAdmin(cookieStore)
+      const user = await requireAdmin(cookieStore)
       const params = ((await context?.params) ?? {}) as P
-      return await handler(request, params, createAdminClient())
+      return await handler(request, params, createAdminClient(), user)
     } catch (e) {
       return toErrorResponse(e)
     }
