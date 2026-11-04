@@ -34,14 +34,19 @@ function kindHelp(kind: ReviewKind, t: ReviewInboxResponse["thresholds"]): strin
   return `Keys the provider created in the last ${t.newDays} days that have spend. Only keys with a stored provider creation date.`
 }
 
-async function send(path: string, method: string, body?: unknown) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  const data = await res.json().catch(() => ({}))
-  return { ok: res.ok, status: res.status, data }
+/** Never rejects: a network failure comes back as { ok: false, status: 0 } with an error message. */
+async function send(path: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; data: { error?: string } & Record<string, unknown> }> {
+  try {
+    const res = await fetch(`${API}${path}`, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    return { ok: res.ok, status: res.status, data }
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: `Network error${e instanceof Error && e.message ? `: ${e.message}` : ""}` } }
+  }
 }
 
 const periodLabel = (it: ReviewItem) =>
@@ -58,7 +63,7 @@ export function ReviewTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate
     send("/review", "GET").then((res) => {
       if (!live) return
       if (res.ok) {
-        setInbox(res.data as ReviewInboxResponse)
+        setInbox(res.data as unknown as ReviewInboxResponse)
         setError(null)
       } else setError(res.data.error || `Failed to load (${res.status})`)
     })
@@ -160,10 +165,16 @@ function ReviewRow({
     if (!item.assign || !team) return
     setBusy(true)
     setMsg(null)
-    // The existing assign flow; it reloads the org, which refreshes this tab.
-    const ok = await mutate("/unassigned/assign", "POST", { ...item.assign, team_id: team }, `Assigned ${item.label}`)
-    if (ok && canDecide) await decide("assigned")
-    setBusy(false)
+    let ok = false
+    try {
+      // The existing assign flow; it reloads the org, which refreshes this tab.
+      ok = await mutate("/unassigned/assign", "POST", { ...item.assign, team_id: team }, `Assigned ${item.label}`)
+      if (ok && canDecide) await decide("assigned")
+    } catch (e) {
+      setMsg(`Assign failed${e instanceof Error && e.message ? `: ${e.message}` : ""}`)
+    } finally {
+      setBusy(false)
+    }
     if (ok) {
       setAssigning(false)
       onDone()

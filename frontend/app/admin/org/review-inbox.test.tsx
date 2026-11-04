@@ -144,3 +144,36 @@ test("a load failure shows the error, not a crash", async () => {
   render(<ReviewTab org={org} mutate={jest.fn()} reloadKey={0} />)
   expect(await screen.findByText("boom")).toBeInTheDocument()
 })
+
+test("network failures surface an error and never leave the tab spinning or the buttons disabled", async () => {
+  global.fetch = jest.fn(async () => {
+    throw new TypeError("Failed to fetch")
+  }) as jest.Mock
+  const { unmount } = render(<ReviewTab org={org} mutate={jest.fn()} reloadKey={0} />)
+  expect(await screen.findByText("Network error: Failed to fetch")).toBeInTheDocument()
+  unmount()
+
+  // Loads fine, then Acknowledge and Assign hit network failures.
+  let failPost = false
+  global.fetch = jest.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if ((init?.method ?? "GET") !== "GET" && failPost) throw new TypeError("Failed to fetch")
+    return { ok: true, status: 200, json: async () => inbox({ items: [spike] }) } as Response
+  }) as jest.Mock
+  const mutate = jest.fn(async () => {
+    throw new TypeError("offline")
+  })
+  render(<ReviewTab org={org} mutate={mutate} reloadKey={0} />)
+  const user = userEvent.setup()
+  const ack = await screen.findByRole("button", { name: "Acknowledge" })
+  failPost = true
+  await user.click(ack)
+  expect(await screen.findByText("Network error: Failed to fetch")).toBeInTheDocument()
+  expect(ack).toBeEnabled()
+
+  await user.click(screen.getByRole("button", { name: "Assign" }))
+  await user.selectOptions(screen.getByRole("combobox", { name: "Team for Six Hundred" }), "team-a")
+  const assignButtons = screen.getAllByRole("button", { name: "Assign" })
+  await user.click(assignButtons[assignButtons.length - 1])
+  expect(await screen.findByText("Assign failed: offline")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Acknowledge" })).toBeEnabled()
+})
