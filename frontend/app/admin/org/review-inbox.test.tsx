@@ -177,3 +177,28 @@ test("network failures surface an error and never leave the tab spinning or the 
   expect(await screen.findByText("Assign failed: offline")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Acknowledge" })).toBeEnabled()
 })
+
+test("projected-over-budget items (issue #49) get their own section and badge", async () => {
+  const over: ReviewItem = {
+    ...spike,
+    id: "budget_over|team:t1|2026-11",
+    kind: "budget_over",
+    subject: "team:t1",
+    period: "2026-11",
+    amount: 3000,
+    projected: true,
+    previousAmount: null,
+    ratio: 1.5,
+    label: "Team: Platform",
+    detail: "budget $2,000.00 · actual so far $1,400.00",
+    assign: null,
+  }
+  mockFetch(() => inbox({ items: [over], hiddenCount: 0 }))
+  render(<ReviewTab org={org} mutate={jest.fn()} reloadKey={0} />)
+  const section = await screen.findByRole("region", { name: "Projected over budget" })
+  const item = within(section).getByTestId("review-item")
+  expect(within(item).getByText("Projected over budget")).toBeInTheDocument()
+  expect(item).toHaveTextContent("budget $2,000.00 · actual so far $1,400.00")
+  expect(within(item).getByRole("button", { name: "Acknowledge" })).toBeInTheDocument()
+  expect(within(item).queryByRole("button", { name: "Assign" })).not.toBeInTheDocument()
+})

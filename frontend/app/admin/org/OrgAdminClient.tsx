@@ -18,6 +18,7 @@ import { canAssignToCreator } from "@/lib/org/key-status"
 import { SourceBadge, TeamSelect, selectClass, usd, type Mutate, type Org } from "./shared"
 import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./bulk"
 import { ReviewTab } from "./review-inbox"
+import { BudgetsTab } from "./budgets-tab"
 
 const API = "/api/admin/org"
 
@@ -123,6 +124,7 @@ export function OrgAdminClient() {
           <Tabs defaultValue="review">
             <TabsList>
               <TabsTrigger value="review">Needs review</TabsTrigger>
+              <TabsTrigger value="budgets">Budgets</TabsTrigger>
               <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
               <TabsTrigger value="structure">Departments & teams</TabsTrigger>
               <TabsTrigger value="people">People</TabsTrigger>
@@ -131,6 +133,9 @@ export function OrgAdminClient() {
             </TabsList>
             <TabsContent value="review">
               <ReviewTab org={org} mutate={mutate} reloadKey={reloadKey} />
+            </TabsContent>
+            <TabsContent value="budgets">
+              <BudgetsTab org={org} reloadKey={reloadKey} />
             </TabsContent>
             <TabsContent value="unassigned">
               <UnassignedTab org={org} mutate={mutate} reloadKey={reloadKey} />

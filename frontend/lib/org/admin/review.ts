@@ -11,6 +11,7 @@ import { z } from "zod"
 import { ATTRIBUTED_COLUMNS, fetchAllPaged, fetchProviders, type SupabaseLike } from "@/lib/dashboard-data"
 import { computeReviewInbox, REVIEW_KINDS, REVIEW_STATUSES, reviewWindowStart, type ReviewDecision, type ReviewInbox } from "../review-inbox"
 import type { AttributedDailyRow } from "../types"
+import { budgetWindowStart, computeBudgetStatuses, type Budget } from "@/lib/budgets"
 import { DbError, HttpError } from "./http"
 import { loadOrg } from "./repo"
 
@@ -41,6 +42,14 @@ export async function loadDecisions(admin: SupabaseClient): Promise<ReviewDecisi
   return (res.data ?? []) as unknown as ReviewDecision[]
 }
 
+/** budgets rows (migration 020), or null without it. Kept here so review.ts doesn't import budgets.ts (which imports this file). */
+async function loadBudgetsOrNull(admin: SupabaseClient): Promise<Budget[] | null> {
+  const res = await admin.from("budgets").select("id, scope, subject_id, monthly_usd, note")
+  if (isMissingTable(res.error)) return null
+  if (res.error) throw new DbError(res.error.code, res.error.message)
+  return (res.data ?? []) as unknown as Budget[]
+}
+
 export interface ReviewInboxResponse extends ReviewInbox {
   /** review_items exists (migration 018): Acknowledge and notes work. */
   decisions_available: boolean
@@ -50,14 +59,14 @@ export interface ReviewInboxResponse extends ReviewInbox {
 
 export async function loadReviewInbox(admin: SupabaseClient, now = new Date()): Promise<ReviewInboxResponse> {
   const db = admin as unknown as SupabaseLike
-  const start = reviewWindowStart(now)
-  const [org, providers, rows, decisions] = await Promise.all([
-    loadOrg(admin),
-    fetchProviders(db),
-    fetchAllPaged<AttributedDailyRow>(db, "cost_records_daily_attributed", ATTRIBUTED_COLUMNS, (q) => q.gte("date", start)),
-    loadDecisions(admin),
-  ])
-  const inbox = computeReviewInbox({ rows, org, providers, decisions: decisions ?? [], now })
+  const [org, providers, decisions, budgets] = await Promise.all([loadOrg(admin), fetchProviders(db), loadDecisions(admin), loadBudgetsOrNull(admin)])
+  // Budget projections (issue #49) can need a little more history than the inbox.
+  const reviewStart = reviewWindowStart(now)
+  const budgetStart = budgets?.length ? budgetWindowStart(providers, now) : reviewStart
+  const start = budgetStart < reviewStart ? budgetStart : reviewStart
+  const rows = await fetchAllPaged<AttributedDailyRow>(db, "cost_records_daily_attributed", ATTRIBUTED_COLUMNS, (q) => q.gte("date", start))
+  const budgetStatuses = budgets?.length ? computeBudgetStatuses({ rows, org, providers, budgets, now }) : []
+  const inbox = computeReviewInbox({ rows, org, providers, decisions: decisions ?? [], budgetStatuses, now })
   return { ...inbox, decisions_available: decisions !== null, notice: decisions === null ? MIGRATION_018_NOTICE : null }
 }
 
