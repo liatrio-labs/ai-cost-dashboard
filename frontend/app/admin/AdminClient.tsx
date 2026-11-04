@@ -17,6 +17,7 @@ import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
 import { ForecastUnitsCard } from "@/components/admin/forecast-units"
 import { ProviderPullCard } from "@/components/admin/provider-pull"
+import { SyncFreshness } from "@/components/sync-freshness"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 
@@ -153,6 +154,9 @@ export function AdminClient() {
       </header>
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+        {/* Per-provider sync freshness and warnings (issue #47) */}
+        <SyncFreshness />
+
         {/* Pull data (issue #28: AI Gateway, date range, Sync keys now) */}
         <ProviderPullCard />
 

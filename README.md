@@ -34,6 +34,10 @@ trends, and a forecast. Tools without a usable cost API are entered manually.
   console, and a "Last updated" timestamp.
 - 🔁 **Automated daily collection** — Vercel Cron triggers in-process TypeScript
   collectors; idempotent (delete-then-insert per day) so re-runs never double-count.
+- 🕒 **Sync freshness** — dashboard and admin show each provider's last sync (America/Chicago),
+  warn when a provider missed its `vercel.json` cron (scheduled run + 60 min grace), and
+  remind admins from day 4 when a manual provider such as ChatGPT has no entry for the month
+  (`frontend/lib/sync-freshness.ts`, `GET /api/dashboard/freshness`).
 - 🛠️ **Admin area** — trigger a manual pull, add tools, record manual/seat-based monthly
   entries, edit the forecast headcount, and force a dashboard refresh.
 - 💳 **Seat assignments** — split a seat-based tool's month (Claude Ultra, formerly
