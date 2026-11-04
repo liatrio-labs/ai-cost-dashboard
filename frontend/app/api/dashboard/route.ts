@@ -23,6 +23,10 @@
  * months and the projected current month (issue #39, lib/projection.ts).
  * The aggregation itself lives in lib/dashboard-compute.ts.
  *
+ * Issue #59: recurring monthly costs (lib/recurring-costs.ts) are appended
+ * to the rollup rows (either one) for every month they cover without a
+ * manual entry, before filters apply. Without migration 022 there are none.
+ *
  * Issue #48: when the period has Claude.ai spend, the period's raw Claude.ai
  * records are read from cost_records (product by JSON path, no migration) and
  * the Claude.ai tool gets `products` (Claude Code / Chat / Other). Optional:
@@ -55,6 +59,7 @@ import {
   fetchIdentities,
   fetchOrgData,
   fetchProviders,
+  fetchRecurringDaily,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
@@ -80,6 +85,8 @@ export async function GET(request: NextRequest) {
     const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
     // Issue #48: read in parallel with the rollup; ignored when the period has no Claude.ai spend.
     const productsPromise = claudeAiProducts(supabase, providers, filters, params, now)
+    // Issue #59: synthetic monthly rows for recurring costs (empty without 022).
+    const recurringPromise = fetchRecurringDaily(supabase, { now })
 
     let daily: DailyRow[]
     let unitForecast: UnitForecast | null = null
@@ -89,12 +96,13 @@ export async function GET(request: NextRequest) {
       // Team/department filter (#9): the unit's plateau is allocated from the
       // whole org's trailing spend, so read every attributed row once and
       // narrow in memory.
-      const all = await fetchAttributedDaily(supabase, {}, null)
+      const all = [...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)]
       daily = applyFilters(all, filters, null)
       unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
-      daily = applyFilters(await fetchAttributedDaily(supabase, filters, providerId), filters, providerId)
+      const rows = [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)]
+      daily = applyFilters(rows, filters, providerId)
       // Person / key / project views get a trailing average, not a forecast
       // (plus the projected current month, from computeDashboard). The
       // average ends at the last complete month, never the partial one (#39).
@@ -109,6 +117,7 @@ export async function GET(request: NextRequest) {
         "cost_records_daily",
         "date, provider_id, model_name, total_cost_usd, total_tokens, total_requests"
       )
+      daily = [...daily, ...(await recurringPromise)]
     }
 
     const claudeAiProductRows = await productsPromise
