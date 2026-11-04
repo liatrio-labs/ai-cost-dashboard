@@ -7,6 +7,7 @@
  */
 
 import { buildOrgIndex, getAttribution, normalizeEmail, resolveAttribution } from "../attribution"
+import { newPersonDisplayName } from "../display-name"
 import type { OrgApiKey, OrgData, OrgProject } from "../types"
 import type { OrgSnapshot } from "./schemas"
 import { keyActivity } from "../key-filter"
@@ -144,7 +145,7 @@ export function previewPeopleImport(records: ObservedRecord[], org: OrgSnapshot)
     } else {
       candidates.push({
         email: c.email,
-        display_name: c.display_name,
+        display_name: newPersonDisplayName(c.display_name, c.email),
         provider_ids: [...c.providers].sort(),
         total_cost_usd: round6(c.total_cost_usd),
         record_count: c.record_count,

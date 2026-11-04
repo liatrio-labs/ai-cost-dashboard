@@ -313,6 +313,24 @@ function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerg
   const [identityFor, setIdentityFor] = useState<string | null>(null)
   const [idProvider, setIdProvider] = useState("")
   const [idValue, setIdValue] = useState("")
+  const [filling, setFilling] = useState(false)
+  const [fillError, setFillError] = useState<string | null>(null)
+
+  /** Issue #66: set "First Last" from first.last@liatrio.com where the name is a placeholder. */
+  const fillDefaultNames = async () => {
+    setFilling(true)
+    setFillError(null)
+    try {
+      const res = await api<{ updated: number }>("/people/default-names", "POST")
+      if (!res.ok) return setFillError(res.data.error || `Request failed (${res.status})`)
+      const n = res.data.updated
+      await onMerged(n ? `Filled default names for ${n} ${n === 1 ? "person" : "people"}` : "No placeholder names to fill")
+    } catch (e) {
+      setFillError(e instanceof Error && e.message ? e.message : "Request failed")
+    } finally {
+      setFilling(false)
+    }
+  }
 
   const providerName = (id: string) => {
     const p = org.providers.find((x) => x.id === id)
@@ -366,9 +384,20 @@ function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerg
               Show inactive
             </label>
             <Input className="w-56" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              disabled={filling}
+              title="Set 'First Last' from first.last@liatrio.com where the name is empty, the email or its local part. Typed names are never changed."
+              onClick={fillDefaultNames}
+            >
+              {filling && <Loader2 className="h-4 w-4 animate-spin" />} Fill default names
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="divide-y divide-border/50">
+          {fillError && <Message msg={{ ok: false, text: fillError }} />}
           <BulkTeamBar
             org={org}
             count={sel.selected.size}

@@ -9,6 +9,7 @@
  *       registers the project if needed and sets its team
  */
 
+import { newPersonDisplayName } from "@/lib/org/display-name"
 import { adminRoute, json, must, parseBody } from "@/lib/org/admin/http"
 import { KEY_COLUMNS, loadOrg, refreshRollups } from "@/lib/org/admin/repo"
 import { unassignedAssignSchema } from "@/lib/org/admin/schemas"
@@ -36,7 +37,7 @@ export const POST = adminRoute(async (request, _params, admin) => {
           row: must(
             await admin
               .from("people")
-              .insert({ email: body.email, display_name: body.display_name ?? null, team_id: body.team_id, active: true })
+              .insert({ email: body.email, display_name: newPersonDisplayName(body.display_name, body.email), team_id: body.team_id, active: true })
               .select(select)
               .single()
           ),

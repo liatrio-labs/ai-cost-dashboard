@@ -3,6 +3,7 @@
  * POST /api/admin/org/people — { email, display_name?, team_id? } add
  */
 
+import { newPersonDisplayName } from "@/lib/org/display-name"
 import { adminRoute, json, must, parseBody } from "@/lib/org/admin/http"
 import { loadOrg, refreshRollups } from "@/lib/org/admin/repo"
 import { personCreateSchema } from "@/lib/org/admin/schemas"
@@ -25,7 +26,7 @@ export const POST = adminRoute(async (request, _params, admin) => {
       .from("people")
       .insert({
         email: body.email,
-        display_name: body.display_name ?? null,
+        display_name: newPersonDisplayName(body.display_name, body.email),
         team_id: body.team_id ?? null,
         active: body.active ?? true,
       })
