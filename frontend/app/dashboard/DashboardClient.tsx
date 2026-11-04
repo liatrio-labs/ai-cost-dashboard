@@ -38,6 +38,7 @@ import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import { OrgBreakdown, OrgFilterBar } from "@/components/org/org-breakdown"
 import { SyncFreshness } from "@/components/sync-freshness"
+import { ClaudeAiProductSplit } from "@/components/claude-ai-products"
 import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
 import {
   hasFilters,
@@ -162,6 +163,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const showOrg = filtered || !!breakdown?.orgConfigured
   const activeTab: Tab = tab === "org" && !showOrg ? "dashboard" : tab
   // Name of the team/department whose forecast the chart shows (issue #9).
+  // Issue #48: the Claude.ai tool row carries its split by product.
+  const claudeAiTool = data?.tools.find((t) => t.products && t.products.length > 0)
   const forecastUnit = data?.forecastMeta?.unit
   const forecastUnitLabel = forecastUnit
     ? forecastUnit.unassigned
@@ -389,6 +392,9 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                 <SpendBreakdownChart tools={data!.tools} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
+              {claudeAiTool && (
+                <ClaudeAiProductSplit products={claudeAiTool.products!} total={claudeAiTool.monthlySpend} title={`${claudeAiTool.name} by product`} />
+              )}
               <TrendChart trends={data!.trends} currentMonth={data!.projection?.currentMonth} />
             </TabsContent>
 

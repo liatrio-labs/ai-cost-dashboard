@@ -46,11 +46,13 @@ interface FakeQuery {
   order(): FakeQuery
   eq(col: string, v: unknown): FakeQuery
   is(col: string, v: unknown): FakeQuery
+  gte(col: string, v: unknown): FakeQuery
+  lt(col: string, v: unknown): FakeQuery
   range(a: number, b: number): FakeQuery
   then(resolve: (v: unknown) => void): void
 }
 
-/** Thenable query builder supporting select/order/range/eq/is. */
+/** Thenable query builder supporting select/order/range/eq/is/gte/lt (gte/lt compare as strings, fine for ISO timestamps). */
 function fakeFrom(table: string): FakeQuery {
   reads.push(table)
   let rows = [...(tables[table] ?? [])]
@@ -60,6 +62,8 @@ function fakeFrom(table: string): FakeQuery {
     order: () => q,
     eq: (col, v) => ((rows = rows.filter((r) => r[col] === v)), q),
     is: (col, v) => ((rows = rows.filter((r) => (r[col] ?? null) === v)), q),
+    gte: (col, v) => ((rows = rows.filter((r) => String(r[col]) >= String(v))), q),
+    lt: (col, v) => ((rows = rows.filter((r) => String(r[col]) < String(v))), q),
     range: (a, b) => ((range = [a, b]), q),
     then: (resolve) =>
       resolve({ data: range ? rows.slice(range[0], range[1] + 1) : rows, error: null }),

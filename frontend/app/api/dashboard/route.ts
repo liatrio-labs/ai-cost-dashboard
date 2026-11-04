@@ -22,6 +22,11 @@
  * person/key/project filters get a trailing 3-month average of complete
  * months and the projected current month (issue #39, lib/projection.ts).
  * The aggregation itself lives in lib/dashboard-compute.ts.
+ *
+ * Issue #48: when the period has Claude.ai spend, the period's raw Claude.ai
+ * records are read from cost_records (product by JSON path, no migration) and
+ * the Claude.ai tool gets `products` (Claude Code / Chat / Other). Optional:
+ * if that read fails, the dashboard renders without the split.
  */
 
 import { NextRequest } from "next/server"
@@ -38,12 +43,17 @@ import {
   type UnitLevel,
 } from "@/lib/unit-forecast"
 import type { AttributedDailyRow } from "@/lib/org/types"
-import { computeDashboard, type DailyRow, type ProviderRow } from "@/lib/dashboard-compute"
+import { computeDashboard, resolvePeriod, type DailyRow, type ProviderRow } from "@/lib/dashboard-compute"
+import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
+import { buildOrgIndex } from "@/lib/org/attribution"
 import { projectionContext } from "@/lib/projection"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
   fetchAllPaged,
   fetchAttributedDaily,
+  fetchClaudeAiProductRows,
+  fetchIdentities,
+  fetchOrgData,
   fetchProviders,
   providerIdForSlug,
   type SupabaseLike,
@@ -66,6 +76,10 @@ export async function GET(request: NextRequest) {
 
     const forecastSettings = await getForecastSettings()
     const now = new Date()
+
+    const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
+    // Issue #48: read in parallel with the rollup; ignored when the period has no Claude.ai spend.
+    const productsPromise = claudeAiProducts(supabase, providers, filters, params, now)
 
     let daily: DailyRow[]
     let unitForecast: UnitForecast | null = null
@@ -97,16 +111,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const claudeAiProductRows = await productsPromise
+
     return successResponse({
       ...computeDashboard({
         daily,
         providers,
-        params: { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") },
+        params,
         forecastSettings,
         now,
         projectForecast: !filtered,
         unitForecast,
         trailingAverage,
+        claudeAiProductRows,
       }),
       filters,
     })
@@ -145,4 +162,37 @@ async function unitForecastForFilters(
     current: projectionContext(providers, now),
   })
   return result.units.find((u) => u.key === sel.key) ?? null
+}
+
+/**
+ * Issue #48: the period's Claude.ai records with their product, narrowed to
+ * the same filters as the rollup rows, or null when there is no Claude.ai
+ * provider or the read fails (the dashboard then shows no split). Never throws.
+ */
+async function claudeAiProducts(
+  supabase: SupabaseLike,
+  providers: ProviderRow[],
+  filters: DashboardFilters,
+  params: { month: string | null; start: string | null; end: string | null },
+  now: Date
+): Promise<ProductDayRow[] | null> {
+  const providerId = providerIdForSlug(providers, CLAUDE_AI_SLUG)
+  if (!providerId) return null
+  // A provider filter for another provider leaves no Claude.ai rows to split.
+  if (filters.provider && filters.provider !== CLAUDE_AI_SLUG) return null
+  const { start, end } = resolvePeriod(params, now)
+  const filtered = hasFilters(filters)
+  try {
+    const rows = await fetchClaudeAiProductRows(supabase, providerId, start, end, filtered)
+    if (!filtered) return toProductDayRows(rows)
+    const [org, identities] = await Promise.all([fetchOrgData(supabase), fetchIdentities(supabase)])
+    return toProductDayRows(rows, {
+      filters,
+      index: buildOrgIndex({ ...org, identities }),
+      providerId: providerIdForSlug(providers, filters.provider),
+    })
+  } catch (error) {
+    console.error("GET /api/dashboard: Claude.ai product split unavailable:", error)
+    return null
+  }
 }

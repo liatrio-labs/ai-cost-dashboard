@@ -31,6 +31,12 @@ import {
   type DrillLevel,
   type FilterKey,
 } from "@/lib/dashboard-filters"
+import {
+  CLAUDE_AI_SLUG,
+  splitClaudeAiByProduct,
+  type ClaudeAiProductSplit,
+  type ProductDayRow,
+} from "@/lib/claude-ai-products"
 import { buildOrgIndex } from "./attribution"
 import { groupKeys, keyProjectId, type ProviderGroup } from "./key-groups"
 import { canAttribute, coverageFor, type CoverageLevel, type CoverageSupport } from "./coverage"
@@ -201,6 +207,12 @@ export interface BreakdownData {
   hasProjects: boolean
   /** provider x model for the filtered rows (the drill-down leaf). */
   detail: BreakdownDetail[]
+  /**
+   * Issue #48: Claude.ai spend for the filtered rows by product (Claude Code,
+   * Chat, Other), summing to the Claude.ai detail rows. Null unless the
+   * route supplied product rows and the selection has Claude.ai spend.
+   */
+  claudeAiProducts: ClaudeAiProductSplit | null
   /** Providers with spend in the period (before org filters), with coverage. */
   providers: BreakdownProvider[]
   breadcrumbs: BreakdownCrumb[]
@@ -214,6 +226,8 @@ export interface ComputeBreakdownInput {
   filters: DashboardFilters
   params: PeriodParams
   now?: Date
+  /** Issue #48: the period's Claude.ai records, already narrowed to `filters`. */
+  claudeAiProductRows?: ProductDayRow[] | null
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -365,7 +379,15 @@ function projectEntities(
   return [...assigned, out.find((e) => e.unassigned)!]
 }
 
-export function computeBreakdown({ rows, org, providers, filters, params, now = new Date() }: ComputeBreakdownInput): BreakdownData {
+export function computeBreakdown({
+  rows,
+  org,
+  providers,
+  filters,
+  params,
+  now = new Date(),
+  claudeAiProductRows = null,
+}: ComputeBreakdownInput): BreakdownData {
   const index = buildOrgIndex(org)
   const meta = buildProviderMeta(providers)
   const slugOf = (id: string) => meta.get(id)?.slug ?? id
@@ -451,6 +473,12 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     .map((d) => ({ ...d, cost: round2(d.cost) }))
     .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model))
 
+  // Issue #48: Claude.ai by product over the same rows as the detail table.
+  const claudeAiId = providers.find((p) => p.name === CLAUDE_AI_SLUG)?.id
+  const claudeAiRows = claudeAiId ? cur.filter((r) => r.provider_id === claudeAiId) : []
+  const claudeAiProducts =
+    claudeAiProductRows && claudeAiRows.length > 0 ? splitClaudeAiByProduct(claudeAiRows, claudeAiProductRows) : null
+
   const labelFor = (k: FilterKey, v: string): string => {
     if (k === "provider") return providers.find((p) => p.name === v) ? nameOf(providers.find((p) => p.name === v)!.id) : v
     if (v === UNASSIGNED_FILTER) return UNASSIGNED_LABEL
@@ -492,6 +520,7 @@ export function computeBreakdown({ rows, org, providers, filters, params, now = 
     project,
     hasProjects,
     detail,
+    claudeAiProducts,
     providers: activeProviders,
     breadcrumbs,
     options: {

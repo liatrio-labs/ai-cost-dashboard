@@ -10,7 +10,9 @@ import {
   UNASSIGNED_FILTER,
   type DashboardFilters,
 } from "@/lib/dashboard-filters"
-import type { AttributedDailyRow, OrgData } from "@/lib/org/types"
+import type { AttributedDailyRow, OrgData, PersonIdentity } from "@/lib/org/types"
+import { addDays } from "@/lib/dashboard-compute"
+import { PRODUCT_ATTRIBUTION_COLUMN, PRODUCT_COST_COLUMNS, type ProductCostRow } from "@/lib/claude-ai-products"
 
 // Minimal structural types so tests can pass a fake client.
 interface QueryResult {
@@ -22,6 +24,8 @@ export interface Query extends PromiseLike<QueryResult> {
   range(from: number, to: number): Query
   eq(column: string, value: unknown): Query
   is(column: string, value: null): Query
+  gte(column: string, value: unknown): Query
+  lt(column: string, value: unknown): Query
 }
 export interface SupabaseLike {
   from(table: string): { select(columns: string): Query }
@@ -137,6 +141,49 @@ export async function fetchOrgData(supabase: SupabaseLike): Promise<OrgData> {
     apiKeys: (apiKeys.data || []) as OrgData["apiKeys"],
     projects: (projects.data || []) as NonNullable<OrgData["projects"]>,
   }
+}
+
+/**
+ * person_identities (authenticated SELECT, migration 010). The product split
+ * resolves raw records like cost_records_daily_attributed, which uses them.
+ */
+export async function fetchIdentities(supabase: SupabaseLike): Promise<PersonIdentity[]> {
+  const { data, error } = await supabase.from("person_identities").select("person_id, provider_id, external_id").order("external_id")
+  if (error) throw error
+  return (data || []) as PersonIdentity[]
+}
+
+/**
+ * Raw Claude.ai records for [start, end] (UTC dates, inclusive) with the
+ * product and attribution pulled out of metadata by JSON path (issue #48).
+ * Read straight from cost_records: the rollups don't carry the product.
+ * `withAttribution` adds metadata.attribution, needed to apply org filters.
+ */
+export async function fetchClaudeAiProductRows(
+  supabase: SupabaseLike,
+  providerId: string,
+  start: string,
+  end: string,
+  withAttribution = false
+): Promise<ProductCostRow[]> {
+  const columns = withAttribution ? `${PRODUCT_COST_COLUMNS}, ${PRODUCT_ATTRIBUTION_COLUMN}` : PRODUCT_COST_COLUMNS
+  const out: ProductCostRow[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("cost_records")
+      .select(columns)
+      .eq("provider_id", providerId)
+      .gte("timestamp", `${start}T00:00:00Z`)
+      .lt("timestamp", `${addDays(end, 1)}T00:00:00Z`)
+      .order("timestamp", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    const rows = (data || []) as ProductCostRow[]
+    out.push(...rows)
+    if (rows.length < PAGE) break
+  }
+  return out
 }
 
 export function providerIdForSlug(providers: ProviderRow[], slug: string | undefined): string | null {
