@@ -96,7 +96,7 @@ export function KeysByProjectCard({
     { header: "Group type", value: (r) => r.pg.noun },
     { header: "Project / workspace", value: (r) => r.g.label },
     { header: "Project / workspace ID", value: (r) => r.g.external_id },
-    { header: "Name", value: (r) => r.k.name },
+    { header: "Name", value: (r) => r.k.name || r.k.external_key_id },
     { header: "Key ID", value: (r) => r.k.external_key_id },
     { header: "Registered", value: (r) => (r.k.id ? "yes" : "no") },
     { header: "Status", value: (r) => r.k.external_status },

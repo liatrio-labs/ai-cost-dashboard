@@ -219,6 +219,19 @@ describe("KeysByProjectCard filters (issue #45)", () => {
     expect(csv.rows.map((r) => r[nameCol(csv.header)])).toEqual(rowNames())
   })
 
+  it("issue #50: a key with no name exports its key id as the Name, as the list shows it", async () => {
+    const user = userEvent.setup()
+    const keys: OrgApiKey[] = [{ id: "a9", provider_id: AN, external_key_id: "an_noname", name: null, owner_person_id: null, team_id: null, external_status: "active" }]
+    const records: ObservedRecord[] = [
+      { provider_id: AN, timestamp: "2026-11-02T00:00:00Z", cost_usd: 5, attribution: { api_key_id: "an_noname", granularity: "api_key" } },
+    ]
+    render(<KeysByProjectCard org={anOrg} mutate={jest.fn(async () => true)} keys={listKeys(records, keys, NOW)} projects={[]} />)
+    expect(rowNames()).toEqual(["an_noname"])
+    await user.click(screen.getByRole("button", { name: "Export admin API keys as CSV" }))
+    const [header, row] = (download.mock.calls.at(-1)![1] as string).split("\r\n").map((l) => l.split(","))
+    expect(row[header.indexOf("Name")]).toBe("an_noname")
+  })
+
   it("lists active keys with $0 in the last 90 days to consider revoking, with owner, last spend and created date", async () => {
     const user = userEvent.setup()
     renderCard()
