@@ -72,16 +72,7 @@ export function SelectAllCheckbox({
   )
 }
 
-/** "N selected · team · Assign team" bar shown while rows are selected. */
-export function BulkTeamBar({
-  org,
-  count,
-  noun,
-  plural = `${noun}s`,
-  noneLabel = "Unassigned",
-  onAssign,
-  onClear,
-}: {
+type BulkTeamBarProps = {
   org: Org
   count: number
   noun: string
@@ -89,11 +80,29 @@ export function BulkTeamBar({
   noneLabel?: string
   onAssign: (teamId: string | null) => Promise<boolean>
   onClear: () => void
-}) {
+}
+
+/**
+ * "N selected · team · Assign team" bar shown while rows are selected. The
+ * bar's state (team choice, busy, last error) lives in BulkTeamBarInner,
+ * which unmounts when the selection empties, so a new selection starts clean.
+ */
+export function BulkTeamBar(props: BulkTeamBarProps) {
+  return props.count ? <BulkTeamBarInner {...props} /> : null
+}
+
+function BulkTeamBarInner({
+  org,
+  count,
+  noun,
+  plural = `${noun}s`,
+  noneLabel = "Unassigned",
+  onAssign,
+  onClear,
+}: BulkTeamBarProps) {
   const [team, setTeam] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  if (!count) return null
   const teamName = team ? (org.teams.find((t) => t.id === team)?.name ?? "team") : noneLabel
   return (
     <div

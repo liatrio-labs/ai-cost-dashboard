@@ -102,6 +102,18 @@ describe("bulk team assignment UI (#43)", () => {
     expect(screen.queryByRole("region", { name: "Bulk assign people" })).toBeNull()
   })
 
+  it("an error from a previous attempt is gone once the selection is cleared", async () => {
+    const user = userEvent.setup()
+    const onAssign = jest.fn<Promise<boolean>, [string[], string | null]>().mockRejectedValue(new Error("Failed to fetch"))
+    render(<Harness rows={["a"]} onAssign={onAssign} />)
+    await user.click(screen.getByRole("checkbox", { name: "Select a" }))
+    await user.click(screen.getByRole("button", { name: "Assign team: Unassigned" }))
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed to fetch")
+    await user.click(screen.getByRole("button", { name: "Clear" }))
+    await user.click(screen.getByRole("checkbox", { name: "Select a" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
   it("a thrown CSV request shows the error and re-enables Preview", async () => {
     const user = userEvent.setup()
     global.fetch = jest.fn().mockRejectedValue(new Error("Failed to fetch")) as unknown as typeof fetch
