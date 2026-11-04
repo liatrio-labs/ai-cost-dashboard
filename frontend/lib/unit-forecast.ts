@@ -24,6 +24,11 @@
  *
  * Per-person and per-key forecasts are out of scope (too noisy); callers show
  * a trailing average instead (trailingAverage below).
+ *
+ * Projected current month (issue #39): given a projection context, the anchor
+ * month is the current calendar month and each unit's anchor is its projected
+ * current month (lib/projection.ts) instead of a partial month's actuals. The
+ * org anchor is the sum of the unit anchors, so units still sum to the org.
  */
 
 import {
@@ -38,6 +43,7 @@ import {
 export { UNIT_LEVELS, coerceUnitOverrides, serializeUnitOverrides, unitOverrideKey } from "@/lib/forecast-settings"
 export type { UnitLevel, UnitOverride, UnitOverrides } from "@/lib/forecast-settings"
 import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import { monthRange, projectPeriod, type ProjectionContext } from "@/lib/projection"
 
 /** Fraction of the remaining gap to the plateau closed each month. */
 export const FORECAST_APPROACH = 0.45
@@ -133,6 +139,8 @@ export function trailingAverage(rows: CostRow[], lastMonth: string, n = TRAILING
 export interface UnitRow extends CostRow {
   department_id: string | null
   team_id: string | null
+  provider_id?: string | null
+  model_name?: string | null
 }
 
 export interface UnitForecast {
@@ -172,6 +180,8 @@ export interface ComputeUnitForecastsInput {
   overrides?: UnitOverrides
   /** Unit keys to include even with no spend (e.g. every team in the org). */
   include?: string[]
+  /** Anchor on the projected current month (issue #39). Omit for the pre-#39 anchor. */
+  current?: ProjectionContext
 }
 
 /** Plateau an override implies, or null when it has none. */
@@ -200,12 +210,16 @@ export function computeUnitForecasts({
   settings,
   overrides = {},
   include = [],
+  current,
 }: ComputeUnitForecastsInput): UnitForecastResult {
   const orgPlateau = plateauForEmployees(settings)
   const orgHistory = monthlyTotals(rows)
   const ai = anchorIndex(orgHistory)
   const lastMonth = orgHistory.length ? orgHistory[orgHistory.length - 1].month : null
-  const anchorMonth = ai >= 0 ? orgHistory[ai].month : null
+  // Projected current month (issue #39), when the data doesn't run past it.
+  const currentMonth = current && lastMonth && current.today.slice(0, 7) >= lastMonth ? current.today.slice(0, 7) : null
+  const anchorMonth = currentMonth ?? (ai >= 0 ? orgHistory[ai].month : null)
+  const projectFrom = currentMonth ?? lastMonth
   const trailingMonths = lastMonth ? trailingWindow(lastMonth) : []
   const window = new Set(trailingMonths)
 
@@ -232,7 +246,7 @@ export function computeUnitForecasts({
       if (m === anchorMonth) a += cost
     }
     trailing.set(k, t)
-    anchors.set(k, a)
+    anchors.set(k, currentMonth ? projectPeriod(unitRows, monthRange(currentMonth), current!)!.projected : a)
     orgTrailing += t
   }
 
@@ -257,7 +271,7 @@ export function computeUnitForecasts({
       plateau: round2(plateau),
       override: o ? o.kind : null,
       history: monthlyTotals(unitRows),
-      projection: lastMonth ? saturatingProjection(lastMonth, anchor, plateau) : [],
+      projection: projectFrom ? saturatingProjection(projectFrom, anchor, plateau) : [],
     })
   }
   // Largest trailing spend first; Unassigned last.
@@ -267,7 +281,9 @@ export function computeUnitForecasts({
     level,
     orgPlateau: round2(orgPlateau),
     orgHistory,
-    orgProjection: orgProjection(orgHistory, orgPlateau),
+    orgProjection: currentMonth
+      ? saturatingProjection(currentMonth, [...anchors.values()].reduce((s, a) => s + a, 0), orgPlateau)
+      : orgProjection(orgHistory, orgPlateau),
     anchorMonth,
     trailingMonths,
     units,

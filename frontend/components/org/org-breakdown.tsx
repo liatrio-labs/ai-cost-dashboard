@@ -12,7 +12,7 @@ import { useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatCurrency } from "@/lib/dashboard-types"
+import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
 import {
   drillInto,
   FILTER_KEYS,
@@ -40,14 +40,40 @@ const LEVEL_TITLE: Record<DrillLevel, string> = {
 
 const visible = (e: Pick<BreakdownEntity, "unassigned" | "cost" | "prevCost">) => e.unassigned || e.cost !== 0 || e.prevCost !== 0
 
-function Change({ value, cost }: { value: number | null; cost: number }) {
-  if (value === null) return <span className="text-muted-foreground">{cost === 0 ? "–" : "new"}</span>
-  if (value === 0) return <span className="text-muted-foreground">0%</span>
-  const up = value > 0
+type Changeable = Pick<BreakdownEntity, "cost" | "changePercent" | "projectedCost" | "projectedChangePercent">
+
+/**
+ * The Change cell. A period containing today shows the projected change vs
+ * the previous full period, labelled "proj." with a tooltip (issue #39); a
+ * future period shows none; a past one compares actuals.
+ */
+export function changeCell(e: Changeable, projection: BreakdownData["projection"] | undefined) {
+  if (projection?.status === "future") return { value: null, text: "–", title: "No change for a future period", projected: false }
+  if (projection?.status === "current" && e.projectedCost !== null && e.projectedCost !== undefined) {
+    const title = `${projectionTooltip(
+      { completeDays: projection.completeDays ?? 0, completeThrough: projection.completeThrough },
+      e.cost
+    )}; projected ${formatCurrency(e.projectedCost)}`
+    const v = e.projectedChangePercent
+    if (v === null) return { value: null, text: e.projectedCost === 0 && e.cost === 0 ? "–" : "new", title, projected: true }
+    return { value: v, text: `${v > 0 ? "+" : ""}${v}% proj.`, title, projected: true }
+  }
+  const v = e.changePercent
+  if (v === null) return { value: null, text: e.cost === 0 ? "–" : "new", title: undefined, projected: false }
+  return { value: v, text: `${v > 0 ? "+" : ""}${v}%`, title: undefined, projected: false }
+}
+
+function Change({ e, projection }: { e: Changeable; projection: BreakdownData["projection"] | undefined }) {
+  const c = changeCell(e, projection)
+  const cls =
+    c.value === null || c.value === 0
+      ? "text-muted-foreground"
+      : c.value > 0
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-red-600 dark:text-red-400"
   return (
-    <span className={up ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
-      {up ? "+" : ""}
-      {value}%
+    <span className={cls} title={c.title} data-projected={c.projected || undefined}>
+      {c.text}
     </span>
   )
 }
@@ -124,7 +150,7 @@ export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData;
               <TableHead>Name</TableHead>
               <TableHead className="text-right">Spend</TableHead>
               <TableHead className="text-right">Previous</TableHead>
-              <TableHead className="text-right">Change</TableHead>
+              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -143,7 +169,7 @@ export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData;
                 <TableCell className="text-right tabular-nums">{formatCurrency(e.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums text-muted-foreground">{formatCurrency(e.prevCost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  <Change value={e.changePercent} cost={e.cost} />
+                  <Change e={e} projection={data.projection} />
                 </TableCell>
               </TableRow>
             ))}
@@ -250,7 +276,7 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
               >
                 {header("spend", "Spend")}
               </TableHead>
-              <TableHead className="text-right">Change</TableHead>
+              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
               {data.providers.map((p) => (
                 <TableHead key={p.slug} className="text-right">
                   {header(p.slug, p.name, `${p.name}: ${p.note}`)}
@@ -273,7 +299,7 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(e.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  <Change value={e.changePercent} cost={e.cost} />
+                  <Change e={e} projection={data.projection} />
                 </TableCell>
                 {data.providers.map((p) => (
                   <TableCell key={p.slug} className="text-right tabular-nums">
@@ -320,7 +346,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
               <TableHead>Owner</TableHead>
               <TableHead>Team</TableHead>
               <TableHead className="text-right">Spend</TableHead>
-              <TableHead className="text-right">Change</TableHead>
+              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -363,7 +389,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     <TableCell>{k.team ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatCurrency(k.cost)}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <Change value={k.changePercent} cost={k.cost} />
+                      <Change e={k} projection={data.projection} />
                     </TableCell>
                   </TableRow>
                 )),
@@ -386,7 +412,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                 <TableCell>—</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(k.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  <Change value={k.changePercent} cost={k.cost} />
+                  <Change e={k} projection={data.projection} />
                 </TableCell>
               </TableRow>
             ))}
@@ -420,7 +446,7 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
               <TableHead>Project</TableHead>
               <TableHead>Team</TableHead>
               <TableHead className="text-right">Spend</TableHead>
-              <TableHead className="text-right">Change</TableHead>
+              <TableHead className="text-right">{data.projection?.status === "current" ? "Change (projected)" : "Change"}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -440,7 +466,7 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
                 <TableCell>{p.team ?? "—"}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(p.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  <Change value={p.changePercent} cost={p.cost} />
+                  <Change e={p} projection={data.projection} />
                 </TableCell>
               </TableRow>
             ))}

@@ -3,6 +3,9 @@
  * Components are presentational and consume these via props.
  */
 
+import type { CurrentMonthProjection, DashboardProjection, ProjectionBasis } from "@/lib/dashboard-compute"
+export type { CurrentMonthProjection, DashboardProjection, ProjectionBasis }
+
 export interface DashboardTool {
   id: string
   name: string
@@ -16,6 +19,12 @@ export interface DashboardTool {
   description?: string
   adminUrl?: string
   lastUpdated?: string | null
+  /** Issue #39, set when the period contains today: the period projected to its end. */
+  projectedSpend?: number
+  /** Spend in the previous full period (what the projected change compares with). */
+  compareSpend?: number
+  /** Signed, 1 decimal; null when there was no prior spend ("new"). */
+  projectedChangePercent?: number | null
 }
 
 export interface DashboardTrend {
@@ -43,6 +52,8 @@ export interface DashboardForecast {
   month: string // YYYY-MM
   total: number
   projected: boolean
+  /** Set on the projected current month: spend recorded so far. */
+  actualToDate?: number
 }
 
 /** Team/department forecast details (issue #9). */
@@ -84,6 +95,26 @@ export interface DashboardData {
   kpis: DashboardKpis
   forecast: DashboardForecast[]
   forecastMeta?: DashboardForecastMeta
+  /** Issue #39: period status and projections (lib/projection.ts). */
+  projection?: DashboardProjection
+}
+
+const signed = (n: number) => `${n > 0 ? "+" : ""}${n}%`
+
+/** "+0.7% projected", "new" (no prior spend), for a projected change. */
+export function projectedChangeLabel(changePercent: number | null | undefined): string {
+  if (changePercent === null || changePercent === undefined) return "new"
+  return `${signed(changePercent)} projected`
+}
+
+/** Tooltip for a projected figure: "Projected from 3 complete days (through Nov 3); actual to date $X". */
+export function projectionTooltip(basis: ProjectionBasis | null | undefined, actualToDate: number): string {
+  const days = basis?.completeDays ?? 0
+  const through = basis?.completeThrough
+    ? ` (through ${new Date(`${basis.completeThrough}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })})`
+    : ""
+  const from = days > 0 ? `Projected from ${days} complete day${days === 1 ? "" : "s"}${through}` : "Projected from the trailing 28-day average (no complete days yet)"
+  return `${from}; actual to date ${formatCurrency(actualToDate)}`
 }
 
 /** Format a "YYYY-MM-DD" date range into a short label like "Jan 5 – Mar 20, 2026". */
@@ -117,7 +148,12 @@ export const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value)
 
 /** Card subtitle: what the projection is, for the org, a unit, or a person/key view. */
-export function forecastDescription(meta?: DashboardForecastMeta, unitLabel?: string, hasProjection = true): string {
+export function forecastDescription(
+  meta?: DashboardForecastMeta,
+  unitLabel?: string,
+  hasProjection = true,
+  current?: CurrentMonthProjection | null
+): string {
   const u = meta?.unit
   if (u) {
     const name = unitLabel || (u.unassigned ? "Unassigned" : u.level === "team" ? "this team" : "this department")
@@ -127,7 +163,13 @@ export function forecastDescription(meta?: DashboardForecastMeta, unitLabel?: st
     return `${name}: plateau ${formatCurrency(u.plateau)}/mo (${basis})`
   }
   if (meta?.trailingAverage !== undefined) {
-    return `No forecast for this view; trailing 3-month average ${formatCurrency(meta.trailingAverage)}/mo`
+    const avg = `trailing 3-month average ${formatCurrency(meta.trailingAverage)}/mo`
+    if (current) {
+      const change =
+        current.changePercent === null ? "new" : `${signed(current.changePercent)} vs ${formatMonthLabel(current.prevMonth)}`
+      return `Projected ${formatMonthLabel(current.month)}: ${formatCurrency(current.projected)} (${change}); ${avg}`
+    }
+    return `No forecast for this view; ${avg}`
   }
   if (!hasProjection) return "History only for this view"
   return "History (solid) with trend projection (dashed)"

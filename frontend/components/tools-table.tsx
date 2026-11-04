@@ -13,14 +13,43 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { TrendingUp, TrendingDown, Minus, Search, ExternalLink } from "lucide-react"
-import { formatCurrency, type DashboardTool } from "@/lib/dashboard-types"
+import {
+  formatCurrency,
+  projectedChangeLabel,
+  projectionTooltip,
+  type DashboardProjection,
+  type DashboardTool,
+} from "@/lib/dashboard-types"
 
 interface ToolsTableProps {
   tools: DashboardTool[]
+  /** Issue #39: when the period contains today, Change is the projected change. */
+  projection?: DashboardProjection
 }
 
-export function ToolsTable({ tools }: ToolsTableProps) {
+/** What the Change cell shows: projected for the current period, nothing for a future one. */
+export function toolChange(tool: DashboardTool, projection?: DashboardProjection) {
+  if (projection?.status === "future") return { direction: "stable" as const, label: "—", title: "No change for a future period" }
+  if (projection?.status === "current" && tool.projectedSpend !== undefined) {
+    const pct = tool.projectedChangePercent ?? null
+    const direction = pct === null ? ("stable" as const) : pct > 5 ? ("up" as const) : pct < -5 ? ("down" as const) : ("stable" as const)
+    return {
+      direction,
+      label: projectedChangeLabel(pct),
+      title: `${projectionTooltip(projection.basis, tool.monthlySpend)}; projected ${formatCurrency(tool.projectedSpend)}`,
+    }
+  }
+  return {
+    direction: tool.changeDirection,
+    label: tool.changeDirection === "stable" ? "—" : `${tool.changePercent}%`,
+    title: undefined as string | undefined,
+  }
+}
+
+export function ToolsTable({ tools, projection }: ToolsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  // Read the clock once per mount (render must stay pure).
+  const [now] = useState(() => Date.now())
 
   const filteredTools = tools.filter(
     (tool) =>
@@ -33,7 +62,7 @@ export function ToolsTable({ tools }: ToolsTableProps) {
     const then = Date.parse(iso)
     if (Number.isNaN(then)) return { label: "—", title: "" }
     const title = new Date(then).toLocaleString()
-    const mins = Math.floor((Date.now() - then) / 60000)
+    const mins = Math.floor((now - then) / 60000)
     let label: string
     if (mins < 1) label = "just now"
     else if (mins < 60) label = `${mins}m ago`
@@ -130,20 +159,25 @@ export function ToolsTable({ tools }: ToolsTableProps) {
                       {tool.usageVolume}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        {getTrendIcon(tool.changeDirection)}
-                        <span
-                          className={
-                            tool.changeDirection === "up"
-                              ? "text-emerald-500"
-                              : tool.changeDirection === "down"
-                                ? "text-red-500"
-                                : "text-muted-foreground"
-                          }
-                        >
-                          {tool.changeDirection === "stable" ? "—" : `${tool.changePercent}%`}
-                        </span>
-                      </div>
+                      {(() => {
+                        const c = toolChange(tool, projection)
+                        return (
+                          <div className="flex items-center gap-1.5" title={c.title}>
+                            {getTrendIcon(c.direction)}
+                            <span
+                              className={
+                                c.direction === "up"
+                                  ? "text-emerald-500"
+                                  : c.direction === "down"
+                                    ? "text-red-500"
+                                    : "text-muted-foreground"
+                              }
+                            >
+                              {c.label}
+                            </span>
+                          </div>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
                       {(() => {

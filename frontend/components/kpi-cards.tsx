@@ -2,10 +2,37 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { TrendingUp, TrendingDown, Minus, DollarSign, Boxes, Zap, Trophy } from "lucide-react"
-import { formatCurrency, type DashboardKpis } from "@/lib/dashboard-types"
+import {
+  formatCurrency,
+  projectedChangeLabel,
+  projectionTooltip,
+  type DashboardKpis,
+  type DashboardProjection,
+} from "@/lib/dashboard-types"
 
 interface KPICardsProps {
   kpis: DashboardKpis
+  /** Issue #39: when the period contains today, the change is projected. */
+  projection?: DashboardProjection
+}
+
+/** The spend card's change line: projected MoM for the current period, none for a future one. */
+export function spendChange(kpis: DashboardKpis, projection?: DashboardProjection) {
+  if (projection?.status === "future") return { trend: "stable" as const, label: "no data yet", title: undefined }
+  const p = projection?.status === "current" ? projection.kpis : null
+  if (p) {
+    const pct = p.changePercent
+    return {
+      trend: pct === null || pct === 0 ? ("stable" as const) : pct > 0 ? ("up" as const) : ("down" as const),
+      label: pct === null ? "new (projected)" : projectedChangeLabel(pct),
+      title: `${projectionTooltip(projection!.basis, p.actualToDate)}; projected ${formatCurrency(p.projectedSpend)} vs ${formatCurrency(p.compareSpend)}`,
+    }
+  }
+  return {
+    trend: kpis.changePercent > 0 ? ("up" as const) : kpis.changePercent < 0 ? ("down" as const) : ("stable" as const),
+    label: `${kpis.changePercent > 0 ? "+" : ""}${kpis.changePercent}% MoM`,
+    title: undefined as string | undefined,
+  }
 }
 
 function formatTokens(n: number): string {
@@ -16,17 +43,17 @@ function formatTokens(n: number): string {
   return `${n}`
 }
 
-export function KPICards({ kpis }: KPICardsProps) {
-  const trend: "up" | "down" | "stable" =
-    kpis.changePercent > 0 ? "up" : kpis.changePercent < 0 ? "down" : "stable"
+export function KPICards({ kpis, projection }: KPICardsProps) {
+  const spend = spendChange(kpis, projection)
 
-  const cards = [
+  const cards: { title: string; value: string; change: string; icon: typeof DollarSign; trend: "up" | "down" | "stable"; tooltip?: string }[] = [
     {
       title: "Total Monthly Spend",
       value: formatCurrency(kpis.totalSpend),
-      change: `${kpis.changePercent > 0 ? "+" : ""}${kpis.changePercent}% MoM`,
+      change: spend.label,
       icon: DollarSign,
-      trend,
+      trend: spend.trend,
+      tooltip: spend.title,
     },
     {
       title: "Total Tokens",
@@ -60,7 +87,7 @@ export function KPICards({ kpis }: KPICardsProps) {
               <div className="rounded-lg bg-primary/10 p-2">
                 <kpi.icon className="h-5 w-5 text-primary" />
               </div>
-              <div className="flex items-center gap-1 text-sm">
+              <div className="flex items-center gap-1 text-sm" title={kpi.tooltip}>
                 {kpi.trend === "up" && <TrendingUp className="h-4 w-4 text-emerald-500" />}
                 {kpi.trend === "down" && <TrendingDown className="h-4 w-4 text-red-500" />}
                 {kpi.trend === "stable" && <Minus className="h-4 w-4 text-muted-foreground" />}

@@ -8,6 +8,7 @@ import { forecastDescription } from "@/lib/dashboard-types"
 import { EMPTY_ORG, PROVIDERS, attributedRows, plainDailyRows } from "@/lib/org/dashboard-fixtures"
 import { D, T, orgData } from "@/lib/org/test-fixtures"
 import { UNASSIGNED_KEY } from "@/lib/org/rollup"
+import { monthRange, projectPeriod, projectionContext } from "@/lib/projection"
 import {
   coerceUnitOverrides,
   computeUnitForecasts,
@@ -219,10 +220,13 @@ describe("computeDashboard regression", () => {
   it("org forecast is unchanged with no org structure", () => {
     const base = { providers: PROVIDERS, params: { month: "2026-11" }, forecastSettings: S, now: new Date("2026-11-15T00:00:00Z") }
     const plain = computeDashboard({ ...base, daily: plainDailyRows() })
+    // Issue #39: the partial November is projected and anchors December.
+    const nov = projectPeriod(plainDailyRows(), monthRange("2026-11"), projectionContext(PROVIDERS, base.now))!.projected
+    expect(nov).toBeGreaterThan(250)
     expect(plain.forecast).toEqual([
       { month: "2026-10", total: 105, projected: false },
-      { month: "2026-11", total: 250, projected: false },
-      { month: "2026-12", total: 26237.5, projected: true },
+      { month: "2026-11", total: nov, projected: true, actualToDate: 250 },
+      { month: "2026-12", total: Math.round((nov + (ORG_PLATEAU - nov) * 0.45) * 100) / 100, projected: true },
     ])
     expect(plain.forecastMeta).toEqual({ employees: 160, plateau: 58000, perPersonPct: 0.02, baselineEmployees: 160 })
     expect(computeDashboard({ ...base, daily: attributedRows(EMPTY_ORG) })).toEqual(plain)
@@ -230,16 +234,23 @@ describe("computeDashboard regression", () => {
 
   it("a unit forecast replaces the projection and adds forecastMeta.unit", () => {
     const rows = attributedRows(orgData())
-    const unit = computeUnitForecasts({ rows, level: "team", settings: S }).units.find((u) => u.key === T.data)!
+    const now = new Date("2026-11-15T00:00:00Z")
+    const current = projectionContext(PROVIDERS, now)
+    const unit = computeUnitForecasts({ rows, level: "team", settings: S, current }).units.find((u) => u.key === T.data)!
     const out = computeDashboard({
       daily: rows.filter((r) => r.team_id === T.data),
       providers: PROVIDERS,
       params: { month: "2026-11" },
       forecastSettings: S,
+      now,
       projectForecast: false,
       unitForecast: unit,
     })
-    expect(out.forecast.filter((f) => f.projected).map(({ month, total }) => ({ month, total }))).toEqual(unit.projection)
+    // The projected current month (the unit's anchor), then the unit's projection.
+    expect(out.forecast.filter((f) => f.projected).map(({ month, total }) => ({ month, total }))).toEqual([
+      { month: "2026-11", total: unit.anchor },
+      ...unit.projection,
+    ])
     expect(out.forecastMeta).toMatchObject({ plateau: 58000, unit: { level: "team", key: T.data, override: null } })
   })
 })
@@ -309,19 +320,24 @@ describe("unit forecast chart series", () => {
       { date: "2026-10-05", team_id: T.platform, department_id: D.eng, total_cost_usd: 80 },
       { date: "2026-11-01", team_id: T.platform, department_id: D.eng, total_cost_usd: 90 },
     ]
-    const unit = computeUnitForecasts({ rows, level: "team", settings: S }).units.find((u) => u.key === T.data)!
+    const now = new Date("2026-11-15T00:00:00Z")
+    const unit = computeUnitForecasts({ rows, level: "team", settings: S, current: projectionContext(PROVIDERS, now) }).units.find(
+      (u) => u.key === T.data
+    )!
     const out = computeDashboard({
       daily: rows.filter((r) => r.team_id === T.data).map((r) => ({ ...r, provider_id: "p", model_name: "m" })),
       providers: PROVIDERS,
       params: { month: "2026-11" },
       forecastSettings: S,
+      now,
       projectForecast: false,
       unitForecast: unit,
     })
+    // Complete months are actuals (Oct filled with $0); the current month is projected (issue #39).
     expect(out.forecast.map((f) => [f.month, f.projected])).toEqual([
       ["2026-09", false],
       ["2026-10", false],
-      ["2026-11", false],
+      ["2026-11", true],
       ["2026-12", true],
     ])
     expect(out.forecast.slice(1, 3).map((f) => f.total)).toEqual([0, 0])

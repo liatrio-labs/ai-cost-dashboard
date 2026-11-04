@@ -23,6 +23,7 @@ import type { DashboardData } from "@/lib/dashboard-types"
 import type { DashboardFilters } from "@/lib/dashboard-filters"
 import type { UnitForecastMeta } from "@/lib/dashboard-compute"
 import { computeUnitForecasts, unitOverrideKey, type UnitOverrides } from "@/lib/unit-forecast"
+import { monthRange, projectPeriod, projectionContext } from "@/lib/projection"
 
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }))
 const mockOverrides: { value: UnitOverrides } = { value: {} }
@@ -104,6 +105,16 @@ const json = async <T,>(res: Response) => ({ status: res.status, body: (await re
 const dash = async (path: string) => json<DashboardBody>(await getDashboard(req(path)))
 const brk = async (path: string) => json<BreakdownData>(await getBreakdown(req(path)))
 
+// Issue #39: the forecast projects the clock's current month, so pin the
+// clock: Nov 3, 2026, with the fixture's Nov 1-2 complete.
+const NOW = new Date("2026-11-03T12:00:00Z")
+beforeAll(() => {
+  jest.useFakeTimers({ now: NOW, doNotFake: ["setTimeout", "clearTimeout", "setImmediate", "nextTick", "queueMicrotask"] })
+})
+afterAll(() => {
+  jest.useRealTimers()
+})
+
 beforeEach(() => {
   authed = true
   mockOverrides.value = {}
@@ -148,7 +159,9 @@ describe("GET /api/dashboard", () => {
       { month: "2026-11", total: 250, anthropic: 150, openai: 50, cursor: 30, windsurf: 20 },
     ])
     expect(body.byModel[0]).toEqual({ model: "claude-opus", total: 110, color: "#24AE1D" })
-    expect(body.forecast.filter((f) => f.projected)).toHaveLength(1) // Dec 2026
+    // Issue #39: the partial November is a projected point, then December.
+    expect(body.forecast.filter((f) => f.projected).map((f) => f.month)).toEqual(["2026-11", "2026-12"])
+    expect(body.forecast.find((f) => f.month === "2026-11")).toMatchObject({ projected: true, actualToDate: 250 })
     expect(body.forecastMeta.employees).toBe(FORECAST_DEFAULTS.employees)
   })
 
@@ -173,18 +186,26 @@ describe("GET /api/dashboard", () => {
     expect(body.trends.find((t) => t.month === "2026-11")?.total).toBe(70)
   })
 
+  const ctx = () => projectionContext(PROVIDERS, NOW)
+  const projectedNov = (rows: ReturnType<typeof attributedRows>) => projectPeriod(rows, monthRange("2026-11"), ctx())!.projected
+
   it("team filter returns that team's forecast series", async () => {
     const { body } = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
-    const expected = computeUnitForecasts({ rows: attributedRows(orgData()), level: "team", settings: FORECAST_DEFAULTS })
+    const all = attributedRows(orgData())
+    const expected = computeUnitForecasts({ rows: all, level: "team", settings: FORECAST_DEFAULTS, current: ctx() })
       .units.find((u) => u.key === T.data)!
-    // Data: $100 of the org's $355 over Sep-Nov, anchored on its Nov spend ($70).
+    // Data: $100 of the org's $355 over Sep-Nov, anchored on its projected
+    // November (issue #39; $70 actual on Nov 1-2).
     const plateau = (58000 * 100) / 355
-    expect(projected(body)).toEqual([{ month: "2026-12", total: Math.round((70 + (plateau - 70) * 0.45) * 100) / 100 }])
-    expect(projected(body)).toEqual(expected.projection)
-    expect(body.forecast.filter((f) => !f.projected)).toEqual([
-      { month: "2026-10", total: 30, projected: false },
-      { month: "2026-11", total: 70, projected: false },
+    const nov = projectedNov(all.filter((r) => r.team_id === T.data))
+    expect(nov).toBeGreaterThan(70)
+    expect(projected(body)).toEqual([
+      { month: "2026-11", total: nov },
+      { month: "2026-12", total: Math.round((nov + (plateau - nov) * 0.45) * 100) / 100 },
     ])
+    expect(projected(body).slice(1)).toEqual(expected.projection)
+    expect(body.forecast.find((f) => f.month === "2026-11")?.actualToDate).toBe(70)
+    expect(body.forecast.filter((f) => !f.projected)).toEqual([{ month: "2026-10", total: 30, projected: false }])
     expect(body.forecastMeta.unit).toMatchObject({ level: "team", key: T.data, override: null, trailingSpend: 100 })
     expect(body.forecastMeta.unit!.plateau).toBeCloseTo(plateau, 2)
     // The org plateau is still reported for context.
@@ -195,16 +216,18 @@ describe("GET /api/dashboard", () => {
     const org = (await dash("/api/dashboard?month=2026-11")).body
     let sum = 0
     for (const team of [T.platform, T.data, T.field, T.orphan, "unassigned"]) {
-      sum += projected((await dash(`/api/dashboard?month=2026-11&team=${team}`)).body)[0].total
+      sum += projected((await dash(`/api/dashboard?month=2026-11&team=${team}`)).body).find((p) => p.month === "2026-12")!.total
     }
-    expect(Math.abs(sum - projected(org)[0].total)).toBeLessThanOrEqual(1)
+    expect(projected(org)[1].month).toBe("2026-12")
+    expect(Math.abs(sum - projected(org)[1].total)).toBeLessThanOrEqual(1)
   })
 
   it("department filter returns that department's forecast", async () => {
     const { body } = await dash(`/api/dashboard?month=2026-11&department=${D.eng}`)
-    const expected = computeUnitForecasts({ rows: attributedRows(orgData()), level: "department", settings: FORECAST_DEFAULTS })
+    const expected = computeUnitForecasts({ rows: attributedRows(orgData()), level: "department", settings: FORECAST_DEFAULTS, current: ctx() })
       .units.find((u) => u.key === D.eng)!
-    expect(projected(body)).toEqual(expected.projection)
+    expect(projected(body).slice(1)).toEqual(expected.projection)
+    expect(projected(body)[0]).toEqual({ month: "2026-11", total: expected.anchor })
     expect(body.forecastMeta.unit).toMatchObject({ level: "department", key: D.eng })
   })
 
@@ -212,11 +235,19 @@ describe("GET /api/dashboard", () => {
     const before = projected((await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)).body)
     mockOverrides.value = { [unitOverrideKey("team", T.data)]: { plateauUsd: 1000 } }
     const data = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
-    expect(projected(data.body)).toEqual([{ month: "2026-12", total: Math.round((70 + (1000 - 70) * 0.45) * 100) / 100 }])
+    const nov = projectedNov(attributedRows(orgData()).filter((r) => r.team_id === T.data))
+    expect(projected(data.body)).toEqual([
+      { month: "2026-11", total: nov },
+      { month: "2026-12", total: Math.round((nov + (1000 - nov) * 0.45) * 100) / 100 },
+    ])
     expect(data.body.forecastMeta.unit).toMatchObject({ override: "plateau", plateau: 1000 })
     expect(projected((await dash(`/api/dashboard?month=2026-11&team=${T.platform}`)).body)).toEqual(before)
     // The unfiltered org forecast ignores unit overrides.
-    expect(projected((await dash("/api/dashboard?month=2026-11")).body)).toEqual([{ month: "2026-12", total: 26237.5 }])
+    const orgNov = projectedNov(attributedRows(orgData()))
+    expect(projected((await dash("/api/dashboard?month=2026-11")).body)).toEqual([
+      { month: "2026-11", total: orgNov },
+      { month: "2026-12", total: Math.round((orgNov + (58000 - orgNov) * 0.45) * 100) / 100 },
+    ])
   })
 
   it("a team outside the filtered department gets no projection", async () => {
@@ -225,23 +256,28 @@ describe("GET /api/dashboard", () => {
     expect(body.forecastMeta.unit).toBeUndefined()
   })
 
-  it("person filter shows a trailing average instead of a forecast", async () => {
+  it("person filter shows the projected current month and a trailing average of complete months", async () => {
     const { body } = await dash(`/api/dashboard?month=2026-11&person=${PE.alice}`)
-    expect(body.forecast.some((f) => f.projected)).toBe(false)
-    // Alice's Sep-Nov spend over 3 months (missing months count as $0).
-    const alice = attributedRows(orgData()).filter((r) => r.person_id === PE.alice && r.date >= "2026-09-01")
+    const aliceAll = attributedRows(orgData()).filter((r) => r.person_id === PE.alice)
+    // Only the current month is projected; no saturating forecast beyond it.
+    const nov = projectPeriod(aliceAll, monthRange("2026-11"), ctx())!
+    expect(projected(body)).toEqual([{ month: "2026-11", total: nov.projected }])
+    expect(body.projection?.currentMonth).toMatchObject({ month: "2026-11", projected: nov.projected, actualToDate: 140, prevMonth: "2026-10", prevTotal: 50 })
+    // Aug-Oct spend over 3 months: the partial November is excluded (issue #39).
+    const alice = aliceAll.filter((r) => r.date >= "2026-08-01" && r.date < "2026-11-01")
     const sum = alice.reduce((acc, r) => acc + Number(r.total_cost_usd), 0)
-    expect(sum).toBeGreaterThan(0)
+    expect(sum).toBe(50)
     expect(body.forecastMeta.trailingAverage).toBe(Math.round((sum / 3) * 100) / 100)
   })
 
   it("with no org structure, the unfiltered forecast is unchanged and a team filter is all Unassigned", async () => {
     seed(EMPTY_ORG)
     const org = (await dash("/api/dashboard?month=2026-11")).body
+    const nov = projectPeriod(attributedRows(EMPTY_ORG), monthRange("2026-11"), ctx())!.projected
     expect(org.forecast).toEqual([
       { month: "2026-10", total: 105, projected: false },
-      { month: "2026-11", total: 250, projected: false },
-      { month: "2026-12", total: 26237.5, projected: true },
+      { month: "2026-11", total: nov, projected: true, actualToDate: 250 },
+      { month: "2026-12", total: Math.round((nov + (58000 - nov) * 0.45) * 100) / 100, projected: true },
     ])
     expect(org.forecastMeta).toEqual({ employees: 160, plateau: 58000, perPersonPct: 0.02, baselineEmployees: 160 })
     const un = (await dash("/api/dashboard?month=2026-11&team=unassigned")).body

@@ -36,7 +36,12 @@ describe("OrgBreakdown drill-down", () => {
     // Departments, with Unassigned and coverage notes.
     const depts = screen.getByRole("table", { name: "Departments" })
     expect(within(rowOf(depts, "Engineering")).getByText("$170.00")).toBeInTheDocument()
-    expect(within(rowOf(depts, "Engineering")).getByText("+112.5%")).toBeInTheDocument()
+    // November contains NOW, so Change is projected vs October (issue #39).
+    const eng = breakdown().department.find((d) => d.key === "dept-eng")!
+    expect(eng.changePercent).toBe(112.5)
+    const engChange = within(rowOf(depts, "Engineering")).getByText(`+${eng.projectedChangePercent}% proj.`)
+    expect(engChange).toHaveAttribute("title", expect.stringMatching(/^Projected from 14 complete days \(through Nov 14\); actual to date \$170\.00/))
+    expect(within(depts).getByText("Change (projected)")).toBeInTheDocument()
     expect(within(rowOf(depts, "Unassigned")).getByText("$30.00")).toBeInTheDocument()
     expect(within(rowOf(depts, "Engineering")).getByTestId("coverage")).toHaveTextContent(
       "Not included: Windsurf (CascadeAnalytics): org-level only"

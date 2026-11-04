@@ -3,10 +3,23 @@
  * be tested with fixture rows. The logic is unchanged from the original route;
  * additions are `projectForecast` (off when filters narrow the data below the
  * org) and `unitForecast` (#9: a team/department filter projects that unit).
+ *
+ * Issue #39: `projection` (period status, projected KPI change vs the previous
+ * full period, the projected current month), projected fields on `tools`, and
+ * a forecast whose current month is a projected point (lib/projection.ts,
+ * docs/projections.md). kpis, trends and tools' actual figures are unchanged.
  */
 
 import { plateauForEmployees, type ForecastSettings } from "@/lib/forecast-settings"
-import { nextMonth, orgProjection, prevMonth, type UnitForecast } from "@/lib/unit-forecast"
+import { nextMonth, orgProjection, prevMonth, saturatingProjection, type UnitForecast } from "@/lib/unit-forecast"
+import {
+  periodStatus,
+  projectByKey,
+  projectedChangePercent,
+  projectionContext,
+  projectPeriod,
+  type PeriodStatus,
+} from "@/lib/projection"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -23,6 +36,16 @@ const PALETTE = [
 
 export function colorFor(index: number): string {
   return PALETTE[index % PALETTE.length]
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+interface DashboardForecastPoint {
+  month: string
+  total: number
+  projected: boolean
+  /** On the projected current month: spend recorded so far. */
+  actualToDate?: number
 }
 
 function formatTokens(n: number): string {
@@ -127,6 +150,45 @@ export function previousWindow(start: string, end: string): { start: string; end
   return { start: addDays(start, -periodLen), end: addDays(start, -1) }
 }
 
+/** Month mode compares with the previous calendar month; ranges with the preceding equal-length window. */
+export function comparisonPeriod(p: { start: string; end: string; mode: "month" | "range" }) {
+  if (p.mode === "month") {
+    const [y, m] = p.start.split("-").map(Number)
+    const d = new Date(Date.UTC(y, m - 2, 1))
+    return monthBounds(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
+  }
+  return previousWindow(p.start, p.end)
+}
+
+/** How the current period was projected (issue #39); shown in tooltips. */
+export interface ProjectionBasis {
+  completeDays: number
+  completeThrough: string | null
+}
+
+/** The current calendar month, projected (feeds Spend Trends and the forecast card). */
+export interface CurrentMonthProjection extends ProjectionBasis {
+  month: string
+  projected: number
+  actualToDate: number
+  prevMonth: string
+  prevTotal: number
+  /** Projected vs the previous full month; null when it had no spend ("new"). */
+  changePercent: number | null
+}
+
+export interface DashboardProjection {
+  /** Whether the selected period is past, contains today, or is in the future. */
+  status: PeriodStatus
+  today: string
+  /** Full period the projected change compares with (month mode: previous calendar month). */
+  compare: { start: string; end: string }
+  basis: ProjectionBasis | null
+  /** Selected period, projected (status "current" only). */
+  kpis: { projectedSpend: number; actualToDate: number; compareSpend: number; changePercent: number | null } | null
+  currentMonth: CurrentMonthProjection | null
+}
+
 export interface ComputeDashboardInput {
   daily: DailyRow[]
   providers: ProviderRow[]
@@ -229,6 +291,15 @@ export function computeDashboard({
   }
 
   const cur = aggregate(periodStart, periodEnd)
+  // Issue #39: a period containing today is projected (lib/projection.ts) and
+  // its change compares the projection with the previous full period. The
+  // actual totals below are untouched.
+  const ctx = projectionContext(providers, now)
+  const status = periodStatus({ start: periodStart, end: periodEnd }, ctx.today)
+  const compareWin = comparisonPeriod({ start: periodStart, end: periodEnd, mode })
+  const compareAgg = aggregate(compareWin.start, compareWin.end)
+  const periodProj = projectPeriod(daily, { start: periodStart, end: periodEnd }, ctx)
+  const toolProj = projectByKey(daily, (r) => r.provider_id, { start: periodStart, end: periodEnd }, ctx)
   // Previous equal-length window, for the change %.
   const prevWin = previousWindow(periodStart, periodEnd)
   const prev = aggregate(prevWin.start, prevWin.end)
@@ -258,6 +329,17 @@ export function computeDashboard({
         description: meta.description,
         adminUrl: meta.adminUrl,
         lastUpdated: meta.lastUpdated,
+        ...(periodProj
+          ? (() => {
+              const projected = toolProj.get(pid)?.projected ?? round2(agg.cost)
+              const compare = compareAgg.prov.get(pid)?.cost || 0
+              return {
+                projectedSpend: projected,
+                compareSpend: round2(compare),
+                projectedChangePercent: projectedChangePercent(projected, compare),
+              }
+            })()
+          : {}),
       }
     })
     .sort((a, b) => b.monthlySpend - a.monthlySpend)
@@ -307,8 +389,52 @@ export function computeDashboard({
     total: Math.round((monthTotals.get(m) || 0) * 100) / 100,
     projected: false,
   }))
-  const forecast: { month: string; total: number; projected: boolean }[] = [...history]
-  if (unitForecast) {
+
+  // The current calendar month, projected (issue #39). Null when the data runs
+  // past the clock's month or there is no data at all (except for a unit).
+  const currentYm = monthOf(ctx.today)
+  let currentMonth: CurrentMonthProjection | null = null
+  // A unit with no rows of its own still gets the point, so its chart lines
+  // up with the org's.
+  const lastYm = history.length ? history[history.length - 1].month : unitForecast?.projection.length ? currentYm : null
+  if (lastYm && lastYm <= currentYm) {
+    const p = projectPeriod(daily, monthBounds(currentYm), ctx)!
+    const prevYm = prevMonth(currentYm)
+    const prevTotal = round2(monthTotals.get(prevYm) || 0)
+    currentMonth = {
+      month: currentYm,
+      projected: p.projected,
+      actualToDate: p.actual,
+      prevMonth: prevYm,
+      prevTotal,
+      changePercent: projectedChangePercent(p.projected, prevTotal),
+      completeDays: p.completeDays,
+      completeThrough: p.completeThrough,
+    }
+  }
+
+  const forecast: DashboardForecastPoint[] = []
+  if (currentMonth) {
+    // Actuals through the last complete month (solid); the current month is a
+    // projected point (dotted), then the saturating projection anchored on it.
+    const cm = currentMonth
+    forecast.push(...history.filter((h) => h.month < cm.month))
+    if (unitForecast && forecast.length) {
+      // A unit with no rows in some months shows $0 there, not a gap.
+      const have = new Set(forecast.map((f) => f.month))
+      for (let m = nextMonth(forecast[0].month); m < cm.month; m = nextMonth(m)) {
+        if (!have.has(m)) forecast.push({ month: m, total: 0, projected: false })
+      }
+      forecast.sort((a, b) => a.month.localeCompare(b.month))
+    }
+    forecast.push({ month: cm.month, total: cm.projected, projected: true, actualToDate: cm.actualToDate })
+    if (unitForecast) {
+      for (const p of unitForecast.projection) if (p.month > cm.month) forecast.push({ ...p, projected: true })
+    } else if (projectForecast) {
+      for (const p of saturatingProjection(cm.month, cm.projected, FORECAST_CEILING)) forecast.push({ ...p, projected: true })
+    }
+  } else if (unitForecast) {
+    forecast.push(...history)
     // A team/department filter: that unit's projection (lib/unit-forecast.ts).
     // The projection starts after the ORG's last month, so months the unit has
     // no rows for (e.g. none yet this month) are filled with $0 up to there;
@@ -324,7 +450,10 @@ export function computeDashboard({
       forecast.sort((a, b) => a.month.localeCompare(b.month))
     }
     for (const p of unitForecast.projection) forecast.push({ ...p, projected: true })
-  } else if (projectForecast && history.length >= 1) {
+  } else {
+    forecast.push(...history)
+  }
+  if (!currentMonth && !unitForecast && projectForecast && history.length >= 1) {
     // Anchor on the recent run-rate (max of the last two real months) and
     // close FORECAST_APPROACH of the gap to the ceiling each month through
     // December. See orgProjection in lib/unit-forecast.ts.
@@ -342,6 +471,21 @@ export function computeDashboard({
     byModel,
     kpis,
     forecast,
+    projection: {
+      status,
+      today: ctx.today,
+      compare: compareWin,
+      basis: periodProj ? { completeDays: periodProj.completeDays, completeThrough: periodProj.completeThrough } : null,
+      kpis: periodProj
+        ? {
+            projectedSpend: periodProj.projected,
+            actualToDate: periodProj.actual,
+            compareSpend: round2(compareAgg.total),
+            changePercent: projectedChangePercent(periodProj.projected, compareAgg.total),
+          }
+        : null,
+      currentMonth,
+    } satisfies DashboardProjection,
     forecastMeta: {
       employees: forecastSettings.employees,
       plateau: Math.round(FORECAST_CEILING * 100) / 100,
