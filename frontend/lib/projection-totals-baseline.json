@@ -1,0 +1,6636 @@
+{
+ "base {\"month\":\"2026-11\"} {}": {
+  "kpis": {
+   "totalSpend": 250,
+   "prevSpend": 85,
+   "changePercent": 194,
+   "totalTokens": 7000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    150,
+    173,
+    "up"
+   ],
+   [
+    "prov-openai",
+    50,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ],
+   [
+    "prov-windsurf",
+    20,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 105,
+    "anthropic": 55,
+    "cursor": 30,
+    "windsurf": 20
+   },
+   {
+    "month": "2026-11",
+    "total": 250,
+    "anthropic": 150,
+    "openai": 50,
+    "cursor": 30,
+    "windsurf": 20
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 110,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "gpt-5",
+    "total": 50,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#C068F9"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#F77F00"
+   },
+   {
+    "model": "windsurf-seats",
+    "total": 20,
+    "color": "#89DF00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 250,
+    "prevCost": 105,
+    "changePercent": 138.1
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80,
+     112.5
+    ],
+    [
+     "dept-sales",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     25,
+     20
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "team-field",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     25,
+     20
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "p-bob",
+     50,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "p-carol",
+     0,
+     5,
+     -100
+    ],
+    [
+     "unassigned",
+     30,
+     20,
+     50
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "k-bare",
+     10,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     200,
+     105,
+     90.5
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     250,
+     105,
+     138.1
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-11\"} {\"person\":\"p-alice\"}": {
+  "kpis": {
+   "totalSpend": 140,
+   "prevSpend": 50,
+   "changePercent": 180,
+   "totalTokens": 3000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    100,
+    100,
+    "up"
+   ],
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 50,
+    "anthropic": 50
+   },
+   {
+    "month": "2026-11",
+    "total": 140,
+    "anthropic": 100,
+    "openai": 40
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 60,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 140,
+    "prevCost": 50,
+    "changePercent": 180
+   },
+   "department": [
+    [
+     "dept-eng",
+     140,
+     50,
+     180
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     100,
+     50,
+     100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     140,
+     50,
+     180
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-11\"} {\"team\":\"team-data\"}": {
+  "kpis": {
+   "totalSpend": 70,
+   "prevSpend": 30,
+   "changePercent": 133,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 30,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 70,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#00C1DB"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 70,
+    "prevCost": 30,
+    "changePercent": 133.3
+   },
+   "department": [
+    [
+     "dept-eng",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     30,
+     0
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     70,
+     30,
+     133.3
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-11\"} {\"department\":\"dept-eng\"}": {
+  "kpis": {
+   "totalSpend": 170,
+   "prevSpend": 80,
+   "changePercent": 113,
+   "totalTokens": 4000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    100,
+    100,
+    "up"
+   ],
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 80,
+    "anthropic": 50,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 170,
+    "anthropic": 100,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 60,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#C068F9"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 170,
+    "prevCost": 80,
+    "changePercent": 112.5
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80,
+     112.5
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     130,
+     80,
+     62.5
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     170,
+     80,
+     112.5
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-11\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 50,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "prov-openai",
+    50,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 50,
+    "openai": 50
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 50,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "k-bare",
+     10,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     50,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-10\"} {}": {
+  "kpis": {
+   "totalSpend": 105,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 4000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    55,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ],
+   [
+    "prov-windsurf",
+    20,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 105,
+    "anthropic": 55,
+    "cursor": 30,
+    "windsurf": 20
+   },
+   {
+    "month": "2026-11",
+    "total": 250,
+    "anthropic": 150,
+    "openai": 50,
+    "cursor": 30,
+    "windsurf": 20
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 50,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "windsurf-seats",
+    "total": 20,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-haiku",
+    "total": 5,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 105,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     80,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     25,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     50,
+     0,
+     null
+    ],
+    [
+     "team-data",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     25,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     50,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     0,
+     null
+    ],
+    [
+     "p-carol",
+     5,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     20,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     105,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     105,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-10\"} {\"person\":\"p-alice\"}": {
+  "kpis": {
+   "totalSpend": 50,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 1000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    50,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 50,
+    "anthropic": 50
+   },
+   {
+    "month": "2026-11",
+    "total": 140,
+    "anthropic": 100,
+    "openai": 40
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 50,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     50,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     50,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-10\"} {\"team\":\"team-data\"}": {
+  "kpis": {
+   "totalSpend": 30,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 1000
+  },
+  "tools": [
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 30,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 70,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 30,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-dave",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     30,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     30,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-10\"} {\"department\":\"dept-eng\"}": {
+  "kpis": {
+   "totalSpend": 80,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    50,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 80,
+    "anthropic": 50,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 170,
+    "anthropic": 100,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 50,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#00C1DB"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 80,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     80,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     50,
+     0,
+     null
+    ],
+    [
+     "team-data",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     50,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     80,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     80,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"month\":\"2026-10\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 50,
+    "openai": 50
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {}": {
+  "kpis": {
+   "totalSpend": 250,
+   "prevSpend": 105,
+   "changePercent": 138,
+   "totalTokens": 7000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    150,
+    173,
+    "up"
+   ],
+   [
+    "prov-openai",
+    50,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ],
+   [
+    "prov-windsurf",
+    20,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 105,
+    "anthropic": 55,
+    "cursor": 30,
+    "windsurf": 20
+   },
+   {
+    "month": "2026-11",
+    "total": 250,
+    "anthropic": 150,
+    "openai": 50,
+    "cursor": 30,
+    "windsurf": 20
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 110,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "gpt-5",
+    "total": 50,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#C068F9"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#F77F00"
+   },
+   {
+    "model": "windsurf-seats",
+    "total": 20,
+    "color": "#89DF00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 250,
+    "prevCost": 105,
+    "changePercent": 138.1
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80,
+     112.5
+    ],
+    [
+     "dept-sales",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     25,
+     20
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "team-field",
+     50,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     25,
+     20
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "p-bob",
+     50,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "p-carol",
+     0,
+     5,
+     -100
+    ],
+    [
+     "unassigned",
+     30,
+     20,
+     50
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "k-bare",
+     10,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     200,
+     105,
+     90.5
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     250,
+     105,
+     138.1
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"person\":\"p-alice\"}": {
+  "kpis": {
+   "totalSpend": 140,
+   "prevSpend": 50,
+   "changePercent": 180,
+   "totalTokens": 3000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    100,
+    100,
+    "up"
+   ],
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 50,
+    "anthropic": 50
+   },
+   {
+    "month": "2026-11",
+    "total": 140,
+    "anthropic": 100,
+    "openai": 40
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 60,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 140,
+    "prevCost": 50,
+    "changePercent": 180
+   },
+   "department": [
+    [
+     "dept-eng",
+     140,
+     50,
+     180
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     100,
+     50,
+     100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     140,
+     50,
+     180
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"team\":\"team-data\"}": {
+  "kpis": {
+   "totalSpend": 70,
+   "prevSpend": 30,
+   "changePercent": 133,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 30,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 70,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#00C1DB"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 70,
+    "prevCost": 30,
+    "changePercent": 133.3
+   },
+   "department": [
+    [
+     "dept-eng",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0,
+     null
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     30,
+     30,
+     0
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     70,
+     30,
+     133.3
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"department\":\"dept-eng\"}": {
+  "kpis": {
+   "totalSpend": 170,
+   "prevSpend": 80,
+   "changePercent": 113,
+   "totalTokens": 4000
+  },
+  "tools": [
+   [
+    "prov-anthropic",
+    100,
+    100,
+    "up"
+   ],
+   [
+    "prov-openai",
+    40,
+    0,
+    "stable"
+   ],
+   [
+    "prov-cursor",
+    30,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 80,
+    "anthropic": 50,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 170,
+    "anthropic": 100,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 60,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 40,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 40,
+    "color": "#C068F9"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 30,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 170,
+    "prevCost": 80,
+    "changePercent": 112.5
+   },
+   "department": [
+    [
+     "dept-eng",
+     170,
+     80,
+     112.5
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     100,
+     50,
+     100
+    ],
+    [
+     "team-data",
+     70,
+     30,
+     133.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     140,
+     50,
+     180
+    ],
+    [
+     "p-dave",
+     30,
+     30,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     130,
+     80,
+     62.5
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     170,
+     80,
+     112.5
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 50,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "prov-openai",
+    50,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 50,
+    "openai": 50
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 50,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 50,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "dept-eng",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     40,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     10,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     40,
+     0,
+     null
+    ],
+    [
+     "k-bare",
+     10,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     50,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 250,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 105,
+    "anthropic": 55,
+    "cursor": 30,
+    "windsurf": 20
+   },
+   {
+    "month": "2026-11",
+    "total": 250,
+    "anthropic": 150,
+    "openai": 50,
+    "cursor": 30,
+    "windsurf": 20
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 250,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "dept-eng",
+     0,
+     170,
+     -100
+    ],
+    [
+     "dept-sales",
+     0,
+     50,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     30,
+     -100
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     0,
+     100,
+     -100
+    ],
+    [
+     "team-data",
+     0,
+     70,
+     -100
+    ],
+    [
+     "team-field",
+     0,
+     50,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     30,
+     -100
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     0,
+     140,
+     -100
+    ],
+    [
+     "p-bob",
+     0,
+     50,
+     -100
+    ],
+    [
+     "p-dave",
+     0,
+     30,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     30,
+     -100
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     0,
+     40,
+     -100
+    ],
+    [
+     "k-bare",
+     0,
+     10,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     200,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     250,
+     -100
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"person\":\"p-alice\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 140,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 50,
+    "anthropic": 50
+   },
+   {
+    "month": "2026-11",
+    "total": 140,
+    "anthropic": 100,
+    "openai": 40
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 140,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "dept-eng",
+     0,
+     140,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     0,
+     100,
+     -100
+    ],
+    [
+     "team-data",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     0,
+     140,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     100,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     140,
+     -100
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"team\":\"team-data\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 70,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 30,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 70,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 70,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "dept-eng",
+     0,
+     70,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     0,
+     70,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     0,
+     40,
+     -100
+    ],
+    [
+     "p-dave",
+     0,
+     30,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     30,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     70,
+     -100
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"department\":\"dept-eng\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 170,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-10",
+    "total": 80,
+    "anthropic": 50,
+    "cursor": 30
+   },
+   {
+    "month": "2026-11",
+    "total": 170,
+    "anthropic": 100,
+    "openai": 40,
+    "cursor": 30
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 170,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "dept-eng",
+     0,
+     170,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "team-platform",
+     0,
+     100,
+     -100
+    ],
+    [
+     "team-data",
+     0,
+     70,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     0,
+     140,
+     -100
+    ],
+    [
+     "p-dave",
+     0,
+     30,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     130,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     170,
+     -100
+    ]
+   ]
+  }
+ },
+ "base {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 50,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 50,
+    "openai": 50
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 50,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "dept-eng",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     10,
+     -100
+    ]
+   ],
+   "team": [
+    [
+     "team-data",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     10,
+     -100
+    ]
+   ],
+   "person": [
+    [
+     "p-alice",
+     0,
+     40,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     10,
+     -100
+    ]
+   ],
+   "api_key": [
+    [
+     "k-team",
+     0,
+     40,
+     -100
+    ],
+    [
+     "k-bare",
+     0,
+     10,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     50,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {}": {
+  "kpis": {
+   "totalSpend": 2213,
+   "prevSpend": 15732,
+   "changePercent": -86,
+   "totalTokens": 19000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    1385,
+    88,
+    "down"
+   ],
+   [
+    "pv-claude-max",
+    400,
+    0,
+    "stable"
+   ],
+   [
+    "pv-cursor",
+    245,
+    89,
+    "down"
+   ],
+   [
+    "pv-claude-ai",
+    98,
+    89,
+    "down"
+   ],
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 17584,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180,
+    "claude-ai": 944
+   },
+   {
+    "month": "2026-10",
+    "total": 17722,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190,
+    "claude-ai": 952
+   },
+   {
+    "month": "2026-11",
+    "total": 2213,
+    "claude-max": 400,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85,
+    "claude-ai": 98
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 1225,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "seats",
+    "total": 400,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 245,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#F77F00"
+   },
+   {
+    "model": "claude-ai",
+    "total": 98,
+    "color": "#89DF00"
+   },
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#006989"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 2213,
+    "prevCost": 17722,
+    "changePercent": -87.5
+   },
+   "department": [
+    [
+     "d-eng",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "unassigned",
+     498,
+     2252,
+     -77.9
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "t-field",
+     498,
+     1352,
+     -63.2
+    ],
+    [
+     "unassigned",
+     0,
+     900,
+     -100
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "p-mixed",
+     298,
+     1152,
+     -74.1
+    ],
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     900,
+     -100
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     2128,
+     16532,
+     -87.1
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     2213,
+     17722,
+     -87.5
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"person\":\"p-heavy\"}": {
+  "kpis": {
+   "totalSpend": 1555,
+   "prevSpend": 14820,
+   "changePercent": -90,
+   "totalTokens": 11000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    1225,
+    89,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    245,
+    89,
+    "down"
+   ],
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1555,
+    "anthropic": 1225,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 1225,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 245,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 1555,
+    "prevCost": 15470,
+    "changePercent": -89.9
+   },
+   "department": [
+    [
+     "d-eng",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     1470,
+     14280,
+     -89.7
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     1555,
+     15470,
+     -89.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"person\":\"p-seat\"}": {
+  "kpis": {
+   "totalSpend": 200,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 1000
+  },
+  "tools": [
+   [
+    "pv-claude-max",
+    200,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-10",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-11",
+    "total": 200,
+    "claude-max": 200
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "seats",
+    "total": 200,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 200,
+    "prevCost": 200,
+    "changePercent": 0
+   },
+   "department": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "t-field",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"person\":\"p-new\"}": {
+  "kpis": {
+   "totalSpend": 160,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    160,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 160,
+    "anthropic": 160
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 160,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "d-eng",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     160,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     160,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"team\":\"t-core\"}": {
+  "kpis": {
+   "totalSpend": 1715,
+   "prevSpend": 14820,
+   "changePercent": -88,
+   "totalTokens": 13000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    1385,
+    88,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    245,
+    89,
+    "down"
+   ],
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 1225,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 245,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#C068F9"
+   },
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 1715,
+    "prevCost": 15470,
+    "changePercent": -88.9
+   },
+   "department": [
+    [
+     "d-eng",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     1630,
+     14280,
+     -88.6
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     1715,
+     15470,
+     -88.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"department\":\"d-eng\"}": {
+  "kpis": {
+   "totalSpend": 1715,
+   "prevSpend": 14820,
+   "changePercent": -88,
+   "totalTokens": 13000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    1385,
+    88,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    245,
+    89,
+    "down"
+   ],
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 1225,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 245,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#C068F9"
+   },
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 1715,
+    "prevCost": 15470,
+    "changePercent": -88.9
+   },
+   "department": [
+    [
+     "d-eng",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1715,
+     15470,
+     -88.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1555,
+     15470,
+     -89.9
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     1630,
+     14280,
+     -88.6
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     1715,
+     15470,
+     -88.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"key\":\"k-heavy\"}": {
+  "kpis": {
+   "totalSpend": 85,
+   "prevSpend": 1140,
+   "changePercent": -93,
+   "totalTokens": 3000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 85,
+    "prevCost": 1190,
+    "changePercent": -92.9
+   },
+   "department": [
+    [
+     "d-eng",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     85,
+     1190,
+     -92.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-11\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 85,
+   "prevSpend": 1140,
+   "changePercent": -93,
+   "totalTokens": 3000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    85,
+    93,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 85,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 85,
+    "prevCost": 1190,
+    "changePercent": -92.9
+   },
+   "department": [
+    [
+     "d-eng",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     85,
+     1190,
+     -92.9
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     85,
+     1190,
+     -92.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {}": {
+  "kpis": {
+   "totalSpend": 17722,
+   "prevSpend": 17584,
+   "changePercent": 1,
+   "totalTokens": 127000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    11900,
+    1,
+    "stable"
+   ],
+   [
+    "pv-cursor",
+    2380,
+    1,
+    "stable"
+   ],
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ],
+   [
+    "pv-claude-ai",
+    952,
+    1,
+    "stable"
+   ],
+   [
+    "pv-chatgpt",
+    900,
+    0,
+    "stable"
+   ],
+   [
+    "pv-claude-max",
+    400,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 17584,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180,
+    "claude-ai": 944
+   },
+   {
+    "month": "2026-10",
+    "total": 17722,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190,
+    "claude-ai": 952
+   },
+   {
+    "month": "2026-11",
+    "total": 2213,
+    "claude-max": 400,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85,
+    "claude-ai": 98
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 11900,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 2380,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-ai",
+    "total": 952,
+    "color": "#F77F00"
+   },
+   {
+    "model": "chatgpt-business",
+    "total": 900,
+    "color": "#89DF00"
+   },
+   {
+    "model": "seats",
+    "total": 400,
+    "color": "#006989"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 17722,
+    "prevCost": 17584,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     2252,
+     2244,
+     0.4
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "t-field",
+     1352,
+     1344,
+     0.6
+    ],
+    [
+     "unassigned",
+     900,
+     900,
+     0
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "p-mixed",
+     1152,
+     1144,
+     0.7
+    ],
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     900,
+     900,
+     0
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     16532,
+     16404,
+     0.8
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     17722,
+     17584,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"person\":\"p-heavy\"}": {
+  "kpis": {
+   "totalSpend": 15470,
+   "prevSpend": 15340,
+   "changePercent": 1,
+   "totalTokens": 93000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    11900,
+    1,
+    "stable"
+   ],
+   [
+    "pv-cursor",
+    2380,
+    1,
+    "stable"
+   ],
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1555,
+    "anthropic": 1225,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 11900,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 2380,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 15470,
+    "prevCost": 15340,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     14280,
+     14160,
+     0.8
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     15470,
+     15340,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"person\":\"p-seat\"}": {
+  "kpis": {
+   "totalSpend": 200,
+   "prevSpend": 200,
+   "changePercent": 0,
+   "totalTokens": 1000
+  },
+  "tools": [
+   [
+    "pv-claude-max",
+    200,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-10",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-11",
+    "total": 200,
+    "claude-max": 200
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "seats",
+    "total": 200,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 200,
+    "prevCost": 200,
+    "changePercent": 0
+   },
+   "department": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "t-field",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"person\":\"p-new\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 160,
+    "anthropic": 160
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"team\":\"t-core\"}": {
+  "kpis": {
+   "totalSpend": 15470,
+   "prevSpend": 15340,
+   "changePercent": 1,
+   "totalTokens": 93000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    11900,
+    1,
+    "stable"
+   ],
+   [
+    "pv-cursor",
+    2380,
+    1,
+    "stable"
+   ],
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 11900,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 2380,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 15470,
+    "prevCost": 15340,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     14280,
+     14160,
+     0.8
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     15470,
+     15340,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"department\":\"d-eng\"}": {
+  "kpis": {
+   "totalSpend": 15470,
+   "prevSpend": 15340,
+   "changePercent": 1,
+   "totalTokens": 93000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    11900,
+    1,
+    "stable"
+   ],
+   [
+    "pv-cursor",
+    2380,
+    1,
+    "stable"
+   ],
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 11900,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 2380,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 15470,
+    "prevCost": 15340,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     15470,
+     15340,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     14280,
+     14160,
+     0.8
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     15470,
+     15340,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"key\":\"k-heavy\"}": {
+  "kpis": {
+   "totalSpend": 1190,
+   "prevSpend": 1180,
+   "changePercent": 1,
+   "totalTokens": 31000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 1190,
+    "prevCost": 1180,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     1190,
+     1180,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"month\":\"2026-10\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 1190,
+   "prevSpend": 1180,
+   "changePercent": 1,
+   "totalTokens": 31000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    1190,
+    1,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 1190,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 1190,
+    "prevCost": 1180,
+    "changePercent": 0.8
+   },
+   "department": [
+    [
+     "d-eng",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     1190,
+     1180,
+     0.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     1190,
+     1180,
+     0.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {}": {
+  "kpis": {
+   "totalSpend": 8837,
+   "prevSpend": 13168,
+   "changePercent": -33,
+   "totalTokens": 67000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    6185,
+    28,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    1205,
+    30,
+    "down"
+   ],
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ],
+   [
+    "pv-claude-ai",
+    482,
+    30,
+    "down"
+   ],
+   [
+    "pv-claude-max",
+    400,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 17584,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180,
+    "claude-ai": 944
+   },
+   {
+    "month": "2026-10",
+    "total": 17722,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190,
+    "claude-ai": 952
+   },
+   {
+    "month": "2026-11",
+    "total": 2213,
+    "claude-max": 400,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85,
+    "claude-ai": 98
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 6025,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 1205,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-ai",
+    "total": 482,
+    "color": "#F77F00"
+   },
+   {
+    "model": "seats",
+    "total": 400,
+    "color": "#89DF00"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#006989"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 8837,
+    "prevCost": 13168,
+    "changePercent": -32.9
+   },
+   "department": [
+    [
+     "d-eng",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "unassigned",
+     882,
+     1988,
+     -55.6
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "t-field",
+     882,
+     1088,
+     -18.9
+    ],
+    [
+     "unassigned",
+     0,
+     900,
+     -100
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "p-mixed",
+     682,
+     888,
+     -23.2
+    ],
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     900,
+     -100
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     8272,
+     12308,
+     -32.8
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     8837,
+     13168,
+     -32.9
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"person\":\"p-heavy\"}": {
+  "kpis": {
+   "totalSpend": 7795,
+   "prevSpend": 11180,
+   "changePercent": -30,
+   "totalTokens": 47000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    6025,
+    30,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    1205,
+    30,
+    "down"
+   ],
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1555,
+    "anthropic": 1225,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 6025,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 1205,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#C068F9"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 7795,
+    "prevCost": 11180,
+    "changePercent": -30.3
+   },
+   "department": [
+    [
+     "d-eng",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     7230,
+     10320,
+     -29.9
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     7795,
+     11180,
+     -30.3
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"person\":\"p-seat\"}": {
+  "kpis": {
+   "totalSpend": 200,
+   "prevSpend": 200,
+   "changePercent": 0,
+   "totalTokens": 1000
+  },
+  "tools": [
+   [
+    "pv-claude-max",
+    200,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-10",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-11",
+    "total": 200,
+    "claude-max": 200
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "seats",
+    "total": 200,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 200,
+    "prevCost": 200,
+    "changePercent": 0
+   },
+   "department": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "team": [
+    [
+     "t-field",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-seat",
+     200,
+     200,
+     0
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     200,
+     200,
+     0
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"person\":\"p-new\"}": {
+  "kpis": {
+   "totalSpend": 160,
+   "prevSpend": 0,
+   "changePercent": 0,
+   "totalTokens": 2000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    160,
+    0,
+    "stable"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 160,
+    "anthropic": 160
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 160,
+    "prevCost": 0,
+    "changePercent": null
+   },
+   "department": [
+    [
+     "d-eng",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     160,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     160,
+     0,
+     null
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"team\":\"t-core\"}": {
+  "kpis": {
+   "totalSpend": 7955,
+   "prevSpend": 11180,
+   "changePercent": -29,
+   "totalTokens": 49000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    6185,
+    28,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    1205,
+    30,
+    "down"
+   ],
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 6025,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 1205,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 7955,
+    "prevCost": 11180,
+    "changePercent": -28.8
+   },
+   "department": [
+    [
+     "d-eng",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     7390,
+     10320,
+     -28.4
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     7955,
+     11180,
+     -28.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"department\":\"d-eng\"}": {
+  "kpis": {
+   "totalSpend": 7955,
+   "prevSpend": 11180,
+   "changePercent": -29,
+   "totalTokens": 49000
+  },
+  "tools": [
+   [
+    "pv-anthropic",
+    6185,
+    28,
+    "down"
+   ],
+   [
+    "pv-cursor",
+    1205,
+    30,
+    "down"
+   ],
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "claude-opus",
+    "total": 6025,
+    "color": "#24AE1D"
+   },
+   {
+    "model": "cursor-auto",
+    "total": 1205,
+    "color": "#00C1DB"
+   },
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#C068F9"
+   },
+   {
+    "model": "claude-sonnet",
+    "total": 160,
+    "color": "#F77F00"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 7955,
+    "prevCost": 11180,
+    "changePercent": -28.8
+   },
+   "department": [
+    [
+     "d-eng",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     7955,
+     11180,
+     -28.8
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     7795,
+     11180,
+     -30.3
+    ],
+    [
+     "p-new",
+     160,
+     0,
+     null
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     7390,
+     10320,
+     -28.4
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     7955,
+     11180,
+     -28.8
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"key\":\"k-heavy\"}": {
+  "kpis": {
+   "totalSpend": 565,
+   "prevSpend": 860,
+   "changePercent": -34,
+   "totalTokens": 15000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 565,
+    "prevCost": 860,
+    "changePercent": -34.3
+   },
+   "department": [
+    [
+     "d-eng",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     565,
+     860,
+     -34.3
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-10-20\",\"end\":\"2026-11-10\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 565,
+   "prevSpend": 860,
+   "changePercent": -34,
+   "totalTokens": 15000
+  },
+  "tools": [
+   [
+    "pv-openai",
+    565,
+    34,
+    "down"
+   ]
+  ],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [
+   {
+    "model": "gpt-5",
+    "total": 565,
+    "color": "#24AE1D"
+   }
+  ],
+  "breakdown": {
+   "total": {
+    "cost": 565,
+    "prevCost": 860,
+    "changePercent": -34.3
+   },
+   "department": [
+    [
+     "d-eng",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     565,
+     860,
+     -34.3
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     565,
+     860,
+     -34.3
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 2351,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 17584,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180,
+    "claude-ai": 944
+   },
+   {
+    "month": "2026-10",
+    "total": 17722,
+    "chatgpt": 900,
+    "claude-max": 400,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190,
+    "claude-ai": 952
+   },
+   {
+    "month": "2026-11",
+    "total": 2213,
+    "claude-max": 400,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85,
+    "claude-ai": 98
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 2351,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     506,
+     -100
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "t-field",
+     0,
+     506,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "p-mixed",
+     0,
+     306,
+     -100
+    ],
+    [
+     "p-seat",
+     0,
+     200,
+     -100
+    ],
+    [
+     "p-new",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     2256,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     2351,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"person\":\"p-heavy\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 1685,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1555,
+    "anthropic": 1225,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 1685,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     1590,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     1685,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"person\":\"p-seat\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 200,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-10",
+    "total": 200,
+    "claude-max": 200
+   },
+   {
+    "month": "2026-11",
+    "total": 200,
+    "claude-max": 200
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 200,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "unassigned",
+     0,
+     200,
+     -100
+    ]
+   ],
+   "team": [
+    [
+     "t-field",
+     0,
+     200,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-seat",
+     0,
+     200,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     0,
+     200,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     200,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"person\":\"p-new\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 160,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-11",
+    "total": 160,
+    "anthropic": 160
+   }
+  ],
+  "months": [
+   "2026-11"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 160,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-new",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "unassigned",
+     0,
+     160,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     160,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"team\":\"t-core\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 1845,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 1845,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "p-new",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     1750,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     1845,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"department\":\"d-eng\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 1845,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 15340,
+    "anthropic": 11800,
+    "cursor": 2360,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 15470,
+    "anthropic": 11900,
+    "cursor": 2380,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 1715,
+    "anthropic": 1385,
+    "cursor": 245,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 1845,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     1845,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     1685,
+     -100
+    ],
+    [
+     "p-new",
+     0,
+     160,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     1750,
+     -100
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     1845,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"key\":\"k-heavy\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 95,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 95,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     95,
+     -100
+    ]
+   ]
+  }
+ },
+ "issue39 {\"start\":\"2026-12-01\",\"end\":\"2026-12-31\"} {\"provider\":\"openai\"}": {
+  "kpis": {
+   "totalSpend": 0,
+   "prevSpend": 95,
+   "changePercent": -100,
+   "totalTokens": 0
+  },
+  "tools": [],
+  "trends": [
+   {
+    "month": "2026-09",
+    "total": 1180,
+    "openai": 1180
+   },
+   {
+    "month": "2026-10",
+    "total": 1190,
+    "openai": 1190
+   },
+   {
+    "month": "2026-11",
+    "total": 85,
+    "openai": 85
+   }
+  ],
+  "months": [
+   "2026-11",
+   "2026-10",
+   "2026-09"
+  ],
+  "byModel": [],
+  "breakdown": {
+   "total": {
+    "cost": 0,
+    "prevCost": 95,
+    "changePercent": -100
+   },
+   "department": [
+    [
+     "d-eng",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "team": [
+    [
+     "t-core",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "person": [
+    [
+     "p-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "api_key": [
+    [
+     "k-heavy",
+     0,
+     95,
+     -100
+    ],
+    [
+     "unassigned",
+     0,
+     0,
+     null
+    ]
+   ],
+   "project": [
+    [
+     "unassigned",
+     0,
+     95,
+     -100
+    ]
+   ]
+  }
+ }
+}
