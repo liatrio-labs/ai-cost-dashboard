@@ -12,6 +12,46 @@ export function isMissingColumn(error: { code?: string; message?: string } | nul
   return !!error && (error.code === "42703" || error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? ""))
 }
 
+/**
+ * A provider's key creation time as an ISO string, or null when absent or
+ * unparseable (issue #44). Numbers (and numeric strings) are epoch seconds
+ * (Anthropic / OpenAI style) or, from 1e11 up, epoch milliseconds (Vercel
+ * createdAt); other strings go through Date.parse (RFC 3339).
+ */
+export function parseProviderTimestamp(v: unknown): string | null {
+  const text = typeof v === "string" ? v.trim() : ""
+  const numeric = typeof v === "number" ? v : /^\d+(\.\d+)?$/.test(text) ? Number(text) : null
+  let ms: number
+  if (numeric !== null) ms = numeric < 1e11 ? numeric * 1000 : numeric
+  else if (text) ms = Date.parse(text)
+  else return null
+  if (!Number.isFinite(ms) || ms <= 0 || ms > 8.64e15) return null
+  return new Date(ms).toISOString()
+}
+
+/**
+ * The provider_created_at to write (migration 018), or undefined for no
+ * change: only a known date that differs from the stored one is written, so
+ * a provider that stops reporting it never clears a stored date. Compared as
+ * instants (PostgREST returns "+00:00", we send "Z").
+ */
+export function providerCreatedAtChange(stored: string | null | undefined, incoming: string | null | undefined): string | undefined {
+  if (!incoming) return undefined
+  if (stored && Date.parse(stored) === Date.parse(incoming)) return undefined
+  return incoming
+}
+
+/** Select org_api_keys with the first column set that exists (newest first); returns the result and its index. */
+export async function selectKeyTier<R extends { data: unknown; error: { code?: string; message?: string } | null }>(
+  tiers: string[],
+  read: (columns: string) => PromiseLike<R>
+): Promise<{ res: R; tier: number }> {
+  let res = await read(tiers[0])
+  let tier = 0
+  while (isMissingColumn(res.error) && tier < tiers.length - 1) res = await read(tiers[++tier])
+  return { res, tier }
+}
+
 export function must<T>(res: { data: T | null; error: { message: string; code?: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`)
   return res.data as T
