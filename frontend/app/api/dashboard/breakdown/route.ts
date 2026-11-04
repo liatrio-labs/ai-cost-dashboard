@@ -11,14 +11,32 @@
  *
  * Org filters are not pushed down here: the comparison period, coverage notes
  * and dropdown options need the provider-scoped rows. The provider filter is.
+ *
+ * Issue #48: the person view (a person filter, level "detail") also gets
+ * Claude.ai spend by product. The period's raw Claude.ai records are read
+ * from cost_records (product by JSON path, no migration), resolved like the
+ * attributed rollup and narrowed to the filters. Optional: on failure the
+ * breakdown is returned with claudeAiProducts null.
  */
 
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
-import { parseFilters } from "@/lib/dashboard-filters"
-import { fetchAttributedDaily, fetchOrgData, fetchProviders, providerIdForSlug, type SupabaseLike } from "@/lib/dashboard-data"
+import { drillLevel, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
+import {
+  fetchAttributedDaily,
+  fetchClaudeAiProductRows,
+  fetchIdentities,
+  fetchOrgData,
+  fetchProviders,
+  providerIdForSlug,
+  type SupabaseLike,
+} from "@/lib/dashboard-data"
 import { computeBreakdown } from "@/lib/org/breakdown"
+import { resolvePeriod, type PeriodParams, type ProviderRow } from "@/lib/dashboard-compute"
+import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
+import { buildOrgIndex } from "@/lib/org/attribution"
+import type { OrgData } from "@/lib/org/types"
 
 export const dynamic = "force-dynamic"
 
@@ -34,7 +52,12 @@ export async function GET(request: NextRequest) {
 
     const [providers, org] = await Promise.all([fetchProviders(supabase), fetchOrgData(supabase)])
     const providerId = providerIdForSlug(providers, filters.provider)
-    const rows = await fetchAttributedDaily(supabase, { provider: filters.provider }, providerId)
+    const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
+    const now = new Date()
+    const [rows, claudeAiProductRows] = await Promise.all([
+      fetchAttributedDaily(supabase, { provider: filters.provider }, providerId),
+      personProducts(supabase, providers, org, filters, params, now),
+    ])
 
     return successResponse(
       computeBreakdown({
@@ -42,7 +65,9 @@ export async function GET(request: NextRequest) {
         org,
         providers,
         filters,
-        params: { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") },
+        params,
+        now,
+        claudeAiProductRows,
       })
     )
   } catch (error: unknown) {
@@ -50,5 +75,39 @@ export async function GET(request: NextRequest) {
     if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
     console.error("GET /api/dashboard/breakdown error:", error)
     return errorResponse(message || "Failed to load breakdown", 500)
+  }
+}
+
+/**
+ * Issue #48: the person view's Claude.ai records for the period, narrowed to
+ * the filters, or null when not a person view, there's no Claude.ai provider,
+ * or the read fails. Never throws.
+ */
+async function personProducts(
+  supabase: SupabaseLike,
+  providers: ProviderRow[],
+  org: OrgData,
+  filters: DashboardFilters,
+  params: PeriodParams,
+  now: Date
+): Promise<ProductDayRow[] | null> {
+  if (drillLevel(filters) !== "detail") return null
+  if (filters.provider && filters.provider !== CLAUDE_AI_SLUG) return null
+  const providerId = providerIdForSlug(providers, CLAUDE_AI_SLUG)
+  if (!providerId) return null
+  const { start, end } = resolvePeriod(params, now)
+  try {
+    const [rows, identities] = await Promise.all([
+      fetchClaudeAiProductRows(supabase, providerId, start, end, true),
+      fetchIdentities(supabase),
+    ])
+    return toProductDayRows(rows, {
+      filters,
+      index: buildOrgIndex({ ...org, identities }),
+      providerId: providerIdForSlug(providers, filters.provider),
+    })
+  } catch (error) {
+    console.error("GET /api/dashboard/breakdown: Claude.ai product split unavailable:", error)
+    return null
   }
 }

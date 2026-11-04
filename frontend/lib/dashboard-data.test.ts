@@ -42,8 +42,23 @@ describe("fetchOrgData (issue #28)", () => {
         : { data: table === "org_api_keys" ? [{ id: "k1" }] : [], error: null }
     )
     const org = await fetchOrgData(client)
-    expect(selects.filter((s) => s.startsWith("org_api_keys"))).toHaveLength(2)
+    expect(selects.filter((s) => s.startsWith("org_api_keys"))).toHaveLength(4)
     expect(org.apiKeys).toEqual([{ id: "k1" }])
+  })
+
+  it("selects key status and provider_created_at, falling back while 018 isn't applied (issue #45)", async () => {
+    const { client, selects } = fake((table, columns) =>
+      table === "org_api_keys" && columns.includes("provider_created_at")
+        ? { data: null, error: { code: "42703", message: "column org_api_keys.provider_created_at does not exist" } }
+        : { data: table === "org_api_keys" ? [{ id: "k1", external_status: "active" }] : [], error: null }
+    )
+    const org = await fetchOrgData(client)
+    const keySelects = selects.filter((s) => s.startsWith("org_api_keys"))
+    expect(keySelects).toHaveLength(2)
+    expect(keySelects[0]).toMatch(/provider_created_at/)
+    expect(keySelects[1]).toMatch(/external_status/)
+    expect(keySelects[1]).not.toMatch(/provider_created_at/)
+    expect(org.apiKeys[0].external_status).toBe("active")
   })
 
   it("other key errors still throw", async () => {
