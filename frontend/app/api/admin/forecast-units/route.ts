@@ -20,8 +20,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
-import { fetchAttributedDaily, fetchInvoicePlan, fetchProviders, fetchRecurringDaily, type SupabaseLike } from "@/lib/dashboard-data"
-import { applyInvoicePlan } from "@/lib/invoice-overrides"
+import {
+  fetchAttributedDaily,
+  fetchCursorSeatPlan,
+  fetchInvoicePlan,
+  fetchProviders,
+  fetchRecurringDaily,
+  type SupabaseLike,
+} from "@/lib/dashboard-data"
+import { applySpendPlans } from "@/lib/cursor-seats"
 import {
   getForecastSettings,
   getForecastUnitOverrides,
@@ -70,7 +77,9 @@ async function payload(admin: SupabaseClient, units: Record<UnitLevel, NamedUnit
     fetchRecurringDaily(admin as unknown as SupabaseLike, { now: new Date() }), // issue #59
     fetchInvoicePlan(admin as unknown as SupabaseLike), // issue #75
   ])
-  const rows = applyInvoicePlan([...attributed, ...recurring], plan)
+  // Cursor seat fees per person (migration 026; empty without it).
+  const seats = await fetchCursorSeatPlan(admin as unknown as SupabaseLike, { now: new Date(), providers })
+  const rows = applySpendPlans([...attributed, ...recurring], plan, seats)
   // Same anchor as /api/dashboard's unit forecasts: the projected current month.
   const current = projectionContext(providers, new Date())
   const out: Record<string, unknown> = { employees: settings.employees }

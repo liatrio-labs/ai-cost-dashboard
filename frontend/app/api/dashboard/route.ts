@@ -57,7 +57,8 @@ import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/clau
 import { buildOrgIndex } from "@/lib/org/attribution"
 import { automationProviderIds } from "@/lib/org/rollup"
 import { projectionContext } from "@/lib/projection"
-import { applyInvoicePlan, applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
+import { applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
+import { applySpendPlans } from "@/lib/cursor-seats"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
   fetchAllPaged,
@@ -65,6 +66,7 @@ import {
   fetchClaudeAiProductRows,
   fetchIdentities,
   fetchInvoicePlan,
+  fetchCursorSeatPlan,
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
@@ -97,6 +99,8 @@ export async function GET(request: NextRequest) {
     const productsPromise = claudeAiProducts(supabase, providers, filters, params, now, planPromise)
     // Issue #59: synthetic monthly rows for recurring costs (empty without 022).
     const recurringPromise = fetchRecurringDaily(supabase, { now })
+    // Cursor seat fees per person (migration 026; no seats without it, so totals are unchanged).
+    const seatsPromise = fetchCursorSeatPlan(supabase, { now, providers })
 
     let daily: DailyRow[]
     let unitForecast: UnitForecast | null = null
@@ -106,14 +110,19 @@ export async function GET(request: NextRequest) {
       // Team/department filter (#9): the unit's plateau is allocated from the
       // whole org's trailing spend, so read every attributed row once and
       // narrow in memory.
-      const all = applyInvoicePlan([...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)], await planPromise)
+      const all = applySpendPlans(
+        [...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)],
+        await planPromise,
+        await seatsPromise
+      )
       daily = applyFilters(all, filters, null, automationProviderIds(providers))
       unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
-      const rows = applyInvoicePlan(
+      const rows = applySpendPlans(
         [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)],
         await planPromise,
+        await seatsPromise,
         { providerId }
       )
       daily = applyFilters(rows, filters, providerId, automationProviderIds(providers))
@@ -131,7 +140,7 @@ export async function GET(request: NextRequest) {
         "cost_records_daily",
         "date, provider_id, model_name, total_cost_usd, total_tokens, total_requests"
       )
-      daily = applyInvoicePlan([...daily, ...(await recurringPromise)], await planPromise)
+      daily = applySpendPlans([...daily, ...(await recurringPromise)], await planPromise, await seatsPromise)
     }
 
     const claudeAiProductRows = await productsPromise

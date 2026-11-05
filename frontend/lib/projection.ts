@@ -43,9 +43,13 @@ export const SEAT_MODEL = "seats"
 export const RECURRING_MODEL = "recurring"
 /** model_name of a recurring seats x price row (issue #59). */
 export const RECURRING_SEAT_MODEL = "recurring seats"
+/** model_name of a per-person Cursor seat fee row (migration 026, lib/cursor-seats.ts). */
+export const CURSOR_SEAT_MODEL = "cursor seats"
 /** model_name of the org-level row carrying an invoice actual with no API spend to scale (issue #75). */
 export const INVOICE_ADJUSTMENT_MODEL = "invoice adjustment"
 const RECURRING_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL])
+/** Monthly bill rows expanded for every month they cover: never carried into a month without one. */
+const MONTHLY_BILL_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL, CURSOR_SEAT_MODEL])
 
 const DAY_MS = 86400000
 
@@ -166,9 +170,12 @@ export function periodStatus(period: Period, today: string): PeriodStatus {
 /** A recurring cost row (issue #59): seat spend that is never carried into a month without one. */
 export const isRecurringRow = (r: ProjectionRow) => !!r.model_name && RECURRING_MODELS.has(r.model_name)
 
+/** A recurring cost or Cursor seat fee row: expanded per month, so never carried. */
+const isMonthlyBillRow = (r: ProjectionRow) => !!r.model_name && MONTHLY_BILL_MODELS.has(r.model_name)
+
 export function isSeatRow(r: ProjectionRow, ctx: ProjectionContext): boolean {
   if (!r.date.endsWith("-01")) return false
-  return r.model_name === SEAT_MODEL || isRecurringRow(r) || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
+  return r.model_name === SEAT_MODEL || isMonthlyBillRow(r) || (!!r.provider_id && ctx.seatProviderIds.includes(r.provider_id))
 }
 
 const completeThroughOf = (ctx: ProjectionContext, providerId: string) =>
@@ -262,7 +269,7 @@ export function projectPeriod(rows: ProjectionRow[], period: Period, ctx: Projec
     m.set(r.date, (m.get(r.date) ?? 0) + cost)
     // A recurring cost is expanded for every month it covers, so a month
     // without its row means it ended or a manual entry replaced it: never carry it.
-    if (seat && !isRecurringRow(r)) acc.carry.set(r.date, (acc.carry.get(r.date) ?? 0) + cost)
+    if (seat && !isMonthlyBillRow(r)) acc.carry.set(r.date, (acc.carry.get(r.date) ?? 0) + cost)
     if (!seat) acc.hasUsage = true
     if (r.date >= period.start) {
       if (seat) seatActual += cost

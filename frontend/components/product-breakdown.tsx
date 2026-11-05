@@ -23,6 +23,7 @@ export const PRODUCT_COLOR: Record<string, string> = {
   agent_chat: "#006989", // Deep Sea
   grok_bot: "#F77F00", // Flame Orange
   bugbot: "#89DF00", // Bright Green
+  seats: "#C068F9", // Violet (seat fees, migration 026)
 }
 const colorOf = (product: string) => PRODUCT_COLOR[product] ?? "#666666"
 

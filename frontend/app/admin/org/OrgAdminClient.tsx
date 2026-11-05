@@ -20,6 +20,7 @@ import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./b
 import { DuplicatesCard } from "./merge"
 import { ReviewTab } from "./review-inbox"
 import { BudgetsTab } from "./budgets-tab"
+import { CursorSeatsCard, SeatTypeSelect, useCursorSeats } from "./cursor-seats"
 
 const API = "/api/admin/org"
 
@@ -148,6 +149,7 @@ export function OrgAdminClient() {
               <PeopleTab
                 org={org}
                 mutate={mutate}
+                reloadKey={reloadKey}
                 onMerged={async (text) => {
                   setMsg({ ok: true, text })
                   await reload()
@@ -304,7 +306,18 @@ export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
 // People and identities
 // ---------------------------------------------------------------------------
 
-function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerged: (text: string) => Promise<void> }) {
+function PeopleTab({
+  org,
+  mutate,
+  onMerged,
+  reloadKey,
+}: {
+  org: Org
+  mutate: Mutate
+  onMerged: (text: string) => Promise<void>
+  reloadKey: number
+}) {
+  const seats = useCursorSeats(reloadKey)
   const [email, setEmail] = useState("")
   const [name, setName] = useState("")
   const [team, setTeam] = useState<string | null>(null)
@@ -374,6 +387,8 @@ function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerg
 
       <DuplicatesCard org={org} onMerged={onMerged} />
 
+      <CursorSeatsCard seats={seats} org={org} />
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle>People ({people.length})</CardTitle>
@@ -429,6 +444,7 @@ function PeopleTab({ org, mutate, onMerged }: { org: Org; mutate: Mutate; onMerg
                     )}
                   </div>
                   <div className="flex items-center gap-1">
+                    <SeatTypeSelect seats={seats} personId={p.id} label={p.email} />
                     <TeamSelect
                       org={org}
                       value={p.team_id}

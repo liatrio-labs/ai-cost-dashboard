@@ -35,13 +35,15 @@ import {
   fetchClaudeAiProductRows,
   fetchIdentities,
   fetchInvoicePlan,
+  fetchCursorSeatPlan,
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
-import { applyInvoicePlan, applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
+import { applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
+import { applySpendPlans, EMPTY_SEAT_PLAN } from "@/lib/cursor-seats"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { resolvePeriod, type PeriodParams, type ProviderRow } from "@/lib/dashboard-compute"
 import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
@@ -73,7 +75,9 @@ export async function GET(request: NextRequest) {
       personProducts(supabase, providers, org, filters, params, now, planPromise),
       planPromise,
     ])
-    const rows = unknownProvider ? [] : applyInvoicePlan([...attributed, ...recurring], plan, { providerId })
+    // Cursor seat fees per person (migration 026; empty without it).
+    const seats = unknownProvider ? EMPTY_SEAT_PLAN : await fetchCursorSeatPlan(supabase, { now, providerId, org, providers })
+    const rows = unknownProvider ? [] : applySpendPlans([...attributed, ...recurring], plan, seats, { providerId })
 
     return successResponse(
       computeBreakdown({

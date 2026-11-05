@@ -34,6 +34,17 @@ import {
   type InvoiceOverride,
   type InvoicePlan,
 } from "@/lib/invoice-overrides"
+import {
+  CURSOR_SLUG,
+  EMPTY_SEAT_PLAN,
+  SEAT_ASSIGNMENT_COLUMNS,
+  SEAT_RATE_COLUMNS,
+  expandCursorSeats,
+  isMissingSeatTables,
+  type CursorSeatPlan,
+  type SeatAssignment,
+  type SeatRate,
+} from "@/lib/cursor-seats"
 import { PRODUCT_ATTRIBUTION_COLUMN, PRODUCT_COST_COLUMNS, type ProductCostRow } from "@/lib/claude-ai-products"
 
 // Minimal structural types so tests can pass a fake client.
@@ -328,4 +339,59 @@ export async function fetchInvoicePlan(supabase: SupabaseLike): Promise<InvoiceP
     fetchManualRows(supabase, providerIds),
   ])
   return buildInvoicePlan({ overrides, basisRows: basis.flat(), manualRows })
+}
+
+/**
+ * Cursor seat assignments and rates (migration 026). `available` is false
+ * while 026 isn't applied: no seats, so Cursor totals are unchanged.
+ */
+export async function fetchCursorSeatData(
+  supabase: SupabaseLike
+): Promise<{ available: boolean; assignments: SeatAssignment[]; rates: SeatRate[] }> {
+  const [a, r] = await Promise.all([
+    supabase.from("cursor_seat_assignments").select(SEAT_ASSIGNMENT_COLUMNS).order("effective_month"),
+    supabase.from("cursor_seat_rates").select(SEAT_RATE_COLUMNS).order("effective_month"),
+  ])
+  for (const res of [a, r]) {
+    if (res.error) {
+      if (isMissingSeatTables(res.error)) return { available: false, assignments: [], rates: [] }
+      throw res.error
+    }
+  }
+  return { available: true, assignments: (a.data || []) as SeatAssignment[], rates: (r.data || []) as SeatRate[] }
+}
+
+/**
+ * Per-person Cursor seat rows (lib/cursor-seats.ts) through the current
+ * month, attributed like cost_records_daily_attributed rows. Combine with the
+ * invoice plan through applySpendPlans (lib/cursor-seats.ts), which keeps an
+ * invoiced Cursor month at its invoice. Empty without migration 026, with no
+ * Cursor provider, or under a filter for another provider.
+ */
+export async function fetchCursorSeatPlan(
+  supabase: SupabaseLike,
+  opts: { now: Date; providerId?: string | null; org?: OrgData; providers?: ProviderRow[] }
+): Promise<CursorSeatPlan> {
+  const providers = opts.providers ?? (await fetchProviders(supabase))
+  const cursorId = providers.find((p) => p.name === CURSOR_SLUG)?.id ?? null
+  if (!cursorId || (opts.providerId && opts.providerId !== cursorId)) return EMPTY_SEAT_PLAN
+  const { available, assignments, rates } = await fetchCursorSeatData(supabase)
+  if (!available || !assignments.length) return EMPTY_SEAT_PLAN
+  const [org, identities] = await Promise.all([
+    opts.org ? Promise.resolve(opts.org) : fetchOrgData(supabase),
+    fetchIdentities(supabase),
+  ])
+  const monthRows = expandCursorSeats({
+    assignments,
+    rates,
+    people: org.people,
+    cursorProviderId: cursorId,
+    currentMonth: currentMonthOf(opts.now),
+  })
+  if (!monthRows.length) return EMPTY_SEAT_PLAN
+  const index = buildOrgIndex({ ...org, identities })
+  return {
+    cursorProviderId: cursorId,
+    seatRows: attributeRecurringRows(monthRows, (record) => resolveAttribution(record, index)),
+  }
 }

@@ -232,6 +232,17 @@ calendar-month totals. Usage events stay the source for history, calendar months
 by-product split. Without migration 025 the card shows a notice and nothing else changes.
 Invoices, credits, seat fees and seat types are not in the documented Admin API and are
 not shown.
+Cursor **seat fees** (migration 026) are not in the Admin API either, so each person's
+Cursor seat type (Standard / Premium / Free / unassigned) is set on `/admin/org` ->
+People, and the monthly rates (initially Standard $40, Premium $80, Free $0) are edited in
+the Cursor seats card there. Each billed person gets their seat fee as Cursor spend for
+the month, attributed to them and their team. Changes apply from the current month on.
+The Nov 5, 2026 roster is committed as seed data
+(`database/seeds/cursor-seat-roster-2026-11-05.csv`, 74 Standard + 36 Premium + 1 Free =
+$5,840); import it from the same card (matched by email, else exact name; unmatched rows
+are listed, Removed rows get no seat). In a Cursor month with an invoice actual the seats
+are part of the invoiced total, not added to it, and a recurring Cursor cost is not
+counted in a month that has per-person seats.
 
 Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
 `end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today

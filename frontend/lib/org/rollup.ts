@@ -11,7 +11,10 @@
  * still sum to the input total.
  */
 
-import { INVOICE_ADJUSTMENT_MODEL, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
+import { CURSOR_SEAT_MODEL, INVOICE_ADJUSTMENT_MODEL, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
+
+/** Bills, not automation: recurring costs (#59), invoice adjustments (#75) and Cursor seat fees (026). */
+const BILL_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL, INVOICE_ADJUSTMENT_MODEL, CURSOR_SEAT_MODEL])
 import { resolveAttribution } from "./attribution"
 import type { AttributableRecord, AttributedDailyRow, OrgIndex } from "./types"
 
@@ -49,9 +52,7 @@ export function isAutomationRow(
     automationIds.has(row.provider_id) &&
     !row.person_id &&
     row.granularity === "org" &&
-    row.model_name !== RECURRING_MODEL &&
-    row.model_name !== RECURRING_SEAT_MODEL &&
-    row.model_name !== INVOICE_ADJUSTMENT_MODEL
+    !(row.model_name && BILL_MODELS.has(row.model_name))
   )
 }
 

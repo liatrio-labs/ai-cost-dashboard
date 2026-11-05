@@ -760,3 +760,127 @@ describe("invoice actuals (issue #75)", () => {
     expect((await dash("/api/dashboard?month=2026-10")).status).toBe(500)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Cursor seat types per person (migration 026)
+// ---------------------------------------------------------------------------
+
+describe("Cursor seat attribution (migration 026)", () => {
+  // November fixture: Cursor dave $30 (identity), total $250. October: Cursor dave $30, total $105.
+  const RATES = [
+    { seat_type: "standard", effective_month: "2000-01-01", monthly_rate_usd: "40.00" },
+    { seat_type: "premium", effective_month: "2000-01-01", monthly_rate_usd: "80.00" },
+    { seat_type: "free", effective_month: "2000-01-01", monthly_rate_usd: "0.00" },
+  ]
+  const seat = (person_id: string, month: string, seat_type: string) => ({ person_id, effective_month: `${month}-01`, seat_type, source: "admin" })
+  const missing = { code: "PGRST205", message: "Could not find the table 'public.cursor_seat_assignments' in the schema cache" }
+  const split = (products: { product: string; cost: number }[] | undefined) =>
+    Object.fromEntries((products ?? []).map((p) => [p.product, p.cost]))
+  const cursorTool = (body: DashboardBody) => body.tools.find((t) => t.id === P_CURSOR)!
+  const P_CURSOR = "prov-cursor"
+
+  beforeEach(() => {
+    const org = orgData()
+    seed(org)
+    tables.person_identities = org.identities as unknown as Row[]
+    tables.cursor_seat_rates = RATES
+    // Dave Premium, Alice Standard, Bob Free, Carol unassigned, all from November.
+    tables.cursor_seat_assignments = [seat(PE.dave, "2026-11", "premium"), seat(PE.alice, "2026-11", "standard"), seat(PE.bob, "2026-11", "free"), seat(PE.carol, "2026-11", "none")]
+  })
+
+  it("attributes each person's seat fee to them, their team and Cursor totals; earlier months are unchanged", async () => {
+    const { status, body } = await dash("/api/dashboard?month=2026-11")
+    expect(status).toBe(200)
+    expect(body.kpis.totalSpend).toBe(NOV_TOTAL + 120)
+    expect(cursorTool(body).monthlySpend).toBe(30 + 120)
+    expect(split(cursorTool(body).products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30, seats: 120 })
+    const oct = await dash("/api/dashboard?month=2026-10")
+    expect(oct.body.kpis.totalSpend).toBe(105)
+
+    const brkBody = (await brk("/api/dashboard/breakdown?month=2026-11")).body
+    expect(brkBody.total.cost).toBe(NOV_TOTAL + 120)
+    const person = (id: string) => brkBody.person.find((p) => p.id === id)?.cost ?? 0
+    const before = (await (async () => {
+      tables.cursor_seat_assignments = []
+      return (await brk("/api/dashboard/breakdown?month=2026-11")).body
+    })())
+    const personBefore = (id: string) => before.person.find((p) => p.id === id)?.cost ?? 0
+    expect(person(PE.dave) - personBefore(PE.dave)).toBe(80)
+    expect(person(PE.alice) - personBefore(PE.alice)).toBe(40)
+    expect(person(PE.bob)).toBe(personBefore(PE.bob)) // Free: $0
+    expect(person(PE.carol)).toBe(personBefore(PE.carol)) // unassigned: $0
+    expect((brkBody.team.find((t) => t.id === T.data)?.cost ?? 0) - (before.team.find((t) => t.id === T.data)?.cost ?? 0)).toBe(80)
+  })
+
+  it("a person filter shows that person's seat fee; a provider filter for another provider shows none", async () => {
+    const dave = await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)
+    expect(dave.body.kpis.totalSpend).toBe(30 + 80)
+    const cursor = await dash("/api/dashboard?month=2026-11&provider=cursor")
+    expect(cursor.body.kpis.totalSpend).toBe(30 + 120)
+    const openai = await dash("/api/dashboard?month=2026-11&provider=openai")
+    expect(openai.body.kpis.totalSpend).toBe(50)
+  })
+
+  it("changing a person's seat type updates their attributed seat cost", async () => {
+    tables.cursor_seat_assignments = [seat(PE.dave, "2026-11", "standard")]
+    expect((await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)).body.kpis.totalSpend).toBe(30 + 40)
+    tables.cursor_seat_assignments = [seat(PE.dave, "2026-11", "none")]
+    expect((await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)).body.kpis.totalSpend).toBe(30)
+  })
+
+  it("rates are configurable: a new Premium rate changes the attributed cost with no code change", async () => {
+    tables.cursor_seat_rates = [...RATES, { seat_type: "premium", effective_month: "2026-11-01", monthly_rate_usd: "100.00" }]
+    expect((await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)).body.kpis.totalSpend).toBe(30 + 100)
+  })
+
+  it("no double-count against the invoice override: an invoiced Cursor month totals the invoice, seats inside it", async () => {
+    tables.cursor_seat_assignments = [seat(PE.dave, "2026-10", "premium"), seat(PE.alice, "2026-10", "standard")]
+    tables.invoice_overrides = [
+      { id: "io1", provider_id: P_CURSOR, month: "2026-10-01", billed_amount_usd: "200.00", credits_usd: null, notes: null, invoice_ids: [], entered_by: "a@x", entered_at: "2026-11-04T00:00:00Z" },
+    ]
+    const { body } = await dash("/api/dashboard?month=2026-10")
+    expect(cursorTool(body).monthlySpend).toBe(200)
+    expect(body.kpis.totalSpend).toBe(105 - 30 + 200)
+    expect(split(cursorTool(body).products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 80, seats: 120 })
+    const b = (await brk("/api/dashboard/breakdown?month=2026-10")).body
+    expect(b.total.cost).toBe(105 - 30 + 200)
+    const dave = await dash(`/api/dashboard?month=2026-10&person=${PE.dave}`)
+    expect(dave.body.kpis.totalSpend).toBe(80 + 80) // seat $80 + usage $30 scaled to the $80 remainder
+    // November (no invoice) still adds seats on top of usage.
+    expect((await dash("/api/dashboard?month=2026-11")).body.kpis.totalSpend).toBe(NOV_TOTAL + 120)
+  })
+
+  it("a recurring Cursor seat line is not counted on top of per-person seats", async () => {
+    tables.recurring_costs = [
+      { id: "rc-cursor", provider_id: P_CURSOR, start_month: "2026-10-01", end_month: null, monthly_cost_usd: "5840.00", seats: null, price_per_seat: null, notes: null },
+    ]
+    const nov = await dash("/api/dashboard?month=2026-11")
+    expect(cursorTool(nov.body).monthlySpend).toBe(30 + 120)
+    const oct = await dash("/api/dashboard?month=2026-10")
+    expect(cursorTool(oct.body).monthlySpend).toBe(30 + 5840) // no seats in October: the recurring line stays
+  })
+
+  it("safe without migration 026: responses are exactly as without seats", async () => {
+    tables.cursor_seat_assignments = []
+    const before = await dash("/api/dashboard?month=2026-11")
+    const beforeBrk = await brk("/api/dashboard/breakdown?month=2026-11")
+    const beforeTeam = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    tables.cursor_seat_assignments = [seat(PE.dave, "2026-11", "premium")]
+    tableErrors.cursor_seat_assignments = missing
+    tableErrors.cursor_seat_rates = { ...missing, message: "Could not find the table 'public.cursor_seat_rates' in the schema cache" }
+    const after = await dash("/api/dashboard?month=2026-11")
+    expect(after.status).toBe(200)
+    expect(after.body).toEqual(before.body)
+    expect(after.body.kpis.totalSpend).toBe(NOV_TOTAL)
+    const afterBrk = await brk("/api/dashboard/breakdown?month=2026-11")
+    expect(afterBrk.status).toBe(200)
+    expect(afterBrk.body).toEqual(beforeBrk.body)
+    const afterTeam = await dash(`/api/dashboard?month=2026-11&team=${T.data}`)
+    expect(afterTeam.body).toEqual(beforeTeam.body)
+  })
+
+  it("other read errors on the seat tables still fail loudly", async () => {
+    failing.add("cursor_seat_assignments")
+    expect((await dash("/api/dashboard?month=2026-11")).status).toBe(500)
+  })
+})
