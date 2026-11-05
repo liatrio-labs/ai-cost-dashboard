@@ -27,6 +27,11 @@
  * to the rollup rows (either one) for every month they cover without a
  * manual entry, before filters apply. Without migration 022 there are none.
  *
+ * Issue #75: invoice actuals (lib/invoice-overrides.ts, migration 024) are
+ * applied to those rows before filters: an overridden provider-month's API
+ * rows are scaled to the invoiced amount and its manual / recurring rows are
+ * dropped. Without migration 024 there are none and nothing changes.
+ *
  * Issue #48: when the period has Claude.ai spend, the period's raw Claude.ai
  * records are read from cost_records (product by JSON path, no migration) and
  * the Claude.ai tool gets `products` (Claude Code / Chat / Other). Optional:
@@ -52,12 +57,14 @@ import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/clau
 import { buildOrgIndex } from "@/lib/org/attribution"
 import { automationProviderIds } from "@/lib/org/rollup"
 import { projectionContext } from "@/lib/projection"
+import { applyInvoicePlan, applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
   fetchAllPaged,
   fetchAttributedDaily,
   fetchClaudeAiProductRows,
   fetchIdentities,
+  fetchInvoicePlan,
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
@@ -84,8 +91,10 @@ export async function GET(request: NextRequest) {
     const now = new Date()
 
     const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
+    // Issue #75: invoice actuals (empty plan without 024).
+    const planPromise = fetchInvoicePlan(supabase)
     // Issue #48: read in parallel with the rollup; ignored when the period has no Claude.ai spend.
-    const productsPromise = claudeAiProducts(supabase, providers, filters, params, now)
+    const productsPromise = claudeAiProducts(supabase, providers, filters, params, now, planPromise)
     // Issue #59: synthetic monthly rows for recurring costs (empty without 022).
     const recurringPromise = fetchRecurringDaily(supabase, { now })
 
@@ -97,12 +106,16 @@ export async function GET(request: NextRequest) {
       // Team/department filter (#9): the unit's plateau is allocated from the
       // whole org's trailing spend, so read every attributed row once and
       // narrow in memory.
-      const all = [...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)]
+      const all = applyInvoicePlan([...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)], await planPromise)
       daily = applyFilters(all, filters, null, automationProviderIds(providers))
       unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
-      const rows = [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)]
+      const rows = applyInvoicePlan(
+        [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)],
+        await planPromise,
+        { providerId }
+      )
       daily = applyFilters(rows, filters, providerId, automationProviderIds(providers))
       // Person / key / project views get a trailing average, not a forecast
       // (plus the projected current month, from computeDashboard). The
@@ -118,7 +131,7 @@ export async function GET(request: NextRequest) {
         "cost_records_daily",
         "date, provider_id, model_name, total_cost_usd, total_tokens, total_requests"
       )
-      daily = [...daily, ...(await recurringPromise)]
+      daily = applyInvoicePlan([...daily, ...(await recurringPromise)], await planPromise)
     }
 
     const claudeAiProductRows = await productsPromise
@@ -185,7 +198,8 @@ async function claudeAiProducts(
   providers: ProviderRow[],
   filters: DashboardFilters,
   params: { month: string | null; start: string | null; end: string | null },
-  now: Date
+  now: Date,
+  planPromise: Promise<InvoicePlan>
 ): Promise<ProductDayRow[] | null> {
   const providerId = providerIdForSlug(providers, CLAUDE_AI_SLUG)
   if (!providerId) return null
@@ -194,7 +208,7 @@ async function claudeAiProducts(
   const { start, end } = resolvePeriod(params, now)
   const filtered = hasFilters(filters)
   try {
-    const rows = await fetchClaudeAiProductRows(supabase, providerId, start, end, filtered)
+    const rows = applyInvoicePlanToRaw(await fetchClaudeAiProductRows(supabase, providerId, start, end, filtered), await planPromise)
     if (!filtered) return toProductDayRows(rows)
     const [org, identities] = await Promise.all([fetchOrgData(supabase), fetchIdentities(supabase)])
     return toProductDayRows(rows, {

@@ -24,6 +24,16 @@ import {
   type ManualCostRow,
   type RecurringCost,
 } from "@/lib/recurring-costs"
+import {
+  EMPTY_INVOICE_PLAN,
+  INVOICE_OVERRIDE_COLUMNS,
+  buildInvoicePlan,
+  isMissingInvoiceTable,
+  monthBounds,
+  type BasisRow,
+  type InvoiceOverride,
+  type InvoicePlan,
+} from "@/lib/invoice-overrides"
 import { PRODUCT_ATTRIBUTION_COLUMN, PRODUCT_COST_COLUMNS, type ProductCostRow } from "@/lib/claude-ai-products"
 
 // Minimal structural types so tests can pass a fake client.
@@ -232,7 +242,7 @@ export async function fetchRecurringCosts(supabase: SupabaseLike): Promise<Recur
 const MANUAL_ROW_COLUMNS = "id, user_id, provider_id, timestamp, model_name, cost_usd, request_count, collection_method, metadata"
 
 /** Manual (manual_entry / csv_import) cost_records of these providers: overrides and seat splits. */
-async function fetchManualRows(supabase: SupabaseLike, providerIds: string[]): Promise<ManualCostRow[]> {
+export async function fetchManualRows(supabase: SupabaseLike, providerIds: string[]): Promise<ManualCostRow[]> {
   const out: ManualCostRow[] = []
   // One query per (provider, manual method): few of each, and it never pages
   // through an API-collected provider's usage rows.
@@ -277,4 +287,45 @@ export async function fetchRecurringDaily(
   ])
   const index = buildOrgIndex({ ...org, identities })
   return attributeRecurringRows(rows, (record) => resolveAttribution(record, index))
+}
+
+/**
+ * Invoice overrides (issue #75, migration 024). available is false when the
+ * table is missing (024 not applied): no overrides, totals unchanged. Any
+ * other error is thrown like the other reads.
+ */
+export async function fetchInvoiceOverrides(
+  supabase: SupabaseLike
+): Promise<{ available: boolean; overrides: InvoiceOverride[] }> {
+  const { data, error } = await supabase.from("invoice_overrides").select(INVOICE_OVERRIDE_COLUMNS).order("month")
+  if (error) {
+    if (isMissingInvoiceTable(error)) return { available: false, overrides: [] }
+    throw error
+  }
+  return { available: true, overrides: (data || []) as InvoiceOverride[] }
+}
+
+/** cost_records_daily rows of one provider-month: the scaling basis (never filtered). */
+export async function fetchProviderMonthRollup(supabase: SupabaseLike, providerId: string, ym: string): Promise<BasisRow[]> {
+  const { start, end } = monthBounds(ym)
+  return fetchAllPaged<BasisRow>(supabase, "cost_records_daily", "date, provider_id, model_name, total_cost_usd", (q) =>
+    q.eq("provider_id", providerId).gte("date", start).lt("date", end)
+  )
+}
+
+/**
+ * The invoice plan (lib/invoice-overrides.ts) every spend reader applies to
+ * its rows. The basis is the full rollup of each overridden provider-month,
+ * so filtered and unfiltered views scale by the same factor. Empty without
+ * migration 024 or without overrides (no extra reads then).
+ */
+export async function fetchInvoicePlan(supabase: SupabaseLike): Promise<InvoicePlan> {
+  const { overrides } = await fetchInvoiceOverrides(supabase)
+  if (!overrides.length) return EMPTY_INVOICE_PLAN
+  const providerIds = [...new Set(overrides.map((o) => o.provider_id))]
+  const [basis, manualRows] = await Promise.all([
+    Promise.all(overrides.map((o) => fetchProviderMonthRollup(supabase, o.provider_id, String(o.month).slice(0, 7)))),
+    fetchManualRows(supabase, providerIds),
+  ])
+  return buildInvoicePlan({ overrides, basisRows: basis.flat(), manualRows })
 }

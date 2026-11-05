@@ -208,6 +208,15 @@ their charged value in `metadata.included_value_usd`, on their own rows
 "backfill_days": 31 }`) re-pulls from 2026-11-01 at the earliest and never touches
 October 2026 or earlier, so running it once after deploy corrects November onward.
 
+Months before that (or any provider-month where usage disagrees with the bill) are
+corrected with an **invoice actual** (issue #75, migration 024): in the Invoice actuals
+section on `/admin`, an admin sets the invoiced amount for one provider and one complete
+calendar month. That provider-month then counts exactly the invoice on the dashboard,
+breakdowns, budgets and forecasts: its API rows are scaled proportionally (attribution to
+people, teams and products is kept) and its manual entries and recurring cost are
+replaced, not added. Clearing it restores the API, manual and recurring amounts. No
+amounts are hardcoded; nothing in `cost_records` changes.
+
 Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
 `end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today
 (UTC). A `start_date` before the provider's earliest data is clamped to it (2026-01-01 for

@@ -20,7 +20,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
-import { fetchAttributedDaily, fetchProviders, fetchRecurringDaily, type SupabaseLike } from "@/lib/dashboard-data"
+import { fetchAttributedDaily, fetchInvoicePlan, fetchProviders, fetchRecurringDaily, type SupabaseLike } from "@/lib/dashboard-data"
+import { applyInvoicePlan } from "@/lib/invoice-overrides"
 import {
   getForecastSettings,
   getForecastUnitOverrides,
@@ -63,12 +64,13 @@ async function loadUnits(admin: SupabaseClient): Promise<Record<UnitLevel, Named
 
 async function payload(admin: SupabaseClient, units: Record<UnitLevel, NamedUnit[]>, overrides: UnitOverrides) {
   const settings = await getForecastSettings()
-  const [attributed, providers, recurring] = await Promise.all([
+  const [attributed, providers, recurring, plan] = await Promise.all([
     fetchAttributedDaily(admin as unknown as SupabaseLike, {}, null),
     fetchProviders(admin as unknown as SupabaseLike),
     fetchRecurringDaily(admin as unknown as SupabaseLike, { now: new Date() }), // issue #59
+    fetchInvoicePlan(admin as unknown as SupabaseLike), // issue #75
   ])
-  const rows = [...attributed, ...recurring]
+  const rows = applyInvoicePlan([...attributed, ...recurring], plan)
   // Same anchor as /api/dashboard's unit forecasts: the projected current month.
   const current = projectionContext(providers, new Date())
   const out: Record<string, unknown> = { employees: settings.employees }

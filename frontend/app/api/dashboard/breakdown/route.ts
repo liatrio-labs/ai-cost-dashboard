@@ -15,6 +15,10 @@
  * Issue #59: recurring monthly costs (lib/recurring-costs.ts) are appended
  * to the attributed rows for every month they cover without a manual entry.
  *
+ * Issue #75: invoice actuals (lib/invoice-overrides.ts, migration 024) scale
+ * an overridden provider-month's API rows to the invoiced amount and drop its
+ * manual / recurring rows. Without migration 024 nothing changes.
+ *
  * Issue #48: the person view (a person filter, level "detail") also gets
  * Claude.ai spend by product. The period's raw Claude.ai records are read
  * from cost_records (product by JSON path, no migration), resolved like the
@@ -30,12 +34,14 @@ import {
   fetchAttributedDaily,
   fetchClaudeAiProductRows,
   fetchIdentities,
+  fetchInvoicePlan,
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
+import { applyInvoicePlan, applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
 import { computeBreakdown } from "@/lib/org/breakdown"
 import { resolvePeriod, type PeriodParams, type ProviderRow } from "@/lib/dashboard-compute"
 import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
@@ -60,12 +66,14 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     // An unknown provider slug matches nothing (same as fetchAttributedDaily).
     const unknownProvider = !!filters.provider && !providerId
-    const [attributed, recurring, claudeAiProductRows] = await Promise.all([
+    const planPromise = fetchInvoicePlan(supabase) // issue #75
+    const [attributed, recurring, claudeAiProductRows, plan] = await Promise.all([
       fetchAttributedDaily(supabase, { provider: filters.provider }, providerId),
       unknownProvider ? Promise.resolve([]) : fetchRecurringDaily(supabase, { now, providerId, org }),
-      personProducts(supabase, providers, org, filters, params, now),
+      personProducts(supabase, providers, org, filters, params, now, planPromise),
+      planPromise,
     ])
-    const rows = [...attributed, ...recurring]
+    const rows = unknownProvider ? [] : applyInvoicePlan([...attributed, ...recurring], plan, { providerId })
 
     return successResponse(
       computeBreakdown({
@@ -97,7 +105,8 @@ async function personProducts(
   org: OrgData,
   filters: DashboardFilters,
   params: PeriodParams,
-  now: Date
+  now: Date,
+  planPromise: Promise<InvoicePlan>
 ): Promise<ProductDayRow[] | null> {
   if (drillLevel(filters) !== "detail") return null
   if (filters.provider && filters.provider !== CLAUDE_AI_SLUG) return null
@@ -105,10 +114,12 @@ async function personProducts(
   if (!providerId) return null
   const { start, end } = resolvePeriod(params, now)
   try {
-    const [rows, identities] = await Promise.all([
+    const [raw, identities, plan] = await Promise.all([
       fetchClaudeAiProductRows(supabase, providerId, start, end, true),
       fetchIdentities(supabase),
+      planPromise,
     ])
+    const rows = applyInvoicePlanToRaw(raw, plan)
     return toProductDayRows(rows, {
       filters,
       index: buildOrgIndex({ ...org, identities }),
