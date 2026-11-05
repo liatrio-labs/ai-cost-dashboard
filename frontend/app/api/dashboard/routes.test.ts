@@ -16,7 +16,7 @@ import {
   attributedRows,
   plainDailyRows,
 } from "@/lib/org/dashboard-fixtures"
-import { D, K, PE, T, orgData } from "@/lib/org/test-fixtures"
+import { D, K, P, PE, T, orgData } from "@/lib/org/test-fixtures"
 import type { OrgData } from "@/lib/org/types"
 import type { BreakdownData } from "@/lib/org/breakdown"
 import type { DashboardData } from "@/lib/dashboard-types"
@@ -655,5 +655,108 @@ describe("Cursor billing-cycle spend (issue #76)", () => {
   it("requires auth", async () => {
     authed = false
     expect((await cycleView()).status).toBe(401)
+  })
+})
+
+describe("invoice actuals (issue #75)", () => {
+  // October fixture: Anthropic alice $50 (Platform) + carol $5 (no team) = $55
+  // API; Cursor $30; Windsurf $20 -> $105.
+  const LOVABLE = "prov-lovable"
+  const invoice = (provider: string, month: string, amount: string) => ({
+    id: `io-${provider}-${month}`,
+    provider_id: provider,
+    month: `${month}-01`,
+    billed_amount_usd: amount,
+    credits_usd: null,
+    notes: null,
+    invoice_ids: [],
+    entered_by: "admin@example.com",
+    entered_at: "2026-11-04T00:00:00Z",
+  })
+  const orgLevel = { person_id: null, org_api_key_id: null, team_id: null, department_id: null, project_id: null, workspace_id: null, granularity: "org", record_count: 1 }
+  /** A manual entry as cost_records plus its two rollup rows. */
+  function addManual(provider: string, month: string, cost: number) {
+    tables.cost_records = [
+      ...(tables.cost_records ?? []),
+      { id: `cr-${provider}-${month}`, user_id: "u1", provider_id: provider, timestamp: `${month}-01T12:00:00Z`, model_name: "manual", cost_usd: cost, request_count: 1, collection_method: "manual_entry", metadata: { entry_type: "monthly_manual", month } },
+    ]
+    const day = { date: `${month}-01`, provider_id: provider, model_name: "manual", total_cost_usd: cost, total_tokens: 0, total_requests: 1 }
+    tables.cost_records_daily = [...tables.cost_records_daily, day]
+    tables.cost_records_daily_attributed = [...tables.cost_records_daily_attributed, { ...day, ...orgLevel }]
+  }
+
+  it("override vs no override: the overridden provider-month equals the invoice; other months and providers are unchanged", async () => {
+    const before = await dash("/api/dashboard?month=2026-10")
+    expect(before.body.trends.find((t) => t.month === "2026-10")).toMatchObject({ total: 105, anthropic: 55 })
+
+    tables.invoice_overrides = [invoice(P.anthropic, "2026-10", "110.00")]
+    const { status, body } = await dash("/api/dashboard?month=2026-10")
+    expect(status).toBe(200)
+    expect(body.tools.find((t) => t.name === "Anthropic (Claude API)")?.monthlySpend).toBe(110)
+    expect(body.trends).toEqual([
+      { month: "2026-10", total: 160, anthropic: 110, cursor: 30, windsurf: 20 },
+      { month: "2026-11", total: 250, anthropic: 150, openai: 50, cursor: 30, windsurf: 20 },
+    ])
+    expect(body.kpis.totalSpend).toBe(160)
+    // November (current month, not overridden) is exactly as before.
+    const nov = await dash("/api/dashboard?month=2026-11")
+    expect(nov.body.kpis.totalSpend).toBe(NOV_TOTAL)
+  })
+
+  it("attribution: person / team views scale by the org-wide factor and reconcile with the org total", async () => {
+    tables.invoice_overrides = [invoice(P.anthropic, "2026-10", "110.00")]
+    const { body } = await brk("/api/dashboard/breakdown?month=2026-10")
+    expect(body.total.cost).toBe(160)
+    expect(body.person.find((p) => p.id === PE.alice)?.cost).toBe(100)
+    expect(body.person.find((p) => p.id === PE.carol)?.cost).toBe(10)
+    expect(body.team.find((t) => t.id === T.platform)?.cost).toBe(100)
+    const teamSum = body.team.reduce((s, t) => s + t.cost, 0)
+    expect(teamSum).toBeCloseTo(160, 2)
+    // A pushed-down person filter gets the same scaled amount as the breakdown.
+    const alice = await dash(`/api/dashboard?month=2026-10&person=${PE.alice}`)
+    expect(alice.body.kpis.totalSpend).toBe(100)
+    const team = await dash(`/api/dashboard?month=2026-10&team=${T.platform}`)
+    expect(team.body.kpis.totalSpend).toBe(100)
+    const prov = await dash("/api/dashboard?month=2026-10&provider=anthropic")
+    expect(prov.body.kpis.totalSpend).toBe(110)
+  })
+
+  it("no double count: the month's recurring cost and manual entry are replaced by the invoice; other months keep them", async () => {
+    tables.providers = [...(PROVIDERS as unknown as Row[]), { id: LOVABLE, name: "lovable", display_name: "Lovable", metadata: { collection_method: "manual" } }]
+    tables.recurring_costs = [
+      { id: "rc1", provider_id: LOVABLE, start_month: "2026-09-01", end_month: null, monthly_cost_usd: "90.00", seats: null, price_per_seat: null, notes: null },
+    ]
+    addManual(LOVABLE, "2026-09", 120) // September: manual entry (recurring already skipped for it)
+    tables.invoice_overrides = [invoice(LOVABLE, "2026-09", "75.00"), invoice(LOVABLE, "2026-10", "60.00")]
+    const { body } = await dash("/api/dashboard?month=2026-11&provider=lovable")
+    expect(body.trends.map((t) => [t.month, t.total])).toEqual([
+      ["2026-09", 75],
+      ["2026-10", 60],
+      ["2026-11", 90],
+    ])
+    const all = await dash("/api/dashboard?month=2026-10")
+    expect(all.body.trends.find((t) => t.month === "2026-10")).toMatchObject({ total: 105 + 60, lovable: 60 })
+    const b = await brk("/api/dashboard/breakdown?month=2026-09")
+    expect(b.body.total.cost).toBe(75)
+  })
+
+  it("missing-table fallback: without migration 024 the responses are exactly as without overrides", async () => {
+    const before = await dash("/api/dashboard?month=2026-10")
+    const beforeBrk = await brk("/api/dashboard/breakdown?month=2026-10")
+    tables.invoice_overrides = [invoice(P.anthropic, "2026-10", "110.00")]
+    tableErrors.invoice_overrides = { code: "PGRST205", message: "Could not find the table 'public.invoice_overrides' in the schema cache" }
+    const after = await dash("/api/dashboard?month=2026-10")
+    expect(after.status).toBe(200)
+    expect(after.body).toEqual(before.body)
+    const afterBrk = await brk("/api/dashboard/breakdown?month=2026-10")
+    expect(afterBrk.status).toBe(200)
+    expect(afterBrk.body).toEqual(beforeBrk.body)
+    const team = await dash(`/api/dashboard?month=2026-10&team=${T.platform}`)
+    expect(team.status).toBe(200)
+  })
+
+  it("other read errors on invoice_overrides still fail loudly", async () => {
+    failing.add("invoice_overrides")
+    expect((await dash("/api/dashboard?month=2026-10")).status).toBe(500)
   })
 })

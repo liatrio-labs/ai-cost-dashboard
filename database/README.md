@@ -542,6 +542,18 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   `DROP TABLE IF EXISTS public.admin_users;` (env-allowlist admins are
   unaffected). **Needs Robert's explicit approval before it is applied to
   production.**
+- **024_invoice_overrides.sql**: invoice actuals per provider + calendar month
+  (#75). Adds `invoice_overrides` (one row per `provider_id` + `month`, the
+  1st; `billed_amount_usd` >= 0 is the amount that counts, net of credits;
+  optional `credits_usd`, `notes`, `invoice_ids`; `entered_by`, `entered_at`).
+  RLS on; `authenticated` may SELECT, writes are `service_role` only (the
+  `/admin` Invoice actuals section, behind `requireAdmin`). Nothing is written
+  to `cost_records`: the app applies overrides at read time
+  (`frontend/lib/invoice-overrides.ts`), scaling the provider-month's API rows
+  to the invoice and dropping its manual and recurring rows. Without 024 the
+  app reads no overrides (totals unchanged) and `/admin` shows "migration 024
+  not applied". Rollback: `DROP TABLE IF EXISTS public.invoice_overrides;`.
+  **Needs Robert's explicit approval before it is applied to production.**
 - **025_cursor_cycle_spend.sql**: Cursor billing-cycle on-demand snapshots
   (#76). Adds `cursor_spend_cycles` (one row per `subscriptionCycleStart`:
   `team_spend_cents` = sum of members' `spendCents`, `team_overall_spend_cents`
@@ -556,8 +568,8 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   later cycle exists, so prior cycles are immutable. RLS on; `authenticated`
   SELECT, writes `service_role` only. Nothing touches `cost_records`. Without
   025 the snapshot step reports `migration_missing` and the dashboard shows a
-  notice; every existing total is unchanged. Migration 024 is reserved for
-  another change. Rollback: drop `record_cursor_spend_snapshot`, then the two
+  notice; every existing total is unchanged. Independent of 024's invoice
+  actuals. Rollback: drop `record_cursor_spend_snapshot`, then the two
   tables, then `cursor_cycle_spend_guard()` (see the file header). **Needs
   Robert's explicit approval before it is applied to production.**
 
@@ -594,12 +606,14 @@ resolving through the alias, all spend on the primary after a refresh, totals
 unchanged and reconciled, a repeated merge returning `already_merged` with
 nothing changed, refusals, grants), runs `assertions_023.sql` (`admin_users`
 RLS with no policies, no `anon`/`authenticated` privileges, unique and
-lowercased email), runs `assertions_025.sql` (member and team `spendCents`
-totals, persisted limit / overall / cycle fields, an Oct 19 to Nov 19 rollover
-with the Oct 19 snapshot preserved, a stale snapshot refused, prior-cycle
-updates / deletes / inserts refused, grants, `cost_records` unchanged), then
-re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 023,
-025) over the data. 011 must always follow 010, because 010 recreates the view
+lowercased email), runs `assertions_024.sql` (`invoice_overrides` RLS and
+grants, one row per provider-month, month / amount / credits CHECKs, provider
+FK, `cost_records` unchanged), runs `assertions_025.sql` (member and team
+`spendCents` totals, persisted limit / overall / cycle fields, an Oct 19 to
+Nov 19 rollover with the Oct 19 snapshot preserved, a stale snapshot refused,
+prior-cycle updates / deletes / inserts refused, grants, `cost_records`
+unchanged), then re-applies 010, 011, 014 and every later migration (015 to
+018, 020 to 025) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

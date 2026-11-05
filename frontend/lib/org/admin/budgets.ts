@@ -7,7 +7,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
-import { ATTRIBUTED_COLUMNS, fetchAllPaged, fetchProviders, type SupabaseLike } from "@/lib/dashboard-data"
+import { ATTRIBUTED_COLUMNS, fetchAllPaged, fetchInvoicePlan, fetchProviders, type SupabaseLike } from "@/lib/dashboard-data"
+import { applyInvoicePlan } from "@/lib/invoice-overrides"
 import { BUDGET_SCOPES, budgetWindowStart, computeBudgetStatuses, type Budget, type BudgetStatus } from "@/lib/budgets"
 import { alertConfig, type AlertConfigSummary, type EnvLike } from "@/lib/budget-alerts"
 import type { AttributedDailyRow } from "../types"
@@ -33,9 +34,19 @@ export async function loadBudgets(admin: SupabaseClient): Promise<Budget[] | nul
   return (res.data ?? []) as unknown as Budget[]
 }
 
-/** Attributed rows from `start` through today. */
+/**
+ * Attributed rows from `start` through today, with invoice actuals applied
+ * (issue #75): an overridden provider-month counts its invoiced amount, so
+ * budgets, projections and spike alerts read the same totals as the
+ * dashboard. No change without migration 024.
+ */
 export async function loadAttributedSince(admin: SupabaseClient, start: string): Promise<AttributedDailyRow[]> {
-  return fetchAllPaged<AttributedDailyRow>(admin as unknown as SupabaseLike, "cost_records_daily_attributed", ATTRIBUTED_COLUMNS, (q) => q.gte("date", start))
+  const db = admin as unknown as SupabaseLike
+  const [rows, plan] = await Promise.all([
+    fetchAllPaged<AttributedDailyRow>(db, "cost_records_daily_attributed", ATTRIBUTED_COLUMNS, (q) => q.gte("date", start)),
+    fetchInvoicePlan(db),
+  ])
+  return applyInvoicePlan(rows, plan).filter((r) => r.date >= start)
 }
 
 export interface BudgetsResponse {

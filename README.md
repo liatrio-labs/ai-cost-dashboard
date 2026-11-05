@@ -208,6 +208,15 @@ their charged value in `metadata.included_value_usd`, on their own rows
 "backfill_days": 31 }`) re-pulls from 2026-11-01 at the earliest and never touches
 October 2026 or earlier, so running it once after deploy corrects November onward.
 
+Months before that (or any provider-month where usage disagrees with the bill) are
+corrected with an **invoice actual** (issue #75, migration 024): in the Invoice actuals
+section on `/admin`, an admin sets the invoiced amount for one provider and one complete
+calendar month. That provider-month then counts exactly the invoice on the dashboard,
+breakdowns, budgets and forecasts: its API rows are scaled proportionally (attribution to
+people, teams and products is kept) and its manual entries and recurring cost are
+replaced, not added. Clearing it restores the API, manual and recurring amounts. No
+amounts are hardcoded; nothing in `cost_records` changes.
+
 Cursor billing-cycle on-demand (issue #76) comes from the documented Admin API
 `POST /teams/spend`, never the Cursor dashboard. Each member's on-demand for the current
 billing cycle is `spendCents`; the team's cycle total is the sum of `spendCents`.
