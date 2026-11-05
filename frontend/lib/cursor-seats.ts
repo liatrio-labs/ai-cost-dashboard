@@ -18,13 +18,12 @@
  * get no row. Months before a change keep their earlier type and rate.
  *
  * Coordination with other Cursor amounts in the same month:
- * - Invoice actual (invoice_overrides, migration 024): the invoice is the
- *   billed month total. Seats are composition inside it, never on top: the
- *   seat rows count first (scaled down only if they exceed the invoice), the
- *   month's other Cursor rows are scaled to the remainder, and when there is
- *   no other Cursor spend an org-level remainder row makes up the rest. The
- *   result sums to the invoice, so a later proportional scale to the same
- *   invoice is a no-op.
+ * - Invoice actual (invoice_overrides, migration 024, lib/invoice-overrides.ts):
+ *   the invoice is the billed month total. Seats are composition inside it,
+ *   never on top: the seat rows count first (scaled down only if they exceed
+ *   the invoice) and the invoice plan scales the month's other Cursor rows to
+ *   the remainder (or adds an adjustment row for it when there is no API
+ *   spend). The month sums to the invoice exactly.
  * - A recurring Cursor cost (recurring_costs, migration 022) in a month that
  *   has per-person seats would bill the same seat dollars twice; the
  *   recurring row is dropped for that month and the admin card says so.
@@ -35,6 +34,7 @@
 
 import { CURSOR_SEAT_MODEL, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import { addMonths, toMonth, type RecurringMonthRow } from "@/lib/recurring-costs"
+import { applyInvoicePlan, monthKey, type InvoicePlan } from "@/lib/invoice-overrides"
 
 export { CURSOR_SEAT_MODEL }
 
@@ -50,9 +50,6 @@ export const SEAT_TYPE_LABEL: Record<AssignableSeatType, string> = {
   free: "Free",
   none: "Unassigned",
 }
-
-/** model_name of the org-level row that fills an invoice month with no other Cursor spend. */
-export const CURSOR_INVOICE_REMAINDER_MODEL = "cursor invoice remainder"
 
 export const CURSOR_SLUG = "cursor"
 
@@ -206,143 +203,98 @@ export function expandCursorSeats(input: {
 interface CostRow {
   date: string
   provider_id: string
-  model_name?: string | null
+  model_name: string
   total_cost_usd: number | string
 }
 
-export interface InvoiceOverride {
-  provider_id: string
-  /** YYYY-MM-01 */
-  month: string
-  billed_amount_usd: number | string
-}
-
-/**
- * How seat rows combine with a month's other Cursor rows. Built once from
- * the whole org's numbers, so it can be applied to filtered rows too.
- */
+/** Per-person seat rows for one provider (Cursor), whole org, unscaled. */
 export interface CursorSeatPlan {
   cursorProviderId: string | null
-  /** Seat rows (attributed), already scaled for invoice months. */
+  /** Attributed seat rows (attributeRecurringRows), one per billed person per month. */
   seatRows: CostRow[]
-  /** YYYY-MM -> factor for the month's other (non-seat, non-recurring) Cursor rows. */
-  otherScale: Record<string, number>
-  /** Months whose recurring Cursor rows are dropped (seats or an invoice replace them). */
-  dropRecurringMonths: string[]
-  /** Org-level rows that fill an invoice month with no other Cursor spend. */
-  extraRows: CostRow[]
 }
 
-export const EMPTY_SEAT_PLAN: CursorSeatPlan = {
-  cursorProviderId: null,
-  seatRows: [],
-  otherScale: {},
-  dropRecurringMonths: [],
-  extraRows: [],
-}
+export const EMPTY_SEAT_PLAN: CursorSeatPlan = { cursorProviderId: null, seatRows: [] }
 
 const isRecurringModel = (m: string | null | undefined) => m === RECURRING_MODEL || m === RECURRING_SEAT_MODEL
 
-/**
- * Plan how seat rows join the Cursor months.
- *
- * - A month with seats and no invoice: seats are added; any recurring Cursor
- *   row in that month is dropped (it would bill the same seats twice).
- * - A month with seats and an invoice of B: seat rows S count first (scaled by
- *   B / S if S > B), other Cursor rows (unfiltered total A) are scaled by
- *   (B - S') / A, recurring Cursor rows are dropped, and if A is 0 an
- *   org-level remainder row of B - S' is added. The month sums to B.
- * - A month with an invoice and no seats is left alone (the invoice path
- *   handles it).
- */
-export function planCursorSeats<R extends CostRow>(input: {
-  cursorProviderId: string
-  seatRows: R[]
-  overrides: InvoiceOverride[]
-  /** YYYY-MM -> whole-org Cursor total excluding seat and recurring rows. */
-  otherMonthTotals: Record<string, number>
-}): CursorSeatPlan & { seatRows: R[] } {
-  const { cursorProviderId } = input
-  const seatByMonth = new Map<string, number>()
-  for (const r of input.seatRows) {
+/** YYYY-MM -> seat total of the plan. */
+export function seatTotalsByMonth(plan: CursorSeatPlan): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const r of plan.seatRows) {
     const ym = toMonth(r.date)
-    seatByMonth.set(ym, (seatByMonth.get(ym) ?? 0) + num(r.total_cost_usd))
+    out.set(ym, (out.get(ym) ?? 0) + num(r.total_cost_usd))
   }
-  const billed = new Map<string, number>()
-  for (const o of input.overrides) {
-    if (o.provider_id !== cursorProviderId) continue
-    billed.set(toMonth(o.month), num(o.billed_amount_usd))
-  }
-  const otherScale: Record<string, number> = {}
-  const seatScale = new Map<string, number>()
-  const extraRows: CostRow[] = []
-  for (const [ym, seats] of seatByMonth) {
-    const b = billed.get(ym)
-    if (b === undefined || seats <= 0) continue
-    const sFactor = seats > b ? b / seats : 1
-    const seatsIn = seats * sFactor
-    const remainder = Math.max(0, b - seatsIn)
-    const other = input.otherMonthTotals[ym] ?? 0
-    seatScale.set(ym, sFactor)
-    otherScale[ym] = other > 0 ? remainder / other : 0
-    if (other <= 0 && remainder > 0.000001) {
-      // Shaped like an org-level attributed rollup row so filters treat it as one.
-      extraRows.push({
-        date: `${ym}-01`,
-        provider_id: cursorProviderId,
-        model_name: CURSOR_INVOICE_REMAINDER_MODEL,
-        total_cost_usd: remainder,
-        total_tokens: 0,
-        total_requests: 0,
-        record_count: 1,
-        person_id: null,
-        org_api_key_id: null,
-        team_id: null,
-        department_id: null,
-        project_id: null,
-        workspace_id: null,
-        granularity: "org",
-      } as CostRow)
-    }
-  }
-  const seatRows = input.seatRows.map((r) => {
-    const f = seatScale.get(toMonth(r.date))
-    return f === undefined || f === 1 ? r : { ...r, total_cost_usd: num(r.total_cost_usd) * f }
-  })
-  return {
-    cursorProviderId,
-    seatRows,
-    otherScale,
-    dropRecurringMonths: [...seatByMonth.keys()].sort(),
-    extraRows,
-  }
+  return out
 }
 
 /**
- * Apply a plan to rollup rows (any mix of providers, already narrowed by
- * filters or not): scale the other Cursor rows of invoice months, drop
- * recurring Cursor rows the seats replace, and append the seat and remainder
- * rows. The caller filters the appended rows like the rest.
+ * Fold the seat rows into the invoice plan (lib/invoice-overrides.ts) so an
+ * invoiced Cursor month stays at its invoice B with seats as composition:
+ *
+ * - seat rows S count first, scaled by B / S only when S > B;
+ * - the month's invoice plan then carries only the remainder R = B - S' for
+ *   the other Cursor rows: factor R / API (or, with no API spend, an
+ *   adjustment row of R; none when R is 0).
+ *
+ * Months without an invoice keep their seat rows as they are (added to the
+ * month). Returns new plans; the inputs are not changed.
+ */
+export function composeSeatsWithInvoice(
+  seats: CursorSeatPlan,
+  invoice: InvoicePlan
+): { seats: CursorSeatPlan; invoice: InvoicePlan } {
+  const pid = seats.cursorProviderId
+  if (!pid || !seats.seatRows.length || !invoice.months.size) return { seats, invoice }
+  const totals = seatTotalsByMonth(seats)
+  const months = new Map(invoice.months)
+  const seatFactor = new Map<string, number>()
+  for (const [ym, s] of totals) {
+    const key = monthKey(pid, ym)
+    const p = months.get(key)
+    if (!p || s <= 0) continue
+    const f = s > p.invoiced_usd ? p.invoiced_usd / s : 1
+    const remainder = Math.max(0, p.invoiced_usd - s * f)
+    seatFactor.set(ym, f)
+    months.set(key, { ...p, invoiced_usd: remainder, factor: p.api_usd > 0 ? remainder / p.api_usd : null })
+  }
+  if (!seatFactor.size) return { seats, invoice }
+  const seatRows = seats.seatRows.map((r) => {
+    const f = seatFactor.get(toMonth(r.date))
+    return f === undefined || f === 1 ? r : { ...r, total_cost_usd: num(r.total_cost_usd) * f }
+  })
+  return { seats: { ...seats, seatRows }, invoice: { months } }
+}
+
+/**
+ * Append seat rows to rollup rows (any mix of providers, filtered or not).
+ * A recurring Cursor cost (022) in a month that has seat rows would bill the
+ * same seats twice, so it is dropped for that month. The caller filters the
+ * appended rows like the rest.
  */
 export function applyCursorSeatPlan<T extends CostRow>(rows: T[], plan: CursorSeatPlan): T[] {
   const pid = plan.cursorProviderId
-  if (!pid || (!plan.seatRows.length && !plan.extraRows.length)) return rows
-  const drop = new Set(plan.dropRecurringMonths)
-  const out: T[] = []
-  for (const r of rows) {
-    if (r.provider_id !== pid || r.model_name === CURSOR_SEAT_MODEL) {
-      out.push(r)
-      continue
-    }
-    const ym = toMonth(r.date)
-    if (isRecurringModel(r.model_name) && drop.has(ym)) continue
-    const f = plan.otherScale[ym]
-    out.push(f === undefined ? r : { ...r, total_cost_usd: num(r.total_cost_usd) * f })
-  }
-  // Seat rows are attributed rollup rows (attributeRecurringRows) and the
-  // remainder row is shaped like one, so they fit any rollup row type.
-  out.push(...(plan.seatRows as T[]), ...(plan.extraRows as T[]))
+  if (!pid || !plan.seatRows.length) return rows
+  const seatMonths = seatTotalsByMonth(plan)
+  const out = rows.filter((r) => !(r.provider_id === pid && isRecurringModel(r.model_name) && seatMonths.has(toMonth(r.date))))
+  // Seat rows are attributed rollup rows (attributeRecurringRows), so they fit any rollup row type.
+  out.push(...(plan.seatRows as T[]))
   return out
+}
+
+/**
+ * Every spend reader's last step: the invoice plan (issue #75) with seats
+ * folded in, then the seat rows. An invoiced Cursor month sums to its
+ * invoice; other months get seats on top of usage.
+ */
+export function applySpendPlans<T extends CostRow>(
+  rows: T[],
+  invoice: InvoicePlan,
+  seats: CursorSeatPlan,
+  opts: { providerId?: string | null; adjustments?: boolean } = {}
+): T[] {
+  const composed = composeSeatsWithInvoice(seats, invoice)
+  return applyCursorSeatPlan(applyInvoicePlan(rows, composed.invoice, opts), composed.seats)
 }
 
 // ---------------------------------------------------------------------------

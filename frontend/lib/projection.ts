@@ -45,6 +45,8 @@ export const RECURRING_MODEL = "recurring"
 export const RECURRING_SEAT_MODEL = "recurring seats"
 /** model_name of a per-person Cursor seat fee row (migration 026, lib/cursor-seats.ts). */
 export const CURSOR_SEAT_MODEL = "cursor seats"
+/** model_name of the org-level row carrying an invoice actual with no API spend to scale (issue #75). */
+export const INVOICE_ADJUSTMENT_MODEL = "invoice adjustment"
 const RECURRING_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL])
 /** Monthly bill rows expanded for every month they cover: never carried into a month without one. */
 const MONTHLY_BILL_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL, CURSOR_SEAT_MODEL])

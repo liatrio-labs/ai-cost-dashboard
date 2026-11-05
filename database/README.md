@@ -542,6 +542,18 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   `DROP TABLE IF EXISTS public.admin_users;` (env-allowlist admins are
   unaffected). **Needs Robert's explicit approval before it is applied to
   production.**
+- **024_invoice_overrides.sql**: invoice actuals per provider + calendar month
+  (#75). Adds `invoice_overrides` (one row per `provider_id` + `month`, the
+  1st; `billed_amount_usd` >= 0 is the amount that counts, net of credits;
+  optional `credits_usd`, `notes`, `invoice_ids`; `entered_by`, `entered_at`).
+  RLS on; `authenticated` may SELECT, writes are `service_role` only (the
+  `/admin` Invoice actuals section, behind `requireAdmin`). Nothing is written
+  to `cost_records`: the app applies overrides at read time
+  (`frontend/lib/invoice-overrides.ts`), scaling the provider-month's API rows
+  to the invoice and dropping its manual and recurring rows. Without 024 the
+  app reads no overrides (totals unchanged) and `/admin` shows "migration 024
+  not applied". Rollback: `DROP TABLE IF EXISTS public.invoice_overrides;`.
+  **Needs Robert's explicit approval before it is applied to production.**
 
 ### Testing migrations locally
 
@@ -576,7 +588,9 @@ resolving through the alias, all spend on the primary after a refresh, totals
 unchanged and reconciled, a repeated merge returning `already_merged` with
 nothing changed, refusals, grants), runs `assertions_023.sql` (`admin_users`
 RLS with no policies, no `anon`/`authenticated` privileges, unique and
-lowercased email), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 023) over the data. 011 must always follow 010, because 010 recreates the view
+lowercased email), runs `assertions_024.sql` (`invoice_overrides` RLS and
+grants, one row per provider-month, month / amount / credits CHECKs, provider
+FK, `cost_records` unchanged), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 024) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

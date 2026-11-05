@@ -16,7 +16,7 @@ import { productNum, roundSplit, type ProductSlice, type ProductSplit } from "@/
 export const CURSOR_SLUG = "cursor"
 
 export const CURSOR_PRODUCTS = ["grok_bot", "bugbot", "agent_chat"] as const
-/** Seat fees (migration 026) and the invoice remainder: a slice only when present. */
+/** Seat fees (migration 026): a slice only when present. */
 export const CURSOR_SEAT_PRODUCT = "seats" as const
 export type CursorProduct = (typeof CURSOR_PRODUCTS)[number] | typeof CURSOR_SEAT_PRODUCT
 
@@ -34,7 +34,7 @@ export type CursorProductSplit = ProductSplit<CursorProduct>
 export function cursorProductBucket(model: unknown): CursorProduct {
   if (typeof model !== "string") return "agent_chat"
   const m = model.trim().toLowerCase()
-  if (m === "cursor seats" || m === "cursor invoice remainder") return CURSOR_SEAT_PRODUCT
+  if (m === "cursor seats") return CURSOR_SEAT_PRODUCT
   if (m.startsWith("grok-bot-")) return "grok_bot"
   if (m === "github_bugbot") return "bugbot"
   return "agent_chat"
