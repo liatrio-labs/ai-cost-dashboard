@@ -7,7 +7,7 @@
  * token counts.
  */
 
-import { transform } from "./cursor"
+import { CURSOR_ON_DEMAND_SINCE, cursorBillingTier, transform, withinOnDemandWindow } from "./cursor"
 import type { CostRecord } from "./types"
 
 const ctx = {
@@ -185,5 +185,90 @@ describe("cursor attribution", () => {
     expect(dana.metadata.attribution).toEqual({ granularity: "person", person_email: "dana@liatrio.example" })
     const anon = records.find((r) => r.metadata.member_email === "unknown")!
     expect(anon.metadata.attribution).toEqual({ granularity: "org" })
+  })
+})
+
+describe("cursor billing tier (issue #73)", () => {
+  const TS_NOV3 = Date.UTC(2026, 10, 3, 15, 0, 0)
+  const DAY_NOV3 = new Date(Date.UTC(2026, 10, 3)).toISOString()
+  const ev = (kind: string, chargedCents: number, extra: Record<string, unknown> = {}) => ({
+    timestamp: String(TS_NOV3),
+    userEmail: "jacob@example.com",
+    model: "grok-4.7-high",
+    kind,
+    isChargeable: true,
+    chargedCents,
+    ...extra,
+  })
+  const total = (rs: CostRecord[]) => rs.reduce((a, r) => a + r.cost_usd, 0)
+
+  test("Included-in-Business events are not billable: cost_usd 0, value kept as included_value_usd", () => {
+    const rs = transform([ev("Included in Business", 5000), ev("Included in Business", 1234)], ctx)
+    expect(rs).toHaveLength(1)
+    expect(rs[0].cost_usd).toBe(0)
+    expect(total(rs)).toBe(0)
+    expect(rs[0].metadata.billing_tier).toBe("included")
+    expect(rs[0].metadata.included_value_usd).toBeCloseTo(62.34)
+    expect(rs[0].metadata.on_demand_value_usd).toBe(0)
+    expect(rs[0].request_count).toBe(2)
+  })
+
+  test("Usage-based events are billable at their charged amount", () => {
+    const rs = transform([ev("Usage-based", 1999), ev("Usage-based", 1)], ctx)
+    expect(rs).toHaveLength(1)
+    expect(rs[0].cost_usd).toBeCloseTo(20)
+    expect(rs[0].metadata.billing_tier).toBe("on_demand")
+    expect(rs[0].metadata.on_demand_value_usd).toBeCloseTo(20)
+    expect(rs[0].metadata.included_value_usd).toBe(0)
+  })
+
+  test("a mixed day/person/model is split into one row per tier, kinds preserved", () => {
+    const rs = transform([ev("Included in Business", 10000), ev("Usage-based", 250), ev("Usage-based", 50)], ctx)
+    expect(rs).toHaveLength(2)
+    const inc = rs.find((r) => r.metadata.billing_tier === "included")!
+    const od = rs.find((r) => r.metadata.billing_tier === "on_demand")!
+    for (const r of rs) {
+      expect(r.timestamp).toBe(DAY_NOV3)
+      expect(r.model_name).toBe("grok-4.7-high")
+      expect(r.metadata.member_email).toBe("jacob@example.com")
+    }
+    expect(inc.metadata.kinds).toEqual(["Included in Business"])
+    expect(od.metadata.kinds).toEqual(["Usage-based"])
+    expect(inc.cost_usd).toBe(0)
+    expect(inc.metadata.included_value_usd).toBeCloseTo(100)
+    expect(od.cost_usd).toBeCloseTo(3)
+    expect(total(rs)).toBeCloseTo(3) // only on-demand counts
+  })
+
+  test("billingTier field also marks the included pool", () => {
+    expect(cursorBillingTier({ kind: "Usage-based" })).toBe("on_demand")
+    expect(cursorBillingTier({ kind: "Included in Business" })).toBe("included")
+    expect(cursorBillingTier({ kind: "Included in Pro" })).toBe("included")
+    expect(cursorBillingTier({ kind: "agent", billingTier: "included" })).toBe("included")
+    expect(cursorBillingTier({ kind: "Errored, Not Charged" })).toBe("on_demand")
+    expect(cursorBillingTier({})).toBe("on_demand")
+  })
+
+  test("/teams/spend: spendCents (on-demand) and overallSpendCents kept apart", () => {
+    const rs = transform([ev("Usage-based", 100)], ctx, {
+      spendCents: { "jacob@example.com": 20000 },
+      overallSpendCents: { "jacob@example.com": 700000 },
+    })
+    expect(rs[0].metadata.member_cycle_spend_cents).toBe(20000)
+    expect(rs[0].metadata.member_cycle_overall_spend_cents).toBe(700000)
+  })
+
+  test("re-pulls never rewrite days before November 2026", () => {
+    expect(CURSOR_ON_DEMAND_SINCE).toBe("2026-11-01")
+    const rs = transform(
+      [
+        { ...ev("Usage-based", 100), timestamp: String(Date.UTC(2026, 9, 31, 23, 59)) },
+        { ...ev("Usage-based", 200), timestamp: String(Date.UTC(2026, 10, 1, 0, 0)) },
+        { ...ev("Usage-based", 300), timestamp: String(Date.UTC(2026, 9, 5)) },
+      ],
+      ctx
+    )
+    expect(rs.map((r) => r.timestamp.slice(0, 10)).sort()).toEqual(["2026-10-05", "2026-10-31", "2026-11-01"])
+    expect(withinOnDemandWindow(rs).map((r) => r.timestamp.slice(0, 10))).toEqual(["2026-11-01"])
   })
 })

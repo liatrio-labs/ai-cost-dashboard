@@ -123,6 +123,31 @@ describe("CursorProductSplit", () => {
     expect(within(card).getByText("$43.10")).toBeInTheDocument()
     expect(within(card).getByText(/adds up to the Cursor total of \$79.72/)).toBeInTheDocument()
   })
+
+  it("labels the split as on-demand spend and says included usage counts $0 (issue #73)", () => {
+    render(<CursorProductSplit products={CURSOR_PRODUCTS} total={79.72} />)
+    const card = screen.getByTestId("cursor-products")
+    expect(within(card).getByText(/on-demand \(usage-based\) spend/)).toBeInTheDocument()
+    expect(within(card).getByText(/included in the\s+Business plan is not billed/)).toBeInTheDocument()
+  })
+})
+
+describe("ToolsTable Cursor on-demand label (issue #73)", () => {
+  it("marks the Cursor row's spend as on-demand only, and no other row", () => {
+    render(
+      <ToolsTable
+        tools={[
+          tool({ id: "prov-cursor", name: "Cursor (Admin API)", monthlySpend: 79.72, products: CURSOR_PRODUCTS }),
+          tool({ products: PRODUCTS }),
+          tool({ id: "prov-openai", name: "OpenAI API", monthlySpend: 50 }),
+        ]}
+      />
+    )
+    const notes = screen.getAllByTestId("cursor-on-demand-note")
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toHaveTextContent("on-demand only")
+    expect(notes[0].getAttribute("title")).toMatch(/included in the Cursor Business plan is not billed/i)
+  })
 })
 
 describe("ToolProductCards (Dashboard tab)", () => {

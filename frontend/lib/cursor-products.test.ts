@@ -4,6 +4,7 @@
  * and follow the person / team filters and the period.
  */
 
+import { transform as cursorTransform } from "./collectors/cursor"
 import { cursorProductBucket, splitCursorByProduct } from "./cursor-products"
 import { computeDashboard } from "./dashboard-compute"
 import { applyFilters } from "./dashboard-filters"
@@ -153,5 +154,65 @@ describe("computeBreakdown Cursor products (person view)", () => {
 
   it("is null for a selection with no Cursor rows", () => {
     expect(breakdown({ person: PE.bob }).cursorProducts).toBeNull()
+  })
+})
+
+/**
+ * Issue #73: only on-demand (Usage-based) Cursor spend is billable. Events run
+ * through the real collector transform, the rollup and computeDashboard.
+ *   Included in Business: grok-bot-default 50.00, github_bugbot 20.00, default 30.00 (all $0 billable)
+ *   Usage-based:          grok-bot-default 1.50, github_bugbot 2.25, default 4.00 (+ same day/person/model as an included event)
+ * Billable Nov Cursor 7.75 = Grok Bot 1.50 + Bugbot 2.25 + Agent/Chat 4.00
+ */
+describe("Cursor on-demand only (issue #73)", () => {
+  const ts = (d: number) => String(Date.UTC(2026, 10, d, 12))
+  const ev = (d: number, model: string, kind: string, chargedCents: number, userEmail?: string) => ({
+    timestamp: ts(d),
+    model,
+    kind,
+    chargedCents,
+    isChargeable: true,
+    ...(userEmail ? { userEmail } : {}),
+  })
+  const INCLUDED = [
+    ev(1, "grok-bot-default", "Included in Business", 5000, "dave.alias@liatrio.com"),
+    ev(2, "github_bugbot", "Included in Business", 2000),
+    ev(2, "default", "Included in Business", 3000, "alice@liatrio.com"),
+  ]
+  const USAGE_BASED = [
+    ev(1, "grok-bot-default", "Usage-based", 150, "dave.alias@liatrio.com"),
+    ev(2, "github_bugbot", "Usage-based", 225),
+    ev(2, "default", "Usage-based", 400, "alice@liatrio.com"),
+  ]
+  const dash = (events: ReturnType<typeof ev>[]) => {
+    const records = cursorTransform(events, { userId: "u", providerId: P.cursor })
+    const daily = toAttributedDailyRows(records as CostRecordLike[], buildOrgIndex(org))
+    return computeDashboard({ daily, providers: PROVIDERS, params: { month: "2026-11" }, forecastSettings: FORECAST_DEFAULTS, now: NOW, projectForecast: false })
+  }
+  const cursor = (d: ReturnType<typeof dash>) => d.tools.find((t) => t.id === P.cursor)
+
+  it("Included-in-Business events do not add to monthlySpend or the spend KPI", () => {
+    const d = dash(INCLUDED)
+    expect(cursor(d)?.monthlySpend ?? 0).toBe(0)
+    expect(d.kpis.totalSpend).toBe(0)
+  })
+
+  it("Usage-based events still add their charged amount to monthlySpend and the spend KPI", () => {
+    const d = dash(USAGE_BASED)
+    expect(cursor(d)!.monthlySpend).toBe(7.75)
+    expect(d.kpis.totalSpend).toBe(7.75)
+  })
+
+  it("mixed Included + Usage-based: only the Usage-based part counts", () => {
+    const d = dash([...INCLUDED, ...USAGE_BASED])
+    expect(cursor(d)!.monthlySpend).toBe(7.75)
+    expect(d.kpis.totalSpend).toBe(7.75)
+  })
+
+  it("product split (Grok Bot / Bugbot / Agent/Chat) still works on on-demand spend and sums to the tool total", () => {
+    const t = cursor(dash([...INCLUDED, ...USAGE_BASED]))! as { monthlySpend: number; products: { product: string; label: string; cost: number }[] }
+    expect(byProduct(t)).toEqual({ grok_bot: 1.5, bugbot: 2.25, agent_chat: 4 })
+    expect(t.products.map((p) => p.label)).toEqual(["Grok Bot", "Bugbot", "Agent/Chat"])
+    expect(sumCents(t)).toBe(cents(t.monthlySpend))
   })
 })
