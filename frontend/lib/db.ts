@@ -5,7 +5,7 @@
  * Use these utilities in API routes to ensure Row-Level Security (RLS) is enforced.
  */
 
-import { createServerClient, type CookieOptions } from "@supabase/ssr"
+import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
 import { isTableAdminEmail } from "@/lib/admin-users"
@@ -21,7 +21,7 @@ export type Database = {
           api_base_url: string | null
           documentation_url: string | null
           is_active: boolean
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
           updated_at: string
         }
@@ -41,7 +41,7 @@ export type Database = {
           output_tokens: number | null
           request_count: number
           collection_method: string
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
         }
         Insert: Omit<Database["public"]["Tables"]["cost_records"]["Row"], "id" | "created_at">
@@ -64,7 +64,7 @@ export type Database = {
           training_data_start: string
           training_data_end: string
           training_record_count: number
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
         }
         Insert: Omit<Database["public"]["Tables"]["forecast_results"]["Row"], "id" | "created_at">
@@ -79,7 +79,7 @@ export type Database = {
           default_date_range: string
           email_notifications: boolean
           forecast_enabled: boolean
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
           updated_at: string
         }
