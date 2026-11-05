@@ -242,7 +242,7 @@ export async function fetchRecurringCosts(supabase: SupabaseLike): Promise<Recur
 const MANUAL_ROW_COLUMNS = "id, user_id, provider_id, timestamp, model_name, cost_usd, request_count, collection_method, metadata"
 
 /** Manual (manual_entry / csv_import) cost_records of these providers: overrides and seat splits. */
-async function fetchManualRows(supabase: SupabaseLike, providerIds: string[]): Promise<ManualCostRow[]> {
+export async function fetchManualRows(supabase: SupabaseLike, providerIds: string[]): Promise<ManualCostRow[]> {
   const out: ManualCostRow[] = []
   // One query per (provider, manual method): few of each, and it never pages
   // through an API-collected provider's usage rows.

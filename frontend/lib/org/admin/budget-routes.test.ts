@@ -196,3 +196,44 @@ describe("/api/cron/budget-alerts", () => {
     expect(res.body).toMatchObject({ status: "migration_020_not_applied", sent: 0 })
   })
 })
+
+describe("invoice actuals (issue #75)", () => {
+  /** Budget status for team t1 on Nov 3, when the trailing window (Oct) drives the projection. */
+  async function teamStatus(db: FakeSupabase) {
+    mockState.db = db
+    const res = await call(budgets.GET, "GET")
+    expect(res.status).toBe(200)
+    return res.body.statuses[0] as { actual: number; projected: number }
+  }
+  function seeded() {
+    const db = seed()
+    db.table("budgets").push({ id: "b1", scope: "team", subject_id: "t1", monthly_usd: 5000, note: null, created_by: ADMIN.email, updated_by: ADMIN.email, updated_at: "2026-11-01T00:00:00Z" })
+    // The plain rollup (the scaling basis) mirrors the attributed rows.
+    for (const r of db.table("cost_records_daily_attributed")) {
+      db.table("cost_records_daily").push({ date: r.date, provider_id: r.provider_id, model_name: r.model_name, total_cost_usd: r.total_cost_usd })
+    }
+    return db
+  }
+
+  test("budgets and projections use the invoiced amount for an overridden month; without 024 nothing changes", async () => {
+    jest.setSystemTime(new Date("2026-11-03T12:00:00Z"))
+    try {
+      const plain = await teamStatus(seeded())
+
+      // October API: 31 days x $100 = $3,100; invoiced $310 -> $10/day.
+      const db = seeded()
+      db.table("invoice_overrides").push({ id: "io1", provider_id: AN, month: "2026-10-01", billed_amount_usd: "310.00", credits_usd: null, notes: null, invoice_ids: [], entered_by: ADMIN.email, entered_at: "2026-11-02T00:00:00Z" })
+      const overridden = await teamStatus(db)
+      // The current month's actual is untouched; its projection follows the invoiced October rate.
+      expect(overridden.actual).toBe(plain.actual)
+      expect(overridden.projected).toBeLessThan(plain.projected)
+
+      const missing = seeded()
+      missing.table("invoice_overrides").push({ id: "io1", provider_id: AN, month: "2026-10-01", billed_amount_usd: "310.00" })
+      missing.missingTables.add("invoice_overrides")
+      expect(await teamStatus(missing)).toEqual(plain)
+    } finally {
+      jest.setSystemTime(new Date("2026-11-15T12:00:00Z"))
+    }
+  })
+})
