@@ -554,6 +554,24 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   app reads no overrides (totals unchanged) and `/admin` shows "migration 024
   not applied". Rollback: `DROP TABLE IF EXISTS public.invoice_overrides;`.
   **Needs Robert's explicit approval before it is applied to production.**
+- **025_cursor_cycle_spend.sql**: Cursor billing-cycle on-demand snapshots
+  (#76). Adds `cursor_spend_cycles` (one row per `subscriptionCycleStart`:
+  `team_spend_cents` = sum of members' `spendCents`, `team_overall_spend_cents`
+  informational, `member_count`, `first_captured_at`, `captured_at`) and
+  `cursor_member_cycle_spend` (one row per cycle and lowercased member email:
+  `spend_cents`, `overall_spend_cents`, `monthly_limit_dollars`,
+  `hard_limit_override_dollars`, `effective_per_user_limit_dollars`, name,
+  role). The one write path is `record_cursor_spend_snapshot()` (SECURITY
+  INVOKER, pinned `search_path`, EXECUTE for `service_role` only): it upserts
+  the current cycle, returns `stale` and writes nothing for a cycle older than
+  the latest. A trigger refuses any insert, update or delete in a cycle once a
+  later cycle exists, so prior cycles are immutable. RLS on; `authenticated`
+  SELECT, writes `service_role` only. Nothing touches `cost_records`. Without
+  025 the snapshot step reports `migration_missing` and the dashboard shows a
+  notice; every existing total is unchanged. Independent of 024's invoice
+  actuals. Rollback: drop `record_cursor_spend_snapshot`, then the two
+  tables, then `cursor_cycle_spend_guard()` (see the file header). **Needs
+  Robert's explicit approval before it is applied to production.**
 
 ### Testing migrations locally
 
@@ -590,7 +608,12 @@ nothing changed, refusals, grants), runs `assertions_023.sql` (`admin_users`
 RLS with no policies, no `anon`/`authenticated` privileges, unique and
 lowercased email), runs `assertions_024.sql` (`invoice_overrides` RLS and
 grants, one row per provider-month, month / amount / credits CHECKs, provider
-FK, `cost_records` unchanged), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 024) over the data. 011 must always follow 010, because 010 recreates the view
+FK, `cost_records` unchanged), runs `assertions_025.sql` (member and team
+`spendCents` totals, persisted limit / overall / cycle fields, an Oct 19 to
+Nov 19 rollover with the Oct 19 snapshot preserved, a stale snapshot refused,
+prior-cycle updates / deletes / inserts refused, grants, `cost_records`
+unchanged), then re-applies 010, 011, 014 and every later migration (015 to
+018, 020 to 025) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.

@@ -111,6 +111,7 @@ jest.mock("@/lib/db", () => {
 // Imported after the mocks.
 import { GET as getDashboard } from "./route"
 import { GET as getBreakdown } from "./breakdown/route"
+import { GET as getCursorCycle } from "./cursor-cycle/route"
 
 function seed(org: OrgData) {
   tables = {
@@ -576,6 +577,84 @@ describe("recurring monthly costs (issue #59)", () => {
     expect(after.body).toEqual(before.body)
     const b = await brk(`/api/dashboard/breakdown?month=2026-11&team=${T.data}`)
     expect(b.status).toBe(200)
+  })
+})
+
+describe("Cursor billing-cycle spend (issue #76)", () => {
+  const OCT19 = "2026-10-19T00:00:00.000Z"
+  const NOV19 = "2026-11-19T00:00:00.000Z"
+  const cycle = (start: string, spend: string, captured: string) => ({
+    cycle_start: start,
+    team_spend_cents: spend,
+    team_overall_spend_cents: "99999.0000",
+    member_count: 1,
+    first_captured_at: start,
+    captured_at: captured,
+  })
+  const member = (start: string, email: string, spend: string) => ({
+    cycle_start: start,
+    member_email: email,
+    member_name: null,
+    cursor_user_id: null,
+    role: "member",
+    spend_cents: spend,
+    overall_spend_cents: "99999.0000",
+    monthly_limit_dollars: "100.00",
+    hard_limit_override_dollars: null,
+    effective_per_user_limit_dollars: "100.00",
+    captured_at: NOV19,
+  })
+  const cycleView = async () => json<Record<string, unknown>>(await getCursorCycle())
+
+  it("missing-table fallback: without migration 025 the dashboard and breakdown are exactly as before, and the cycle route returns a notice", async () => {
+    const dashBefore = await dash("/api/dashboard?month=2026-11")
+    const brkBefore = await brk("/api/dashboard/breakdown?month=2026-11")
+    const missing = (t: string) => ({ code: "PGRST205", message: `Could not find the table 'public.${t}' in the schema cache` })
+    tableErrors.cursor_spend_cycles = missing("cursor_spend_cycles")
+    tableErrors.cursor_member_cycle_spend = missing("cursor_member_cycle_spend")
+
+    const dashAfter = await dash("/api/dashboard?month=2026-11")
+    const brkAfter = await brk("/api/dashboard/breakdown?month=2026-11")
+    expect(dashAfter.status).toBe(200)
+    expect(dashAfter.body).toEqual(dashBefore.body)
+    expect(brkAfter.body).toEqual(brkBefore.body)
+    expect(dashAfter.body.kpis.totalSpend).toBe(NOV_TOTAL)
+
+    const { status, body } = await cycleView()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ available: false, notice: expect.stringMatching(/migration 025/) })
+  })
+
+  it("stored cycle snapshots never change calendar-month totals or the Cursor product split", async () => {
+    const before = await dash("/api/dashboard?month=2026-11")
+    tables.cursor_spend_cycles = [cycle(OCT19, "5000.0000", "2026-11-19T00:05:00Z"), cycle(NOV19, "1234.0000", "2026-11-20T00:05:00Z")]
+    tables.cursor_member_cycle_spend = [member(OCT19, "dave@liatrio.com", "5000.0000"), member(NOV19, "dave@liatrio.com", "1234.0000")]
+    const after = await dash("/api/dashboard?month=2026-11")
+    expect(after.body).toEqual(before.body)
+    expect(reads).not.toContain("cost_records")
+  })
+
+  it("serves the current cycle with members and limits, and earlier cycles as final snapshots", async () => {
+    tables.cursor_spend_cycles = [cycle(OCT19, "5000.0000", "2026-11-19T00:05:00Z"), cycle(NOV19, "1234.0000", "2026-11-20T00:05:00Z")]
+    tables.cursor_member_cycle_spend = [member(OCT19, "dave@liatrio.com", "5000.0000"), member(NOV19, "dave@liatrio.com", "1234.0000")]
+    const { status, body } = await cycleView()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({
+      available: true,
+      current: {
+        cycleStart: NOV19,
+        cycleEnd: "2026-12-19T00:00:00.000Z",
+        cycleEndEstimated: true,
+        teamSpendCents: 1234,
+        members: [{ email: "dave@liatrio.com", spendCents: 1234, effectivePerUserLimitDollars: 100, monthlyLimitDollars: 100 }],
+      },
+      previous: [{ cycleStart: OCT19, cycleEnd: NOV19, cycleEndEstimated: false, teamSpendCents: 5000 }],
+    })
+  })
+
+  it("requires auth", async () => {
+    authed = false
+    expect((await cycleView()).status).toBe(401)
   })
 })
 

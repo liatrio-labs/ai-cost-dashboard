@@ -62,7 +62,7 @@ interface PullResult {
   reason?: string
   error?: string
   range?: { start_date: string; end_date: string; clamped?: boolean }
-  keySync?: (GatewaySyncCounts & { status?: string; error?: string }) | null
+  keySync?: (GatewaySyncCounts & { status?: string; error?: string; cycle_spend?: { status?: string; reason?: string } }) | null
 }
 
 export function ProviderPullCard() {
@@ -214,7 +214,13 @@ function PullStatus({ r }: { r: PullResult }) {
         Stored {r.recordsStored} record{r.recordsStored === 1 ? "" : "s"}
         {r.range && ` for ${r.range.start_date} to ${r.range.end_date}${r.range.clamped ? " (start moved to the earliest available day)" : ""}`}
       </p>
-      {r.keySync && (
+      {r.keySync?.cycle_spend ? (
+        // Issue #76: Cursor's billing-cycle snapshot, not a key sync.
+        <p className={line}>
+          Billing-cycle snapshot: {r.keySync.cycle_spend.status}
+          {r.keySync.cycle_spend.reason ? ` (${r.keySync.cycle_spend.reason})` : ""}
+        </p>
+      ) : r.keySync && (
         <p className={line}>
           {r.keySync.status === "error" ? (
             <span className="text-destructive">Key sync failed: {r.keySync.error}</span>
