@@ -23,6 +23,7 @@ import {
 import { currentMonthOf } from "@/lib/recurring-costs"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
+import { AdminsCard } from "@/components/admin/admins"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
 import { ForecastUnitsCard } from "@/components/admin/forecast-units"
 import { ProviderPullCard } from "@/components/admin/provider-pull"
@@ -366,6 +367,9 @@ export function AdminClient() {
         </Card>
 
         <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
+
+        {/* Admins (issue #71) */}
+        <AdminsCard />
       </main>
     </div>
   )

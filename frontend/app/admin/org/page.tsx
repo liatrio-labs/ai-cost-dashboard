@@ -14,7 +14,7 @@ export default async function OrgAdminPage() {
     const cookieStore = await cookies()
     const user = await getCurrentUser(cookieStore)
     if (!user) redirect("/login")
-    if (!isAdminEmail(user.email)) redirect("/")
+    if (!(await isAdminEmail(user.email))) redirect("/")
   }
 
   return <OrgAdminClient />

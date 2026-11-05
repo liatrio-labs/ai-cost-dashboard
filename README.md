@@ -127,8 +127,14 @@ service**. Collection is in-process; the cron routes only authenticate the reque
 ## Access & roles
 
 - Sign-in is **Google-only**, restricted to the `@liatrio.com` domain.
-- **Any authenticated `@liatrio.com` user can reach the `/admin` area** (configurable
-  via the `ADMIN_DOMAINS` env var; an explicit `ADMIN_EMAILS` allowlist is also honored).
+- **Admins** reach `/admin`, `/admin/org` and the admin-only parts of the dashboard. An
+  admin is either on the env allowlist (`ADMIN_EMAILS`, else `DASHBOARD_OWNER_EMAIL`, else
+  `robert@liatrio.com`; always admin, not removable in the UI) or was added in the
+  **Admins** section on `/admin` (stored in `admin_users`, migration 023; `@liatrio.com`
+  addresses only; you can't remove yourself). Being `@liatrio.com` alone does **not** make
+  you an admin. `ADMIN_DOMAINS` (comma-separated) still grants a whole domain, but only
+  when set explicitly; it has no default. Without migration 023 only env admins exist and
+  the Admins section shows a "migration 023 not applied" notice.
 - The dashboard data is shared — all authenticated users see the same org-wide spend.
 - `/admin/org` manages departments, teams, people (and their provider identities),
   API key and project ownership, imports people from emails seen in collected data
@@ -165,7 +171,7 @@ Useful env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, the provider tokens (e.g.
 `ANTHROPIC_ADMIN_KEY`, `OPENAI_ADMIN_KEY` + `OPENAI_ORG_ID`, `CURSOR_ADMIN_KEY`,
 `AI_GATEWAY_API_KEY`, plus `VERCEL_TOKEN` and `VERCEL_TEAM_ID` for the AI Gateway
-key sync), optionally `ADMIN_DOMAINS`, and the budget-alert vars (`BUDGET_ALERTS_MODE`,
+key sync), optionally `ADMIN_EMAILS` / `DASHBOARD_OWNER_EMAIL` and `ADMIN_DOMAINS` (no default), and the budget-alert vars (`BUDGET_ALERTS_MODE`,
 `BUDGET_ALERT_SLACK_WEBHOOK_URL`, `BUDGET_ALERT_EMAIL_TO`, `BUDGET_ALERT_EMAIL_FROM`,
 `RESEND_API_KEY`; see Budgets below).
 Set `NEXT_PUBLIC_SKIP_AUTH=true` to bypass auth in local dev.

@@ -533,6 +533,15 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   `service_role` only). The app works without it: the merge tool lists
   duplicates and previews, and says merging needs 021. **Needs Robert's
   explicit approval before it is applied to production.**
+- **023_admin_users.sql**: editable admin list (#71). Adds `admin_users`
+  (`email` unique, stored lowercased and trimmed; `added_by`, `added_at`).
+  RLS on with no policies and no privileges for `anon` or `authenticated`;
+  `service_role` only. No other table or data change. The app treats a missing
+  table as "env-allowlist admins only" and the Admins section on `/admin`
+  shows "migration 023 not applied" with add/remove disabled. Rollback:
+  `DROP TABLE IF EXISTS public.admin_users;` (env-allowlist admins are
+  unaffected). **Needs Robert's explicit approval before it is applied to
+  production.**
 
 ### Testing migrations locally
 
@@ -565,7 +574,9 @@ CHECKs and unique keys, dry-run and live deduped separately, `budget_over` in
 counts, identities / key owner / seat rows on the primary, the old email
 resolving through the alias, all spend on the primary after a refresh, totals
 unchanged and reconciled, a repeated merge returning `already_merged` with
-nothing changed, refusals, grants), then re-applies 010, 011, 014 and every later migration (015 to 018, 020, 021, 022) over the data. 011 must always follow 010, because 010 recreates the view
+nothing changed, refusals, grants), runs `assertions_023.sql` (`admin_users`
+RLS with no policies, no `anon`/`authenticated` privileges, unique and
+lowercased email), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 023) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.
