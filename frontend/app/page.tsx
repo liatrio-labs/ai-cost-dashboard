@@ -17,7 +17,7 @@ export default async function Home() {
     if (!user) {
       redirect("/login")
     }
-    isAdmin = isAdminEmail(user.email)
+    isAdmin = await isAdminEmail(user.email)
   }
 
   // DashboardClient reads its filters from the URL (useSearchParams).

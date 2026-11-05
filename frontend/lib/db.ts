@@ -5,9 +5,10 @@
  * Use these utilities in API routes to ensure Row-Level Security (RLS) is enforced.
  */
 
-import { createServerClient, type CookieOptions } from "@supabase/ssr"
+import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextRequest, NextResponse } from "next/server"
+import { isTableAdminEmail } from "@/lib/admin-users"
 
 export type Database = {
   public: {
@@ -20,7 +21,7 @@ export type Database = {
           api_base_url: string | null
           documentation_url: string | null
           is_active: boolean
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
           updated_at: string
         }
@@ -40,7 +41,7 @@ export type Database = {
           output_tokens: number | null
           request_count: number
           collection_method: string
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
         }
         Insert: Omit<Database["public"]["Tables"]["cost_records"]["Row"], "id" | "created_at">
@@ -63,7 +64,7 @@ export type Database = {
           training_data_start: string
           training_data_end: string
           training_record_count: number
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
         }
         Insert: Omit<Database["public"]["Tables"]["forecast_results"]["Row"], "id" | "created_at">
@@ -78,7 +79,7 @@ export type Database = {
           default_date_range: string
           email_notifications: boolean
           forecast_enabled: boolean
-          metadata: Record<string, any>
+          metadata: Record<string, unknown>
           created_at: string
           updated_at: string
         }
@@ -245,27 +246,40 @@ export function getAdminEmails(): string[] {
 
 /**
  * Email domain(s) granted admin access. Any authenticated user whose email is
- * under one of these domains can reach the ingest/admin area. Sourced from the
- * ADMIN_DOMAINS env var (comma-separated), defaulting to liatrio.com — so every
- * authenticated @liatrio.com Google account is an admin. Case-insensitive; a
- * leading "@" is tolerated.
+ * under one of these domains is an admin. Sourced from the ADMIN_DOMAINS env
+ * var (comma-separated) and empty unless it is set explicitly (issue #71: no
+ * domain is an admin by default). Case-insensitive; a leading "@" is tolerated.
  */
 export function getAdminDomains(): string[] {
-  const raw = process.env.ADMIN_DOMAINS || "liatrio.com"
+  const raw = process.env.ADMIN_DOMAINS || ""
   return raw
     .split(",")
     .map((s) => s.trim().toLowerCase().replace(/^@/, ""))
     .filter(Boolean)
 }
 
-export function isAdminEmail(email?: string | null): boolean {
+/**
+ * Admin from the environment: the ADMIN_EMAILS / DASHBOARD_OWNER_EMAIL
+ * allowlist, or an explicitly configured ADMIN_DOMAINS domain. Always admin,
+ * and cannot be removed on /admin.
+ */
+export function isEnvAdminEmail(email?: string | null): boolean {
   if (!email) return false
-  const lower = email.toLowerCase()
-  // Explicit per-user allowlist (ADMIN_EMAILS / DASHBOARD_OWNER_EMAIL)…
+  const lower = email.trim().toLowerCase()
   if (getAdminEmails().includes(lower)) return true
-  // …or anyone under an approved domain (defaults to liatrio.com).
   const domain = lower.split("@")[1]
   return !!domain && getAdminDomains().includes(domain)
+}
+
+/**
+ * Admin = env admin (isEnvAdminEmail) OR a row in admin_users (migration 023,
+ * case-insensitive, cached briefly). If admin_users is missing or unreadable,
+ * only env admins are admins; this never throws.
+ */
+export async function isAdminEmail(email?: string | null): Promise<boolean> {
+  if (!email) return false
+  if (isEnvAdminEmail(email)) return true
+  return isTableAdminEmail(email)
 }
 
 /**
@@ -277,6 +291,6 @@ export async function requireAdmin(
 ): Promise<{ id: string; email: string }> {
   const user = await getCurrentUser(cookieStore)
   if (!user) throw new Error("Unauthorized")
-  if (!isAdminEmail(user.email)) throw new Error("Forbidden")
+  if (!(await isAdminEmail(user.email))) throw new Error("Forbidden")
   return { id: user.id, email: user.email! }
 }
