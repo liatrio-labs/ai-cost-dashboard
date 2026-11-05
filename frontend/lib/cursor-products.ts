@@ -8,7 +8,9 @@
  * rollups keep model_name, so the split reads the same rollup rows as the
  * Cursor total (already narrowed to the period and the person / team filters)
  * and needs no extra query or migration. Slices are rounded with largest
- * remainders, so they always sum to the Cursor total to the cent.
+ * remainders, so they always sum to the Cursor total to the cent. Per-person
+ * seat fees (migration 026, model "cursor seats") get a Seats slice, shown
+ * only when there are any.
  */
 
 import { productNum, roundSplit, type ProductSlice, type ProductSplit } from "@/lib/product-breakdown"

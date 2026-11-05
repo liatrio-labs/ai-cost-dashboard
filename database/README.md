@@ -554,6 +554,31 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   app reads no overrides (totals unchanged) and `/admin` shows "migration 024
   not applied". Rollback: `DROP TABLE IF EXISTS public.invoice_overrides;`.
   **Needs Robert's explicit approval before it is applied to production.**
+- **026_cursor_seats.sql**: Cursor seat types per person and monthly seat
+  rates. The Cursor Admin API does not report seat types or the seat
+  subscription line, so they are kept here. Adds `cursor_seat_assignments`
+  (`person_id` + `effective_month`, `seat_type` standard / premium / free /
+  none, `source` admin / roster) and `cursor_seat_rates` (`seat_type` +
+  `effective_month`, `monthly_rate_usd`, seeded once: standard 40.00,
+  premium 80.00, free 0.00; re-runs keep admin edits). A person's type and a
+  type's rate for month M are the rows with the latest `effective_month` <= M.
+  Writes go through `set_cursor_seat_assignments(p_rows, p_from_month,
+  p_source, p_set_by)` and `set_cursor_seat_rate(p_seat_type, p_from_month,
+  p_rate, p_set_by)` ("from month M onward": later rows removed, earlier
+  months unchanged; `service_role` only, SECURITY INVOKER, pinned
+  `search_path`). RLS on; `authenticated` may SELECT. Nothing is written to
+  `cost_records`: the app adds one synthetic row per billed person per month
+  (`frontend/lib/cursor-seats.ts`), and in a Cursor month with an invoice
+  actual (024) the seats are composition inside the invoice, not added to
+  it. Backfill: import `database/seeds/cursor-seat-roster-2026-11-05.csv` in
+  `/admin/org` -> People -> Cursor seats (preview, then apply). Without 026 the
+  app reads no seats (Cursor totals unchanged) and the card shows "migration
+  026 not applied" with edits disabled. Rollback: `DROP FUNCTION IF EXISTS
+  public.set_cursor_seat_assignments(JSONB, DATE, TEXT, TEXT); DROP FUNCTION
+  IF EXISTS public.set_cursor_seat_rate(TEXT, DATE, NUMERIC, TEXT); DROP TABLE
+  IF EXISTS public.cursor_seat_assignments; DROP TABLE IF EXISTS
+  public.cursor_seat_rates;`. **Needs Robert's explicit approval before it is
+  applied to production.**
 
 ### Testing migrations locally
 
@@ -590,7 +615,9 @@ nothing changed, refusals, grants), runs `assertions_023.sql` (`admin_users`
 RLS with no policies, no `anon`/`authenticated` privileges, unique and
 lowercased email), runs `assertions_024.sql` (`invoice_overrides` RLS and
 grants, one row per provider-month, month / amount / credits CHECKs, provider
-FK, `cost_records` unchanged), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 024) over the data. 011 must always follow 010, because 010 recreates the view
+FK, `cost_records` unchanged), runs `assertions_026.sql` (seat tables RLS and
+grants, seeded rates, "from a month onward" writes for assignments and rates,
+refusals, `cost_records` unchanged), then re-applies 010, 011, 014 and every later migration (015 to 018, 020 to 024, 026) over the data. 011 must always follow 010, because 010 recreates the view
 without the project fallback, 014 must follow both, and 015 follows 014. Server binaries come from `PG_BIN`, an installed
 `postgresql-15`, or `FETCH_PG=1` (downloads `@embedded-postgres/linux-x64` 15.x
 from npm). Any recent `psql` works as the client.
