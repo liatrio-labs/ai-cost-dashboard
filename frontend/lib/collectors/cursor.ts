@@ -44,12 +44,31 @@
  *   annotate each member's records with their cycle total (`member_cycle_spend_cents`)
  *   so event-derived cost can be reconciled against Cursor's billing view.
  *
+ *   `spendCents` is ON-DEMAND only (usage beyond the plan's included pool);
+ *   `overallSpendCents` adds the included pool on top. We keep both in
+ *   metadata (`member_cycle_spend_cents` is spendCents only, issue #73).
+ *
  * Modeling decision:
- *   Emit ONE cost record per (UTC day x member email x model), summing
- *   chargedCents -> dollars and token counts across that group's events. This
- *   mirrors the other providers (per day x model) while preserving Cursor's
- *   per-member attribution in metadata. Per-day UTC-midnight timestamps make
- *   re-pulls idempotent under the runner's delete-then-insert-by-timestamp.
+ *   Emit ONE cost record per (UTC day x member email x model x billing tier),
+ *   summing chargedCents -> dollars and token counts across that group's
+ *   events. This mirrors the other providers (per day x model) while
+ *   preserving Cursor's per-member attribution in metadata. Per-day
+ *   UTC-midnight timestamps make re-pulls idempotent under the runner's
+ *   delete-then-insert-by-timestamp.
+ *
+ * Billing tier (issue #73):
+ *   Events whose kind is "Included in Business" are drawn from the plan's
+ *   included pool and are not billed. They get `cost_usd = 0` (so they never
+ *   reach monthly spend, the KPIs or the Cursor tool total) and keep their
+ *   charged value in `metadata.included_value_usd`. Every other kind
+ *   ("Usage-based", ...) is on-demand and keeps its chargedCents as cost_usd,
+ *   matching /teams/spend `spendCents`. Included and on-demand events never
+ *   share a row, so a mixed day stays separable (`metadata.billing_tier`).
+ *
+ * Past-month freeze (issue #73):
+ *   Rows before CURSOR_ON_DEMAND_SINCE (2026-11-01) are dropped from collect()
+ *   output, so a backfill re-pull corrects November 2026 onward but never
+ *   deletes or rewrites October 2026 or earlier.
  */
 
 import type {
@@ -69,6 +88,15 @@ const PAGE_SIZE = 1000
 const MAX_PAGES_PER_WINDOW = 1000 // safety backstop against pagination loops
 const RATE_LIMIT_DELAY_MS = 250 // small delay between paginated requests
 
+/**
+ * First UTC day collected with on-demand-only cost semantics (issue #73).
+ * collect() never emits rows before it, so re-pulls leave earlier months alone.
+ */
+export const CURSOR_ON_DEMAND_SINCE = "2026-11-01"
+
+/** "included": drawn from the plan's included pool, not billed. "on_demand": usage-based, billed. */
+export type CursorBillingTier = "included" | "on_demand"
+
 interface TransformCtx {
   userId: string
   providerId: string
@@ -85,6 +113,7 @@ interface UsageEvent {
   isChargeable?: boolean
   chargedCents?: number
   cursorTokenFee?: number
+  billingTier?: string
   tokenUsage?: {
     inputTokens?: number
     outputTokens?: number
@@ -94,11 +123,21 @@ interface UsageEvent {
   } | null
 }
 
+/** Current-cycle /teams/spend per member email, in cents. */
+export interface MemberSpend {
+  /** On-demand only (Cursor's spendCents). */
+  spendCents: Record<string, number>
+  /** On-demand + included pool (Cursor's overallSpendCents). */
+  overallSpendCents: Record<string, number>
+}
+
 interface Agg {
   day: string // ISO UTC-midnight
   email: string
   model: string
-  costUsd: number
+  tier: CursorBillingTier
+  /** Sum of chargedCents for the group, in dollars (billed or not). */
+  chargedUsd: number
   inputTokens: number
   outputTokens: number
   cacheWriteTokens: number
@@ -107,7 +146,21 @@ interface Agg {
   requestCount: number
   chargeableCount: number
   kinds: Set<string>
+  billingTiers: Set<string>
 }
+
+/**
+ * Billing tier of a usage event. Kind "Included in Business" (or any kind /
+ * billingTier that says "included") is the included pool; everything else
+ * ("Usage-based", errored / not-charged kinds with 0 cents, ...) is on-demand.
+ */
+export function cursorBillingTier(ev: { kind?: unknown; billingTier?: unknown } | null | undefined): CursorBillingTier {
+  const kind = typeof ev?.kind === "string" ? ev.kind.toLowerCase() : ""
+  const tier = typeof ev?.billingTier === "string" ? ev.billingTier.toLowerCase() : ""
+  return kind.includes("included") || tier.includes("included") ? "included" : "on_demand"
+}
+
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6
 
 /** Parse an event timestamp (epoch-ms string or number) to a Date, or null. */
 function eventDate(value: unknown): Date | null {
@@ -120,7 +173,8 @@ function eventDate(value: unknown): Date | null {
 
 /**
  * Transform Cursor usage events into cost_records rows, one per
- * (UTC day x member email x model).
+ * (UTC day x member email x model x billing tier). Included-pool rows carry
+ * cost_usd 0 and their charged value in metadata.included_value_usd.
  *
  * Pure: no network. cents -> dollars; model_name never null; skips events with
  * an unparseable timestamp. `spendByEmail` (current-cycle cents per member) is
@@ -129,8 +183,12 @@ function eventDate(value: unknown): Date | null {
 export function transform(
   events: UsageEvent[],
   ctx: TransformCtx,
-  spendByEmail: Record<string, number> = {}
+  spendByEmail: Record<string, number> | MemberSpend = {}
 ): CostRecord[] {
+  const spend: MemberSpend =
+    "spendCents" in spendByEmail && typeof spendByEmail.spendCents === "object"
+      ? (spendByEmail as MemberSpend)
+      : { spendCents: spendByEmail as Record<string, number>, overallSpendCents: {} }
   const groups = new Map<string, Agg>()
 
   for (const ev of events ?? []) {
@@ -140,7 +198,8 @@ export function transform(
     const day = startOfUTCDay(d).toISOString()
     const email = ev?.userEmail || "unknown"
     const model = ev?.model || "cursor" // model_name must never be null
-    const key = `${day}|${email}|${model}`
+    const tier = cursorBillingTier(ev)
+    const key = `${day}|${email}|${model}|${tier}`
 
     let agg = groups.get(key)
     if (!agg) {
@@ -148,7 +207,8 @@ export function transform(
         day,
         email,
         model,
-        costUsd: 0,
+        tier,
+        chargedUsd: 0,
         inputTokens: 0,
         outputTokens: 0,
         cacheWriteTokens: 0,
@@ -157,14 +217,16 @@ export function transform(
         requestCount: 0,
         chargeableCount: 0,
         kinds: new Set<string>(),
+        billingTiers: new Set<string>(),
       }
       groups.set(key, agg)
     }
 
-    // chargedCents is the authoritative per-event charge (cents -> dollars).
+    // chargedCents is the per-event charge (cents -> dollars). Whether it is
+    // billed depends on the tier (see the cost_usd mapping below).
     const charged =
       typeof ev?.chargedCents === "number" ? ev.chargedCents : Number(ev?.chargedCents ?? 0)
-    if (Number.isFinite(charged)) agg.costUsd += charged / 100
+    if (Number.isFinite(charged)) agg.chargedUsd += charged / 100
 
     const tu = ev?.tokenUsage
     if (tu) {
@@ -179,6 +241,7 @@ export function transform(
     agg.requestCount += 1
     if (ev?.isChargeable) agg.chargeableCount += 1
     if (ev?.kind) agg.kinds.add(String(ev.kind))
+    if (ev?.billingTier) agg.billingTiers.add(String(ev.billingTier))
   }
 
   const records: CostRecord[] = []
@@ -190,12 +253,15 @@ export function transform(
     const personEmail = agg.email === "unknown" ? null : normalizeEmail(agg.email)
     const inTok = agg.inputTokens
     const outTok = agg.outputTokens
+    const included = agg.tier === "included"
+    // Only on-demand (usage-based) spend is billable; the included pool is $0.
+    const costUsd = included ? 0 : round6(agg.chargedUsd)
     records.push({
       user_id: ctx.userId,
       provider_id: ctx.providerId,
       timestamp: agg.day,
       model_name: agg.model,
-      cost_usd: agg.costUsd,
+      cost_usd: costUsd,
       tokens_used: inTok + outTok,
       input_tokens: inTok,
       output_tokens: outTok,
@@ -210,9 +276,17 @@ export function transform(
         token_cents: agg.tokenCents,
         chargeable_event_count: agg.chargeableCount,
         kinds: Array.from(agg.kinds),
-        // Current-cycle reconciliation annotation (only meaningful for the
-        // current billing cycle's days); cents.
-        member_cycle_spend_cents: spendByEmail[agg.email] ?? null,
+        ...(agg.billingTiers.size ? { billing_tiers: Array.from(agg.billingTiers) } : {}),
+        // Issue #73: on-demand vs included-pool value. cost_usd is the
+        // on-demand value; the included pool is shown, never billed.
+        billing_tier: agg.tier,
+        on_demand_value_usd: costUsd,
+        included_value_usd: included ? round6(agg.chargedUsd) : 0,
+        // Current-cycle reconciliation annotations (only meaningful for the
+        // current billing cycle's days); cents. spendCents is on-demand only,
+        // overallSpendCents adds the included pool.
+        member_cycle_spend_cents: spend.spendCents[agg.email] ?? null,
+        member_cycle_overall_spend_cents: spend.overallSpendCents[agg.email] ?? null,
         day: agg.day.slice(0, 10),
         attribution: personEmail
           ? buildAttribution({ person_email: personEmail }, "person")
@@ -302,10 +376,12 @@ async function fetchAllUsageEvents(
 }
 
 /**
- * Fetch current-cycle spend per member (cents), keyed by email. Best-effort:
- * any failure yields {} so reconciliation never blocks collection.
+ * Fetch current-cycle spend per member (cents), keyed by email: on-demand
+ * (spendCents) and overall (overallSpendCents) kept apart. Best-effort: any
+ * failure yields empty maps so reconciliation never blocks collection.
  */
-async function fetchSpendByEmail(apiKey: string): Promise<Record<string, number>> {
+async function fetchSpendByEmail(apiKey: string): Promise<MemberSpend> {
+  const out: MemberSpend = { spendCents: {}, overallSpendCents: {} }
   try {
     const res = await fetchWithRetry(`${ADMIN_API_BASE_URL}/teams/spend`, {
       method: "POST",
@@ -315,25 +391,31 @@ async function fetchSpendByEmail(apiKey: string): Promise<Record<string, number>
       },
       body: JSON.stringify({ page: 1, pageSize: 100 }),
     })
-    if (!res.ok) return {}
+    if (!res.ok) return out
     const json = (await res.json()) as {
       teamMemberSpend?: Array<{ email?: string; spendCents?: number; overallSpendCents?: number }>
     }
-    const out: Record<string, number> = {}
     for (const row of json?.teamMemberSpend ?? []) {
       if (!row?.email) continue
-      const cents =
-        typeof row.spendCents === "number"
-          ? row.spendCents
-          : typeof row.overallSpendCents === "number"
-            ? row.overallSpendCents
-            : null
-      if (cents !== null && Number.isFinite(cents)) out[row.email] = cents
+      if (typeof row.spendCents === "number" && Number.isFinite(row.spendCents)) {
+        out.spendCents[row.email] = row.spendCents
+      }
+      if (typeof row.overallSpendCents === "number" && Number.isFinite(row.overallSpendCents)) {
+        out.overallSpendCents[row.email] = row.overallSpendCents
+      }
     }
     return out
   } catch {
-    return {}
+    return out
   }
+}
+
+/**
+ * Drop rows for days before CURSOR_ON_DEMAND_SINCE (issue #73). The runner
+ * deletes only at the timestamps it inserts, so dropped days are untouched.
+ */
+export function withinOnDemandWindow(records: CostRecord[], since = CURSOR_ON_DEMAND_SINCE): CostRecord[] {
+  return records.filter((r) => r.timestamp.slice(0, 10) >= since)
 }
 
 async function collect(
@@ -344,7 +426,9 @@ async function collect(
   // today's partial day is included.
   const today = startOfUTCDay(new Date())
   const days = opts.backfill ? opts.backfillDays ?? 90 : 1
-  const startMs = today.getTime() - days * DAY_MS
+  // Never fetch before the on-demand cutoff (issue #73); earlier months stay frozen.
+  const sinceMs = Date.parse(`${CURSOR_ON_DEMAND_SINCE}T00:00:00Z`)
+  const startMs = Math.max(today.getTime() - days * DAY_MS, sinceMs)
   const endMs = today.getTime() + DAY_MS - 1
 
   const [events, spendByEmail] = await Promise.all([
@@ -352,10 +436,12 @@ async function collect(
     fetchSpendByEmail(ctx.apiKey),
   ])
 
-  return transform(
-    events,
-    { userId: ctx.userId, providerId: ctx.providerId, teamId: ctx.teamId },
-    spendByEmail
+  return withinOnDemandWindow(
+    transform(
+      events,
+      { userId: ctx.userId, providerId: ctx.providerId, teamId: ctx.teamId },
+      spendByEmail
+    )
   )
 }
 
