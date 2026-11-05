@@ -11,7 +11,7 @@
  * still sum to the input total.
  */
 
-import { RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
+import { INVOICE_ADJUSTMENT_MODEL, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import { resolveAttribution } from "./attribution"
 import type { AttributableRecord, AttributedDailyRow, OrgIndex } from "./types"
 
@@ -38,6 +38,7 @@ export function automationProviderIds(providers: readonly { id: string; name: st
  * Unassigned (someone should add that person). Recurring license / flat-fee
  * rows (issue #59, model "recurring" / "recurring seats") are also org-level
  * with no person, but they are a bill, not automation, so they stay Unassigned.
+ * So is an invoice adjustment row (issue #75, model "invoice adjustment").
  */
 export function isAutomationRow(
   row: { provider_id: string; person_id?: string | null; granularity?: string | null; model_name?: string | null },
@@ -49,7 +50,8 @@ export function isAutomationRow(
     !row.person_id &&
     row.granularity === "org" &&
     row.model_name !== RECURRING_MODEL &&
-    row.model_name !== RECURRING_SEAT_MODEL
+    row.model_name !== RECURRING_SEAT_MODEL &&
+    row.model_name !== INVOICE_ADJUSTMENT_MODEL
   )
 }
 

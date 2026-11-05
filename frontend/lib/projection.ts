@@ -43,6 +43,8 @@ export const SEAT_MODEL = "seats"
 export const RECURRING_MODEL = "recurring"
 /** model_name of a recurring seats x price row (issue #59). */
 export const RECURRING_SEAT_MODEL = "recurring seats"
+/** model_name of the org-level row carrying an invoice actual with no API spend to scale (issue #75). */
+export const INVOICE_ADJUSTMENT_MODEL = "invoice adjustment"
 const RECURRING_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL])
 
 const DAY_MS = 86400000
