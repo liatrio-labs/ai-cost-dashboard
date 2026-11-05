@@ -38,9 +38,12 @@ import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
 import { OrgBreakdown, OrgFilterBar } from "@/components/org/org-breakdown"
 import { ToolProductCards } from "@/components/claude-ai-products"
+import { CursorCycleSpendCard } from "@/components/cursor-cycle-spend"
+import type { CursorCycleView } from "@/lib/cursor-spend"
 import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
 import {
   hasFilters,
+  hasOrgFilters,
   parseFilters,
   toQueryString,
   type DashboardFilters,
@@ -75,6 +78,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   const searchParams = useSearchParams()
   const [data, setData] = useState<DashboardData | null>(null)
   const [breakdown, setBreakdown] = useState<BreakdownData | null>(null)
+  // Issue #76: Cursor billing-cycle on-demand (optional; hidden if it fails).
+  const [cursorCycle, setCursorCycle] = useState<CursorCycleView | null>(null)
 
   // Period, filters and tab live in the URL (issue #8), so views are shareable.
   const spKey = searchParams.toString()
@@ -114,6 +119,10 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
         .then((r) => (r.ok ? r.json() : null))
         .then((b: BreakdownData | null) => setBreakdown(b))
         .catch(() => setBreakdown(null))
+      fetch("/api/dashboard/cursor-cycle")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v: CursorCycleView | null) => setCursorCycle(v))
+        .catch(() => setCursorCycle(null))
       try {
         const res = await fetch(`/api/dashboard${qs}`)
 
@@ -160,6 +169,9 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
   // Org views appear once an org structure exists (or a shared link carries
   // filters); otherwise the dashboard looks exactly as it did before #8.
   const showOrg = filtered || !!breakdown?.orgConfigured
+  // Issue #76: the Cursor cycle card is team-wide, so it shows without org
+  // filters and only when the provider filter is empty or Cursor.
+  const showCursorCycle = !hasOrgFilters(filters) && (!filters.provider || filters.provider === "cursor")
   const activeTab: Tab = tab === "org" && !showOrg ? "dashboard" : tab
   // Name of the team/department whose forecast the chart shows (issue #9).
   const forecastUnit = data?.forecastMeta?.unit
@@ -388,6 +400,8 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               </div>
               {/* Issue #48 / #65: Claude.ai and Cursor by product, summing to their tool rows. */}
               <ToolProductCards tools={data!.tools} />
+              {/* Issue #76: billing-cycle (not calendar-month) Cursor on-demand; team-wide, so only unfiltered or Cursor-only views. */}
+              {cursorCycle && showCursorCycle && <CursorCycleSpendCard view={cursorCycle} />}
               <TrendChart trends={data!.trends} currentMonth={data!.projection?.currentMonth} />
             </TabsContent>
 

@@ -208,6 +208,22 @@ their charged value in `metadata.included_value_usd`, on their own rows
 "backfill_days": 31 }`) re-pulls from 2026-11-01 at the earliest and never touches
 October 2026 or earlier, so running it once after deploy corrects November onward.
 
+Cursor billing-cycle on-demand (issue #76) comes from the documented Admin API
+`POST /teams/spend`, never the Cursor dashboard. Each member's on-demand for the current
+billing cycle is `spendCents`; the team's cycle total is the sum of `spendCents`.
+`overallSpendCents` (included plus on-demand) is stored and shown for context but never
+used as billed on-demand. `/teams/spend` only reports the current cycle, so
+`/api/cron/cursor-spend` snapshots it hourly (and every Cursor pull does too) into
+migration 025's tables; when a cycle resets (e.g. Oct 19 to Nov 19) the previous cycle
+keeps its last snapshot and the database refuses later changes to it. The Dashboard tab
+shows the current cycle's dates, team on-demand total, per-member on-demand and limits
+(`effectivePerUserLimitDollars`, with `hardLimitOverrideDollars` / `monthlyLimitDollars`),
+and earlier cycles' final totals, labelled as billing-cycle figures distinct from the
+calendar-month totals. Usage events stay the source for history, calendar months and the
+by-product split. Without migration 025 the card shows a notice and nothing else changes.
+Invoices, credits, seat fees and seat types are not in the documented Admin API and are
+not shown.
+
 Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
 `end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today
 (UTC). A `start_date` before the provider's earliest data is clamped to it (2026-01-01 for
