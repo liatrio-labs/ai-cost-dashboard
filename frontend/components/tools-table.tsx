@@ -28,6 +28,11 @@ interface ToolsTableProps {
   projection?: DashboardProjection
 }
 
+/** The Cursor tool row: it carries the Cursor product split (issue #65), the same check ToolProductCards uses. */
+export function isCursorTool(tool: DashboardTool): boolean {
+  return !!tool.products?.some((p) => p.product === "grok_bot")
+}
+
 /** What the Change cell shows: projected for the current period, nothing for a future one. */
 export function toolChange(tool: DashboardTool, projection?: DashboardProjection) {
   if (projection?.status === "future") return { direction: "stable" as const, label: "—", title: "No change for a future period" }
@@ -156,7 +161,19 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                     <TableCell className="hidden lg:table-cell">
                       <Badge variant="secondary">{tool.subscriptionType}</Badge>
                     </TableCell>
-                    <TableCell className="font-mono">{formatCurrency(tool.monthlySpend)}</TableCell>
+                    <TableCell className="font-mono">
+                      {formatCurrency(tool.monthlySpend)}
+                      {/* Issue #73: Cursor counts on-demand (usage-based) spend only. */}
+                      {isCursorTool(tool) && (
+                        <span
+                          className="block font-sans text-xs text-muted-foreground"
+                          title="Usage-based (on-demand) spend only. Usage included in the Cursor Business plan is not billed and counts $0."
+                          data-testid="cursor-on-demand-note"
+                        >
+                          on-demand only
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
                       {tool.usageVolume}
                     </TableCell>
