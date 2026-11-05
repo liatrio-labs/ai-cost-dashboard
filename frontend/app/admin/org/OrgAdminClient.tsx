@@ -172,7 +172,7 @@ export function OrgAdminClient() {
 // Departments & teams
 // ---------------------------------------------------------------------------
 
-function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
+export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
   const [deptName, setDeptName] = useState("")
   const [teamName, setTeamName] = useState("")
   const [teamDept, setTeamDept] = useState("")
@@ -194,8 +194,8 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
   ]
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Card className="md:col-span-1">
+    <div className="grid gap-4 md:grid-cols-[288px_minmax(0,1fr)]">
+      <Card>
         <CardHeader>
           <CardTitle>Add</CardTitle>
           <CardDescription>Departments group teams. A team can sit outside any department.</CardDescription>
@@ -222,7 +222,7 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
           >
             <Input placeholder="Team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
             <div className="flex gap-2">
-              <select aria-label="Department" className={`${selectClass} flex-1`} value={teamDept} onChange={(e) => setTeamDept(e.target.value)}>
+              <select aria-label="Department" className={`${selectClass} min-w-0 flex-1`} value={teamDept} onChange={(e) => setTeamDept(e.target.value)}>
                 <option value="">No department</option>
                 {org.departments.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -238,7 +238,7 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
         </CardContent>
       </Card>
 
-      <div className="space-y-4 md:col-span-2">
+      <div className="min-w-0 space-y-4">
         {sections.map(({ dept, teams }) =>
           !dept && !teams.length ? null : (
             <Card key={dept?.id ?? "none"}>
@@ -260,17 +260,17 @@ function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
                 {teams.map((t) => {
                   const c = counts(t.id)
                   return (
-                    <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <div>
+                    <div key={t.id} data-testid="team-row" className="flex flex-wrap items-center gap-2 py-2 lg:flex-nowrap">
+                      <div className="min-w-0 grow basis-48 truncate" title={t.name}>
                         <span className="font-medium">{t.name}</span>
                         <span className="ml-2 text-xs text-muted-foreground">
                           {c.people} people · {c.keys} keys · {c.projects} projects
                         </span>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex max-w-full shrink-0 items-center gap-1">
                         <select
                           aria-label={`Move ${t.name}`}
-                          className={selectClass}
+                          className={`${selectClass} min-w-0`}
                           value={t.department_id ?? ""}
                           onChange={(e) => mutate(`/teams/${t.id}`, "PATCH", { department_id: e.target.value || null }, "Team moved")}
                         >
