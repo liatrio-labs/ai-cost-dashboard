@@ -52,6 +52,7 @@ import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/clau
 import { buildOrgIndex } from "@/lib/org/attribution"
 import { automationProviderIds } from "@/lib/org/rollup"
 import { projectionContext } from "@/lib/projection"
+import { applyCursorSeatPlan } from "@/lib/cursor-seats"
 import { applyFilters, hasFilters, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
 import {
   fetchAllPaged,
@@ -61,6 +62,7 @@ import {
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
+  fetchCursorSeatPlan,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
@@ -88,6 +90,8 @@ export async function GET(request: NextRequest) {
     const productsPromise = claudeAiProducts(supabase, providers, filters, params, now)
     // Issue #59: synthetic monthly rows for recurring costs (empty without 022).
     const recurringPromise = fetchRecurringDaily(supabase, { now })
+    // Cursor seat fees per person (migration 026; no seats without it, so totals are unchanged).
+    const seatPlanPromise = fetchCursorSeatPlan(supabase, { now, providers })
 
     let daily: DailyRow[]
     let unitForecast: UnitForecast | null = null
@@ -97,12 +101,15 @@ export async function GET(request: NextRequest) {
       // Team/department filter (#9): the unit's plateau is allocated from the
       // whole org's trailing spend, so read every attributed row once and
       // narrow in memory.
-      const all = [...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)]
+      const all = applyCursorSeatPlan([...(await fetchAttributedDaily(supabase, {}, null)), ...(await recurringPromise)], await seatPlanPromise)
       daily = applyFilters(all, filters, null, automationProviderIds(providers))
       unitForecast = await unitForecastForFilters(all, filters, unitSel, forecastSettings, providers, now)
     } else if (filtered) {
       const providerId = providerIdForSlug(providers, filters.provider)
-      const rows = [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)]
+      const rows = applyCursorSeatPlan(
+        [...(await fetchAttributedDaily(supabase, filters, providerId)), ...(await recurringPromise)],
+        await seatPlanPromise
+      )
       daily = applyFilters(rows, filters, providerId, automationProviderIds(providers))
       // Person / key / project views get a trailing average, not a forecast
       // (plus the projected current month, from computeDashboard). The
@@ -118,7 +125,7 @@ export async function GET(request: NextRequest) {
         "cost_records_daily",
         "date, provider_id, model_name, total_cost_usd, total_tokens, total_requests"
       )
-      daily = [...daily, ...(await recurringPromise)]
+      daily = applyCursorSeatPlan([...daily, ...(await recurringPromise)], await seatPlanPromise)
     }
 
     const claudeAiProductRows = await productsPromise

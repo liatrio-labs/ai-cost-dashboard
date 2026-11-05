@@ -33,10 +33,12 @@ import {
   fetchOrgData,
   fetchProviders,
   fetchRecurringDaily,
+  fetchCursorSeatPlan,
   providerIdForSlug,
   type SupabaseLike,
 } from "@/lib/dashboard-data"
 import { computeBreakdown } from "@/lib/org/breakdown"
+import { applyCursorSeatPlan, EMPTY_SEAT_PLAN } from "@/lib/cursor-seats"
 import { resolvePeriod, type PeriodParams, type ProviderRow } from "@/lib/dashboard-compute"
 import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
 import { buildOrgIndex } from "@/lib/org/attribution"
@@ -60,12 +62,14 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     // An unknown provider slug matches nothing (same as fetchAttributedDaily).
     const unknownProvider = !!filters.provider && !providerId
-    const [attributed, recurring, claudeAiProductRows] = await Promise.all([
+    const [attributed, recurring, seatPlan, claudeAiProductRows] = await Promise.all([
       fetchAttributedDaily(supabase, { provider: filters.provider }, providerId),
       unknownProvider ? Promise.resolve([]) : fetchRecurringDaily(supabase, { now, providerId, org }),
+      // Cursor seat fees per person (migration 026; empty without it).
+      unknownProvider ? Promise.resolve(EMPTY_SEAT_PLAN) : fetchCursorSeatPlan(supabase, { now, providerId, org, providers }),
       personProducts(supabase, providers, org, filters, params, now),
     ])
-    const rows = [...attributed, ...recurring]
+    const rows = applyCursorSeatPlan([...attributed, ...recurring], seatPlan)
 
     return successResponse(
       computeBreakdown({

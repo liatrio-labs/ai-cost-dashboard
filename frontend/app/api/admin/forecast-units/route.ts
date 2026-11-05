@@ -20,7 +20,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 import { adminRoute, HttpError, json, must, parseBody } from "@/lib/org/admin/http"
-import { fetchAttributedDaily, fetchProviders, fetchRecurringDaily, type SupabaseLike } from "@/lib/dashboard-data"
+import { fetchAttributedDaily, fetchCursorSeatPlan, fetchProviders, fetchRecurringDaily, type SupabaseLike } from "@/lib/dashboard-data"
+import { applyCursorSeatPlan } from "@/lib/cursor-seats"
 import {
   getForecastSettings,
   getForecastUnitOverrides,
@@ -68,7 +69,9 @@ async function payload(admin: SupabaseClient, units: Record<UnitLevel, NamedUnit
     fetchProviders(admin as unknown as SupabaseLike),
     fetchRecurringDaily(admin as unknown as SupabaseLike, { now: new Date() }), // issue #59
   ])
-  const rows = [...attributed, ...recurring]
+  // Cursor seat fees per person (migration 026; empty without it).
+  const seatPlan = await fetchCursorSeatPlan(admin as unknown as SupabaseLike, { now: new Date(), providers })
+  const rows = applyCursorSeatPlan([...attributed, ...recurring], seatPlan)
   // Same anchor as /api/dashboard's unit forecasts: the projected current month.
   const current = projectionContext(providers, new Date())
   const out: Record<string, unknown> = { employees: settings.employees }

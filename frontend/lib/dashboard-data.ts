@@ -24,6 +24,21 @@ import {
   type ManualCostRow,
   type RecurringCost,
 } from "@/lib/recurring-costs"
+import {
+  CURSOR_SLUG,
+  CURSOR_SEAT_MODEL,
+  EMPTY_SEAT_PLAN,
+  SEAT_ASSIGNMENT_COLUMNS,
+  SEAT_RATE_COLUMNS,
+  expandCursorSeats,
+  isMissingSeatTables,
+  planCursorSeats,
+  type CursorSeatPlan,
+  type InvoiceOverride,
+  type SeatAssignment,
+  type SeatRate,
+} from "@/lib/cursor-seats"
+import { RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
 import { PRODUCT_ATTRIBUTION_COLUMN, PRODUCT_COST_COLUMNS, type ProductCostRow } from "@/lib/claude-ai-products"
 
 // Minimal structural types so tests can pass a fake client.
@@ -277,4 +292,105 @@ export async function fetchRecurringDaily(
   ])
   const index = buildOrgIndex({ ...org, identities })
   return attributeRecurringRows(rows, (record) => resolveAttribution(record, index))
+}
+
+/**
+ * Cursor seat assignments and rates (migration 026). `available` is false
+ * while 026 isn't applied: no seats, so Cursor totals are unchanged.
+ */
+export async function fetchCursorSeatData(
+  supabase: SupabaseLike
+): Promise<{ available: boolean; assignments: SeatAssignment[]; rates: SeatRate[] }> {
+  const [a, r] = await Promise.all([
+    supabase.from("cursor_seat_assignments").select(SEAT_ASSIGNMENT_COLUMNS).order("effective_month"),
+    supabase.from("cursor_seat_rates").select(SEAT_RATE_COLUMNS).order("effective_month"),
+  ])
+  for (const res of [a, r]) {
+    if (res.error) {
+      if (isMissingSeatTables(res.error)) return { available: false, assignments: [], rates: [] }
+      throw res.error
+    }
+  }
+  return { available: true, assignments: (a.data || []) as SeatAssignment[], rates: (r.data || []) as SeatRate[] }
+}
+
+/**
+ * Invoice actuals for one provider (invoice_overrides, migration 024). A
+ * missing table means no overrides.
+ */
+export async function fetchInvoiceOverrides(supabase: SupabaseLike, providerId: string): Promise<InvoiceOverride[]> {
+  const { data, error } = await supabase
+    .from("invoice_overrides")
+    .select("provider_id, month, billed_amount_usd")
+    .eq("provider_id", providerId)
+    .order("month")
+  if (error) {
+    const e = error as { code?: string; message?: string }
+    if (e.code === "42P01" || e.code === "PGRST205" || /invoice_overrides/i.test(e.message ?? "")) return []
+    throw error
+  }
+  return (data || []) as InvoiceOverride[]
+}
+
+/**
+ * Whole-org Cursor spend per month for `months` (YYYY-MM), excluding seat and
+ * recurring rows: what an invoice month's remainder is spread over.
+ */
+async function fetchOtherMonthTotals(supabase: SupabaseLike, providerId: string, months: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  if (!months.length) return out
+  const sorted = [...months].sort()
+  const [y, m] = sorted[sorted.length - 1].split("-").map(Number)
+  const end = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
+  const rows = await fetchAllPaged<{ date: string; model_name: string | null; total_cost_usd: number | string }>(
+    supabase,
+    "cost_records_daily",
+    "date, model_name, total_cost_usd",
+    (q) => q.eq("provider_id", providerId).gte("date", `${sorted[0]}-01`).lt("date", end)
+  )
+  const wanted = new Set(months)
+  for (const r of rows) {
+    const ym = String(r.date).slice(0, 7)
+    if (!wanted.has(ym)) continue
+    if (r.model_name === RECURRING_MODEL || r.model_name === RECURRING_SEAT_MODEL || r.model_name === CURSOR_SEAT_MODEL) continue
+    out[ym] = (out[ym] ?? 0) + (Number(r.total_cost_usd) || 0)
+  }
+  return out
+}
+
+/**
+ * The Cursor seat plan (lib/cursor-seats.ts): attributed per-person seat rows
+ * through the current month, plus how they combine with invoice months and
+ * recurring Cursor rows. Built from whole-org numbers, so it applies to
+ * filtered rows too (applyCursorSeatPlan, then the caller's filters). Empty
+ * without migration 026, with no Cursor provider, or under a filter for
+ * another provider.
+ */
+export async function fetchCursorSeatPlan(
+  supabase: SupabaseLike,
+  opts: { now: Date; providerId?: string | null; org?: OrgData; providers?: ProviderRow[] }
+): Promise<CursorSeatPlan> {
+  const providers = opts.providers ?? (await fetchProviders(supabase))
+  const cursorId = providers.find((p) => p.name === CURSOR_SLUG)?.id ?? null
+  if (!cursorId || (opts.providerId && opts.providerId !== cursorId)) return EMPTY_SEAT_PLAN
+  const { available, assignments, rates } = await fetchCursorSeatData(supabase)
+  if (!available || !assignments.length) return EMPTY_SEAT_PLAN
+  const [org, identities] = await Promise.all([
+    opts.org ? Promise.resolve(opts.org) : fetchOrgData(supabase),
+    fetchIdentities(supabase),
+  ])
+  const monthRows = expandCursorSeats({
+    assignments,
+    rates,
+    people: org.people,
+    cursorProviderId: cursorId,
+    currentMonth: currentMonthOf(opts.now),
+  })
+  if (!monthRows.length) return EMPTY_SEAT_PLAN
+  const index = buildOrgIndex({ ...org, identities })
+  const seatRows = attributeRecurringRows(monthRows, (record) => resolveAttribution(record, index))
+  const seatMonths = new Set(monthRows.map((r) => r.month))
+  const overrides = (await fetchInvoiceOverrides(supabase, cursorId)).filter((o) => seatMonths.has(String(o.month).slice(0, 7)))
+  const otherMonthTotals = await fetchOtherMonthTotals(supabase, cursorId, overrides.map((o) => String(o.month).slice(0, 7)))
+  return planCursorSeats({ cursorProviderId: cursorId, seatRows, overrides, otherMonthTotals })
 }

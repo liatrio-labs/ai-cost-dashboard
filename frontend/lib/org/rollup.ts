@@ -11,7 +11,10 @@
  * still sum to the input total.
  */
 
-import { RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
+import { CURSOR_SEAT_MODEL, RECURRING_MODEL, RECURRING_SEAT_MODEL } from "@/lib/projection"
+
+/** Bills, not automation: recurring costs (#59) and Cursor seat fees / invoice remainder (026). */
+const BILL_MODELS: ReadonlySet<string> = new Set([RECURRING_MODEL, RECURRING_SEAT_MODEL, CURSOR_SEAT_MODEL, "cursor invoice remainder"])
 import { resolveAttribution } from "./attribution"
 import type { AttributableRecord, AttributedDailyRow, OrgIndex } from "./types"
 
@@ -36,8 +39,9 @@ export function automationProviderIds(providers: readonly { id: string; name: st
  * A Cursor row with no user: org granularity and no person. A Cursor row whose
  * email just isn't a registered person has granularity 'person' and stays
  * Unassigned (someone should add that person). Recurring license / flat-fee
- * rows (issue #59, model "recurring" / "recurring seats") are also org-level
- * with no person, but they are a bill, not automation, so they stay Unassigned.
+ * rows (issue #59, model "recurring" / "recurring seats") and the Cursor
+ * invoice remainder row (migration 026) are also org-level with no person,
+ * but they are a bill, not automation, so they stay Unassigned.
  */
 export function isAutomationRow(
   row: { provider_id: string; person_id?: string | null; granularity?: string | null; model_name?: string | null },
@@ -48,8 +52,7 @@ export function isAutomationRow(
     automationIds.has(row.provider_id) &&
     !row.person_id &&
     row.granularity === "org" &&
-    row.model_name !== RECURRING_MODEL &&
-    row.model_name !== RECURRING_SEAT_MODEL
+    !(row.model_name && BILL_MODELS.has(row.model_name))
   )
 }
 
