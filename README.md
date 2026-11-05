@@ -201,6 +201,13 @@ idempotent, seeds fixtures and runs the attribution/rollup assertions. See
 attributed ones or fill a missing day. The `/admin` pull card has the same start/end
 inputs; the range applies to those providers, and Cursor keeps the backfill toggle.
 
+Cursor counts on-demand (usage-based) spend only (issue #73), matching `/teams/spend`
+`spendCents`: events of kind "Included in Business" are stored with `cost_usd = 0` and
+their charged value in `metadata.included_value_usd`, on their own rows
+(`metadata.billing_tier`). A Cursor backfill (`{ "provider": "cursor", "backfill": true,
+"backfill_days": 31 }`) re-pulls from 2026-11-01 at the earliest and never touches
+October 2026 or earlier, so running it once after deploy corrects November onward.
+
 Body: `{ "provider": "anthropic", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }`.
 `end_date` is inclusive, the span is at most 31 days and `end_date` can't be after today
 (UTC). A `start_date` before the provider's earliest data is clamped to it (2026-01-01 for
