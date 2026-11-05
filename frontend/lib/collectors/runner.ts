@@ -20,6 +20,7 @@ import { collector as vercelAiGateway } from "./vercel-ai-gateway"
 import { syncGatewayKeys } from "@/lib/org/gateway-sync"
 import { syncAnthropicKeys } from "@/lib/org/anthropic-key-sync"
 import { syncOpenAIKeys } from "@/lib/org/openai-key-sync"
+import { snapshotCursorSpend } from "@/lib/cursor-spend"
 
 export const COLLECTORS: Record<string, Collector> = {
   anthropic,
@@ -81,6 +82,13 @@ export const POST_COLLECT_SYNC: Record<
         records: ctx.records,
       })),
     }
+  },
+  // Issue #76: snapshot Cursor's current billing cycle (/teams/spend) into
+  // migration 025's tables. Writes nothing to cost_records; without 025 it
+  // reports migration_missing and writes nothing.
+  cursor: async (admin, ctx) => {
+    if (!ctx.apiKey) return null
+    return { cycle_spend: { ...(await snapshotCursorSpend(admin, { apiKey: ctx.apiKey, teamId: ctx.teamId })) } }
   },
   "vercel-ai-gateway": async (admin, ctx) => {
     if (!ctx.auxApiKey) return null // no VERCEL_TOKEN: keys can't be listed

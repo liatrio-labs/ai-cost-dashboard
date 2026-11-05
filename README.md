@@ -217,6 +217,21 @@ people, teams and products is kept) and its manual entries and recurring cost ar
 replaced, not added. Clearing it restores the API, manual and recurring amounts. No
 amounts are hardcoded; nothing in `cost_records` changes.
 
+Cursor billing-cycle on-demand (issue #76) comes from the documented Admin API
+`POST /teams/spend`, never the Cursor dashboard. Each member's on-demand for the current
+billing cycle is `spendCents`; the team's cycle total is the sum of `spendCents`.
+`overallSpendCents` (included plus on-demand) is stored and shown for context but never
+used as billed on-demand. `/teams/spend` only reports the current cycle, so
+`/api/cron/cursor-spend` snapshots it hourly (and every Cursor pull does too) into
+migration 025's tables; when a cycle resets (e.g. Oct 19 to Nov 19) the previous cycle
+keeps its last snapshot and the database refuses later changes to it. The Dashboard tab
+shows the current cycle's dates, team on-demand total, per-member on-demand and limits
+(`effectivePerUserLimitDollars`, with `hardLimitOverrideDollars` / `monthlyLimitDollars`),
+and earlier cycles' final totals, labelled as billing-cycle figures distinct from the
+calendar-month totals. Usage events stay the source for history, calendar months and the
+by-product split. Without migration 025 the card shows a notice and nothing else changes.
+Invoices, credits, seat fees and seat types are not in the documented Admin API and are
+not shown.
 Cursor **seat fees** (migration 026) are not in the Admin API either, so each person's
 Cursor seat type (Standard / Premium / Free / unassigned) is set on `/admin/org` ->
 People, and the monthly rates (initially Standard $40, Premium $80, Free $0) are edited in
