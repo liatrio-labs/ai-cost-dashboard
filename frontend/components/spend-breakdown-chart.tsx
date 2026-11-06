@@ -6,9 +6,21 @@ import { formatCurrency, type DashboardTool } from "@/lib/dashboard-types"
 
 interface SpendBreakdownChartProps {
   tools: DashboardTool[]
+  /**
+   * Issue #88: the headline total (kpis.totalSpend). The donut shows this
+   * figure so it matches the headline to the cent; summing per-provider
+   * rounded amounts can drift by a cent or more.
+   */
+  total?: number
 }
 
-export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
+/** The donut's center total: the headline figure when given, else the sum of the slices. */
+export function donutTotal(tools: Pick<DashboardTool, "monthlySpend">[], headline?: number): number {
+  if (headline !== undefined && Number.isFinite(headline)) return headline
+  return Math.round(tools.filter((t) => t.monthlySpend > 0).reduce((sum, t) => sum + t.monthlySpend, 0) * 100) / 100
+}
+
+export function SpendBreakdownChart({ tools, total: headline }: SpendBreakdownChartProps) {
   const data = tools
     .filter((t) => t.monthlySpend > 0)
     .map((tool) => ({
@@ -17,7 +29,7 @@ export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
       color: tool.color,
     }))
 
-  const total = data.reduce((sum, t) => sum + t.value, 0)
+  const total = donutTotal(tools, headline)
 
   const CustomTooltip = ({
     active,
@@ -86,7 +98,9 @@ export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
               ))}
             </div>
             <div className="mt-4 text-center">
-              <p className="text-3xl font-bold text-foreground">{formatCurrency(total)}</p>
+              <p className="text-3xl font-bold text-foreground" data-testid="donut-total">
+                {formatCurrency(total)}
+              </p>
               <p className="text-sm text-muted-foreground">Total Monthly Spend</p>
             </div>
           </>

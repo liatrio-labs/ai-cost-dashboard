@@ -395,7 +395,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
             <TabsContent value="dashboard" className="space-y-6">
               <KPICards kpis={data!.kpis} projection={data!.projection} />
               <div className="grid gap-6 lg:grid-cols-2">
-                <SpendBreakdownChart tools={data!.tools} />
+                <SpendBreakdownChart tools={data!.tools} total={data!.kpis.totalSpend} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
               {/* Issue #48 / #65: Claude.ai and Cursor by product, summing to their tool rows. */}
@@ -417,7 +417,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                 />
               </div>
               <div className="grid gap-6 lg:grid-cols-2">
-                <SpendBreakdownChart tools={data!.tools} />
+                <SpendBreakdownChart tools={data!.tools} total={data!.kpis.totalSpend} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
             </TabsContent>
