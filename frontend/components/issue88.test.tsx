@@ -175,11 +175,17 @@ describe("Org tab (#88 AC5, AC7, AC13)", () => {
     expect(within(un).getByText("$430.00")).toBeInTheDocument() // Windsurf 20 + key_bare 10 + Lovable 400
   })
 
-  it("People table search narrows the rows", async () => {
+  it("People table search narrows the rows; Org tables have sticky headers", async () => {
     const user = userEvent.setup()
     render(<OrgBreakdown data={breakdown({ department: D.eng })} onFiltersChange={() => {}} />)
     const people = screen.getByRole("table", { name: "People" })
     const before = within(people).getAllByTestId("person-row").length
+    // Sticky headers inside a bounded scroll area, on every Org table.
+    for (const name of ["Departments", "People", "API keys"]) {
+      const t = screen.getByRole("table", { name })
+      expect(t.querySelector("thead")!.className).toMatch(/\bsticky\b/)
+      expect(t.parentElement!.className).toMatch(/max-h-\[70vh\] overflow-auto/)
+    }
     await user.type(screen.getByLabelText("Search people"), "ali")
     const after = within(screen.getByRole("table", { name: "People" })).getAllByTestId("person-row")
     expect(after.length).toBeLessThan(before)
