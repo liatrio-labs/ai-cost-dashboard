@@ -26,7 +26,7 @@ export const CURSOR_PRODUCT_LABEL: Record<CursorProduct, string> = {
   grok_bot: "Grok Bot",
   bugbot: "Bugbot",
   agent_chat: "Agent/Chat",
-  seats: "Seats",
+  seats: "Cursor seats",
 }
 
 export type CursorProductSlice = ProductSlice<CursorProduct>

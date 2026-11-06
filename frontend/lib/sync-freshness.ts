@@ -17,6 +17,8 @@
  * Crons run in UTC (Vercel). Times are shown in America/Chicago.
  */
 
+import { userFacingProviderName } from "@/lib/cost-types"
+
 export const DISPLAY_TIME_ZONE = "America/Chicago"
 
 export type FreshnessState = "fresh" | "stale" | "never" | "manual_ok" | "manual_missing" | "unscheduled"
@@ -224,7 +226,7 @@ export function providerFreshness(
 
   const lastMs = p.last_collected_at ? Date.parse(p.last_collected_at) : NaN
   const lastSyncedAt = Number.isNaN(lastMs) ? null : new Date(lastMs).toISOString()
-  const base = { id: p.id, slug: p.name, name: p.display_name || p.name, lastSyncedAt }
+  const base = { id: p.id, slug: p.name, name: userFacingProviderName(p.name, p.display_name), lastSyncedAt }
   const result = (state: FreshnessState, sched: string | null, expectedRunAt: string | null): ProviderFreshness => ({
     ...base,
     state,

@@ -394,5 +394,6 @@ export async function fetchCursorSeatPlan(
   return {
     cursorProviderId: cursorId,
     seatRows: attributeRecurringRows(monthRows, (record) => resolveAttribution(record, index)),
+    rates,
   }
 }

@@ -144,6 +144,8 @@ export async function GET(request: NextRequest) {
     }
 
     const claudeAiProductRows = await productsPromise
+    // Issue #88: stored seat rates, only to describe the seat composition.
+    const cursorSeatRates = (await seatsPromise).rates ?? null
 
     return successResponse({
       ...computeDashboard({
@@ -156,6 +158,7 @@ export async function GET(request: NextRequest) {
         unitForecast,
         trailingAverage,
         claudeAiProductRows,
+        cursorSeatRates,
       }),
       filters,
     })

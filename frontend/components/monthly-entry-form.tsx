@@ -30,8 +30,23 @@ interface MonthlyEntryFormProps {
 }
 
 function defaultMonth() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  return manualEntryMonthOptions(new Date())[0].value
+}
+
+/**
+ * Issue #88: the manual-entry month list. Newest first: the current month
+ * (UTC), then the 11 before it. Each month appears once and no future month
+ * is offered (spend is recorded for a month that has started).
+ */
+export function manualEntryMonthOptions(now: Date, count = 12): { value: string; label: string }[] {
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(Date.UTC(y, m - i, 1))
+    const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+    const label = d.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+    return { value, label }
+  })
 }
 
 export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: MonthlyEntryFormProps) {
@@ -91,15 +106,7 @@ export function MonthlyEntryForm({ providers: providersProp, onSaveSuccess }: Mo
     }
   }, [providersProp])
 
-  // Month options: last 12 months through next month.
-  const monthOptions = Array.from({ length: 14 }, (_, i) => {
-    const date = new Date()
-    date.setDate(1)
-    date.setMonth(date.getMonth() - 12 + i)
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
-    const label = date.toLocaleDateString("en-US", { month: "long", year: "numeric" })
-    return { value, label }
-  })
+  const monthOptions = manualEntryMonthOptions(new Date())
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

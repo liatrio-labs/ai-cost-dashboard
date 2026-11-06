@@ -8,6 +8,7 @@
  * an org-level remainder.
  */
 
+import { formatMonthLong } from "@/lib/dashboard-types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertCircle, CheckCircle2, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -214,7 +215,7 @@ export function SeatAssignmentsCard({ onChanged }: { onChanged?: () => void }) {
               >
                 {months.map((g) => (
                   <option key={g.month} value={g.month}>
-                    {g.month}
+                    {formatMonthLong(g.month)}
                   </option>
                 ))}
               </select>

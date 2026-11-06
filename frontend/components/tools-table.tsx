@@ -13,19 +13,26 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { TrendingUp, TrendingDown, Minus, Search, ExternalLink } from "lucide-react"
+import { LowConfidenceMark } from "@/components/kpi-cards"
 import {
   formatCurrency,
+  isLowConfidence,
+  lowConfidenceNote,
   projectedChangeLabel,
   projectionTooltip,
   type DashboardProjection,
   type DashboardTool,
 } from "@/lib/dashboard-types"
 import { ProductSubRows } from "@/components/product-breakdown"
+import { CursorCostTypeBadges } from "@/components/cost-type-badges"
+import type { CursorCycleView } from "@/lib/cursor-spend"
 
 interface ToolsTableProps {
   tools: DashboardTool[]
   /** Issue #39: when the period contains today, Change is the projected change. */
   projection?: DashboardProjection
+  /** Issue #88: the saved Cursor billing-cycle snapshot, for the reconciliation note only (never added in). */
+  cursorCycle?: CursorCycleView | null
 }
 
 /** The Cursor tool row: it carries the Cursor product split (issue #65), the same check ToolProductCards uses. */
@@ -35,24 +42,29 @@ export function isCursorTool(tool: DashboardTool): boolean {
 
 /** What the Change cell shows: projected for the current period, nothing for a future one. */
 export function toolChange(tool: DashboardTool, projection?: DashboardProjection) {
-  if (projection?.status === "future") return { direction: "stable" as const, label: "—", title: "No change for a future period" }
+  if (projection?.status === "future") return { direction: "stable" as const, label: "—", title: "No change for a future period", lowConfidence: false, lowConfidenceTitle: undefined }
   if (projection?.status === "current" && tool.projectedSpend !== undefined) {
     const pct = tool.projectedChangePercent ?? null
     const direction = pct === null ? ("stable" as const) : pct > 5 ? ("up" as const) : pct < -5 ? ("down" as const) : ("stable" as const)
+    const low = isLowConfidence(projection.basis)
     return {
       direction,
-      label: projectedChangeLabel(pct),
+      label: projectedChangeLabel(pct, projection.basis),
       title: `${projectionTooltip(projection.basis, tool.monthlySpend)}; projected ${formatCurrency(tool.projectedSpend)}`,
+      lowConfidence: low,
+      lowConfidenceTitle: low ? lowConfidenceNote(projection.basis) : undefined,
     }
   }
   return {
     direction: tool.changeDirection,
     label: tool.changeDirection === "stable" ? "—" : `${tool.changePercent}%`,
     title: undefined as string | undefined,
+    lowConfidence: false,
+    lowConfidenceTitle: undefined as string | undefined,
   }
 }
 
-export function ToolsTable({ tools, projection }: ToolsTableProps) {
+export function ToolsTable({ tools, projection, cursorCycle }: ToolsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   // Read the clock once per mount (render must stay pure).
   const [now] = useState(() => Date.now())
@@ -163,15 +175,9 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                     </TableCell>
                     <TableCell className="font-mono">
                       {formatCurrency(tool.monthlySpend)}
-                      {/* Issue #73: Cursor counts on-demand (usage-based) spend only. */}
+                      {/* Issue #73 / #88: Cursor's total is seats + calendar on-demand, labelled by cost type. */}
                       {isCursorTool(tool) && (
-                        <span
-                          className="block font-sans text-xs text-muted-foreground"
-                          title="Usage-based (on-demand) spend only. Usage included in the Cursor Business plan is not billed and counts $0."
-                          data-testid="cursor-on-demand-note"
-                        >
-                          on-demand only
-                        </span>
+                        <CursorCostTypeBadges total={tool.monthlySpend} types={tool.cursorCostTypes} cycle={cursorCycle} />
                       )}
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
@@ -194,6 +200,7 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                             >
                               {c.label}
                             </span>
+                            {c.lowConfidence && <LowConfidenceMark title={c.lowConfidenceTitle} />}
                           </div>
                         )
                       })()}

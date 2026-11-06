@@ -11,8 +11,11 @@ import {
   Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { LowConfidenceMark } from "@/components/kpi-cards"
 import {
   forecastDescription,
+  isLowConfidence,
+  lowConfidenceNote,
   formatCurrency,
   type CurrentMonthProjection,
   type DashboardForecast,
@@ -82,7 +85,15 @@ export function ForecastChart({ forecast, meta, unitLabel, currentMonth }: Forec
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">Spend Forecast</CardTitle>
-        <CardDescription>{forecastDescription(meta, unitLabel, rows.some((r) => r.projected), currentMonth)}</CardDescription>
+        <CardDescription>
+          {forecastDescription(meta, unitLabel, rows.some((r) => r.projected), currentMonth)}
+          {/* Issue #88: an early-month projected point rests on few complete days. */}
+          {currentMonth && isLowConfidence(currentMonth) && (
+            <span className="ml-1" title={lowConfidenceNote(currentMonth)}>
+              <LowConfidenceMark />
+            </span>
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (

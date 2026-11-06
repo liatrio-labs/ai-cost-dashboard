@@ -35,6 +35,17 @@ import {
 } from "@/lib/claude-ai-products"
 import { CURSOR_SLUG, splitCursorByProduct } from "@/lib/cursor-products"
 import type { ProductSlice } from "@/lib/product-breakdown"
+import {
+  cursorSeatComposition,
+  licenseKind,
+  licenseLabel,
+  userFacingDescription,
+  userFacingProviderName,
+  type LicenseKind,
+  type SeatComposition,
+} from "@/lib/cost-types"
+import { ratesAt, type SeatRate } from "@/lib/cursor-seats"
+import { CURSOR_SEAT_MODEL } from "@/lib/projection"
 
 // Liatrio brand palette (https://www.liatrio.ai/brand-data.json).
 const PALETTE = [
@@ -107,11 +118,12 @@ export function buildProviderMeta(providers: ProviderRow[]): Map<string, Provide
   providers.forEach((p, i) => {
     const method = (p.metadata?.collection_method as string) || "api"
     providerById.set(p.id, {
-      name: p.display_name || p.name,
+      // Issue #88: one product name for Claude Ultra (slug stays claude-max).
+      name: userFacingProviderName(p.name, p.display_name),
       slug: p.name,
       color: colorFor(i),
       subscriptionType: method === "manual" ? "Manual / CSV" : "Usage (API)",
-      description: (p.metadata?.description as string) || "",
+      description: userFacingDescription(p.name, (p.metadata?.description as string) || ""),
       adminUrl: (p.documentation_url as string) || "",
       lastUpdated: (p.last_collected_at as string) || null,
     })
@@ -221,6 +233,15 @@ export interface ComputeDashboardInput {
    * same filters as `daily`). When given, the Claude.ai tool gets `products`.
    */
   claudeAiProductRows?: ProductDayRow[] | null
+  /** Issue #88: stored Cursor seat rates (read-only), to describe the seat composition. */
+  cursorSeatRates?: SeatRate[] | null
+}
+
+/** Issue #88: the Cursor row's cost types. Seats and calendar on-demand sum to monthlySpend. */
+export interface CursorCostTypes {
+  seats: number
+  calendarOnDemand: number
+  seatComposition: SeatComposition | null
 }
 
 export interface UnitForecastMeta {
@@ -257,6 +278,7 @@ export function computeDashboard({
   unitForecast = null,
   trailingAverage,
   claudeAiProductRows = null,
+  cursorSeatRates = null,
 }: ComputeDashboardInput) {
   const providerById = buildProviderMeta(providers)
 
@@ -294,6 +316,8 @@ export function computeDashboard({
   const aggregate = (start: string, end: string) => {
     const prov = new Map<string, { cost: number; tokens: number }>()
     const model = new Map<string, number>()
+    // Issue #88: seats / subscriptions / invoice adjustments, by kind and provider (not models).
+    const license = new Map<string, { kind: LicenseKind; providerId: string; cost: number }>()
     let total = 0
     let tokens = 0
     for (const r of daily) {
@@ -304,11 +328,19 @@ export function computeDashboard({
       p.cost += cost
       p.tokens += tok
       prov.set(r.provider_id, p)
-      model.set(r.model_name, (model.get(r.model_name) || 0) + cost)
+      const kind = licenseKind(r.model_name, providerById.get(r.provider_id)?.slug)
+      if (kind) {
+        const lk = `${kind}:${r.provider_id}`
+        const l = license.get(lk) || { kind, providerId: r.provider_id, cost: 0 }
+        l.cost += cost
+        license.set(lk, l)
+      } else {
+        model.set(r.model_name, (model.get(r.model_name) || 0) + cost)
+      }
       total += cost
       tokens += tok
     }
-    return { prov, model, total, tokens }
+    return { prov, model, license, total, tokens }
   }
 
   const cur = aggregate(periodStart, periodEnd)
@@ -342,6 +374,22 @@ export function computeDashboard({
     cursorId && cur.prov.has(cursorId)
       ? splitCursorByProduct(daily.filter((r) => r.provider_id === cursorId && r.date >= periodStart && r.date <= periodEnd)).products
       : null
+  // Issue #88: Cursor seats vs calendar on-demand, and the seat composition from stored rates.
+  const cursorCostTypes: CursorCostTypes | null = (() => {
+    if (!cursorId || !cur.prov.has(cursorId)) return null
+    const rows = daily.filter((r) => r.provider_id === cursorId && r.date >= periodStart && r.date <= periodEnd)
+    const seatRows = rows.filter((r) => r.model_name === CURSOR_SEAT_MODEL)
+    const seats = round2(seatRows.reduce((s, r) => s + (Number(r.total_cost_usd) || 0), 0))
+    const all = round2(rows.reduce((s, r) => s + (Number(r.total_cost_usd) || 0), 0))
+    const rates = cursorSeatRates && cursorSeatRates.length ? cursorSeatRates : null
+    return {
+      seats,
+      calendarOnDemand: round2(all - seats),
+      seatComposition: cursorSeatComposition(seatRows, rates ? (ym) => ratesAt(rates, ym) : null, {
+        seatMonths: new Set(seatRows.map((r) => r.date.slice(0, 7))).size > 1,
+      }),
+    }
+  })()
   const productsFor = (pid: string) =>
     pid === claudeAiId ? claudeAiProducts : pid === cursorId ? cursorProducts : null
 
@@ -382,6 +430,7 @@ export function computeDashboard({
             })()
           : {}),
         ...(productsFor(pid) ? { products: productsFor(pid)! } : {}),
+        ...(pid === cursorId && cursorCostTypes ? { cursorCostTypes } : {}),
       }
     })
     .sort((a, b) => b.monthlySpend - a.monthlySpend)
@@ -405,6 +454,21 @@ export function computeDashboard({
     .sort((a, b) => b.total - a.total)
     .slice(0, 8)
     .map((row, i) => ({ ...row, color: colorFor(i) }))
+
+  // Issue #88: seats and licenses, kept out of the model chart.
+  const byLicense = Array.from(cur.license.values())
+    .map((l) => {
+      const meta = providerById.get(l.providerId)
+      return {
+        label: licenseLabel(l.kind, meta?.name ?? "Unknown"),
+        kind: l.kind,
+        provider: meta?.slug ?? l.providerId,
+        total: round2(l.cost),
+        color: meta?.color ?? "#6B7280",
+      }
+    })
+    .filter((l) => l.total !== 0)
+    .sort((a, b) => b.total - a.total)
 
   // KPIs (active period vs the preceding equal-length window)
   const changePercent = prev.total > 0 ? Math.round(((cur.total - prev.total) / prev.total) * 100) : 0
@@ -511,6 +575,7 @@ export function computeDashboard({
     tools,
     trends,
     byModel,
+    byLicense,
     kpis,
     forecast,
     projection: {

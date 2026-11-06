@@ -1,5 +1,6 @@
 "use client"
 
+import { formatMonthLong } from "@/lib/dashboard-types"
 import { useState, useEffect, useCallback } from "react"
 import { Loader2, Save, Trash2, Pencil, X, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -230,7 +231,7 @@ export function ManageEntries({ reloadKey, onChanged }: { reloadKey?: number; on
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
-                      {row.provider_name} · {row.month}
+                      {row.provider_name} · {row.month ? formatMonthLong(row.month) : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {seatBased

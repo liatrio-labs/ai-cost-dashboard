@@ -32,7 +32,7 @@ import { KPICards } from "@/components/kpi-cards"
 import { SpendBreakdownChart } from "@/components/spend-breakdown-chart"
 import { TrendChart } from "@/components/trend-chart"
 import { ForecastChart } from "@/components/forecast-chart"
-import { ModelBreakdownChart } from "@/components/model-breakdown-chart"
+import { ModelBreakdownChart, SeatsLicensesChart } from "@/components/model-breakdown-chart"
 import { ToolsTable } from "@/components/tools-table"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
@@ -40,7 +40,7 @@ import { OrgBreakdown, OrgFilterBar } from "@/components/org/org-breakdown"
 import { ToolProductCards } from "@/components/claude-ai-products"
 import { CursorCycleSpendCard } from "@/components/cursor-cycle-spend"
 import type { CursorCycleView } from "@/lib/cursor-spend"
-import { formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
+import { formatDayLabel, formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
 import {
   hasFilters,
   hasOrgFilters,
@@ -70,6 +70,17 @@ function periodParams(q: PeriodQuery): Record<string, string | null> {
   if (q?.mode === "month") return { month: q.month }
   if (q?.mode === "range") return { start: q.start, end: q.end }
   return {}
+}
+
+/** Issue #88: which filters apply, so the scope stays clear when switching tabs. */
+export function FilterScope({ breakdown }: { breakdown: BreakdownData | null }) {
+  const crumbs = breakdown?.breadcrumbs ?? []
+  if (!crumbs.length) return null
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="filter-scope">
+      Every tab shows spend for: {crumbs.map((c) => c.label).join(" · ")}
+    </p>
+  )
 }
 
 export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
@@ -264,7 +275,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                       </Button>
                       {data.dataStart && (
                         <p className="text-[10px] text-muted-foreground">
-                          Data available from {data.dataStart}
+                          Data available from {formatDayLabel(data.dataStart)}
                         </p>
                       )}
                     </PopoverContent>
@@ -307,9 +318,11 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
           <div className="mb-6 rounded-md bg-destructive/10 p-4 text-destructive">{error}</div>
         )}
 
-        {showOrg && (
-          <div className="mb-6">
+        {/* Issue #88: the filter bar shows on every tab, Dashboard included, with Clear filters. */}
+        {(hasAnyData || filtered) && (
+          <div className="mb-6 space-y-2">
             <OrgFilterBar data={breakdown} filters={filters} onFiltersChange={setFilters} />
+            {filtered && <FilterScope breakdown={breakdown} />}
           </div>
         )}
 
@@ -398,6 +411,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                 <SpendBreakdownChart tools={data!.tools} total={data!.kpis.totalSpend} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
+              <SeatsLicensesChart licenses={data!.byLicense ?? []} />
               {/* Issue #48 / #65: Claude.ai and Cursor by product, summing to their tool rows. */}
               <ToolProductCards tools={data!.tools} />
               {/* Issue #76: billing-cycle (not calendar-month) Cursor on-demand; team-wide, so only unfiltered or Cursor-only views. */}
@@ -420,12 +434,13 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
                 <SpendBreakdownChart tools={data!.tools} total={data!.kpis.totalSpend} />
                 <ModelBreakdownChart byModel={data!.byModel} />
               </div>
+              <SeatsLicensesChart licenses={data!.byLicense ?? []} />
             </TabsContent>
 
             {/* Tools */}
             <TabsContent value="tools" className="space-y-6">
               <KPICards kpis={data!.kpis} projection={data!.projection} />
-              <ToolsTable tools={data!.tools} projection={data!.projection} />
+              <ToolsTable tools={data!.tools} projection={data!.projection} cursorCycle={showCursorCycle ? cursorCycle : null} />
             </TabsContent>
 
             {/* Org: department / team / person / API key drill-downs */}

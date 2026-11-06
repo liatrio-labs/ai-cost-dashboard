@@ -20,6 +20,30 @@ export function donutTotal(tools: Pick<DashboardTool, "monthlySpend">[], headlin
   return Math.round(tools.filter((t) => t.monthlySpend > 0).reduce((sum, t) => sum + t.monthlySpend, 0) * 100) / 100
 }
 
+function SpendTooltip({
+  active,
+  payload,
+  total,
+}: {
+  total: number
+  active?: boolean
+  payload?: Array<{ name: string; value: number }>
+}) {
+  if (active && payload && payload.length) {
+    const item = payload[0]
+    const percent = total > 0 ? ((item.value / total) * 100).toFixed(1) : "0"
+    return (
+      <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
+        <p className="font-medium text-foreground">{item.name}</p>
+        <p className="text-sm text-muted-foreground">
+          {formatCurrency(item.value)} ({percent}%)
+        </p>
+      </div>
+    )
+  }
+  return null
+}
+
 export function SpendBreakdownChart({ tools, total: headline }: SpendBreakdownChartProps) {
   const data = tools
     .filter((t) => t.monthlySpend > 0)
@@ -30,28 +54,6 @@ export function SpendBreakdownChart({ tools, total: headline }: SpendBreakdownCh
     }))
 
   const total = donutTotal(tools, headline)
-
-  const CustomTooltip = ({
-    active,
-    payload,
-  }: {
-    active?: boolean
-    payload?: Array<{ name: string; value: number }>
-  }) => {
-    if (active && payload && payload.length) {
-      const item = payload[0]
-      const percent = total > 0 ? ((item.value / total) * 100).toFixed(1) : "0"
-      return (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
-          <p className="font-medium text-foreground">{item.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {formatCurrency(item.value)} ({percent}%)
-          </p>
-        </div>
-      )
-    }
-    return null
-  }
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
@@ -82,7 +84,7 @@ export function SpendBreakdownChart({ tools, total: headline }: SpendBreakdownCh
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip content={<SpendTooltip total={total} />} />
                 </PieChart>
               </ResponsiveContainer>
             </div>

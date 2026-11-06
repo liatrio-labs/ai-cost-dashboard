@@ -12,7 +12,16 @@ import { useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatCurrency, projectionTooltip } from "@/lib/dashboard-types"
+import {
+  formatCurrency,
+  formatPeriodLabel,
+  isLowConfidence,
+  lowConfidenceNote,
+  projectedPercentText,
+  projectionTooltip,
+} from "@/lib/dashboard-types"
+import { Input } from "@/components/ui/input"
+import { LowConfidenceMark } from "@/components/kpi-cards"
 import { splitHeaderLabel } from "@/lib/header-label"
 import { ClaudeAiProductSplit, CursorProductSplit } from "@/components/claude-ai-products"
 import { cn } from "@/lib/utils"
@@ -58,19 +67,19 @@ type Changeable = Pick<BreakdownEntity, "cost" | "changePercent" | "projectedCos
  * future period shows none; a past one compares actuals.
  */
 export function changeCell(e: Changeable, projection: BreakdownData["projection"] | undefined) {
-  if (projection?.status === "future") return { value: null, text: "–", title: "No change for a future period", projected: false }
+  if (projection?.status === "future") return { value: null, text: "–", title: "No change for a future period", projected: false, lowConfidence: false }
   if (projection?.status === "current" && e.projectedCost !== null && e.projectedCost !== undefined) {
-    const title = `${projectionTooltip(
-      { completeDays: projection.completeDays ?? 0, completeThrough: projection.completeThrough },
-      e.cost
-    )}; projected ${formatCurrency(e.projectedCost)}`
+    const basis = { completeDays: projection.completeDays ?? 0, completeThrough: projection.completeThrough }
+    // Issue #88: few complete days -> low confidence, and big changes capped.
+    const low = isLowConfidence(basis)
+    const title = `${projectionTooltip(basis, e.cost)}; projected ${formatCurrency(e.projectedCost)}`
     const v = e.projectedChangePercent
-    if (v === null) return { value: null, text: e.projectedCost === 0 && e.cost === 0 ? "–" : "new", title, projected: true }
-    return { value: v, text: `${v > 0 ? "+" : ""}${v}% proj.`, title, projected: true }
+    if (v === null) return { value: null, text: e.projectedCost === 0 && e.cost === 0 ? "–" : "new", title, projected: true, lowConfidence: false }
+    return { value: v, text: `${projectedPercentText(v, basis)} proj.`, title, projected: true, lowConfidence: low, lowConfidenceTitle: low ? lowConfidenceNote(basis) : undefined }
   }
   const v = e.changePercent
-  if (v === null) return { value: null, text: e.cost === 0 ? "–" : "new", title: undefined, projected: false }
-  return { value: v, text: `${v > 0 ? "+" : ""}${v}%`, title: undefined, projected: false }
+  if (v === null) return { value: null, text: e.cost === 0 ? "–" : "new", title: undefined, projected: false, lowConfidence: false }
+  return { value: v, text: `${v > 0 ? "+" : ""}${v}%`, title: undefined, projected: false, lowConfidence: false }
 }
 
 function Change({ e, projection }: { e: Changeable; projection: BreakdownData["projection"] | undefined }) {
@@ -84,6 +93,12 @@ function Change({ e, projection }: { e: Changeable; projection: BreakdownData["p
   return (
     <span className={cls} title={c.title} data-projected={c.projected || undefined}>
       {c.text}
+      {c.lowConfidence && (
+        <>
+          {" "}
+          <LowConfidenceMark title={"lowConfidenceTitle" in c ? c.lowConfidenceTitle : undefined} />
+        </>
+      )}
     </span>
   )
 }
@@ -102,13 +117,45 @@ export function sharedCoverageText(lists: CoverageNote[][]): string | null {
   return first && lists.every((l) => coverageText(l) === first) ? first : null
 }
 
+/**
+ * Issue #88: spend a provider can't attribute at this level is not dropped;
+ * it is counted in the Unassigned row, so every level still sums to the
+ * headline. The note on other rows says where it went.
+ */
+export const COUNTED_IN_UNASSIGNED = "Counted in Unassigned, not this row: "
+
 function Coverage({ notes, unassigned, testId = "coverage" }: { notes: CoverageNote[]; unassigned: boolean; testId?: string }) {
   if (notes.length === 0) return null
   // Wraps inside nowrap table cells so a long note can't set the table width (issue #41).
   return (
     <p className="mt-0.5 text-[11px] leading-snug whitespace-normal break-words text-muted-foreground" data-testid={testId}>
-      {unassigned ? "Includes " : "Not included: "}
+      {unassigned ? "Includes " : COUNTED_IN_UNASSIGNED}
       {coverageText(notes)}
+    </p>
+  )
+}
+
+/** Issue #88: what "Unassigned" means at each level, so the buckets aren't confused. */
+export const UNASSIGNED_LEVEL_LABEL: Record<"department" | "team" | "person" | "api_key" | "project", string> = {
+  department: "Unassigned (no department)",
+  team: "Unassigned (no team)",
+  person: "Unassigned (no matched person)",
+  api_key: "Unassigned (no registered key)",
+  project: "Unassigned (no project)",
+}
+
+export const UNASSIGNED_DEFINITION: Record<keyof typeof UNASSIGNED_LEVEL_LABEL, string> = {
+  department: "Spend not on any department: people or keys with no team, and org-level tools no person or key can carry.",
+  team: "Spend not on any team: people or keys with no team, and org-level tools no person or key can carry.",
+  person: "Spend not tied to a registered person: org-level tools, unregistered emails and keys with no owner.",
+  api_key: "Spend not on a registered API key: seat tools, per-person usage and keys nobody registered.",
+  project: "Spend with no provider project or workspace.",
+}
+
+function UnassignedDefinition({ level }: { level: keyof typeof UNASSIGNED_DEFINITION }) {
+  return (
+    <p className="mt-0.5 text-[11px] leading-snug whitespace-normal text-muted-foreground" data-testid="unassigned-definition">
+      {UNASSIGNED_DEFINITION[level]}
     </p>
   )
 }
@@ -186,21 +233,42 @@ export function OrgBreadcrumbs({ data, onFiltersChange }: { data: BreakdownData;
   )
 }
 
+const DRILL_TARGET: Record<"department" | "team", string> = { department: "its teams", team: "its people" }
+
+/** Sticky table headers inside a bounded scroll area (issue #88). */
+const SCROLL_AREA = "max-h-[70vh] overflow-auto"
+const STICKY_HEAD = "sticky top-0 z-10 bg-card"
+
+/** Rows whose label (or, for people, the label) matches a search, case-insensitively. */
+export function matchesSearch(label: string, q: string): boolean {
+  const t = q.trim().toLowerCase()
+  return !t || label.toLowerCase().includes(t)
+}
+
+function TableSearch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <Input aria-label={label} placeholder={`${label}…`} value={value} onChange={(e) => onChange(e.target.value)} className="mb-3 h-8 max-w-xs" />
+  )
+}
+
 export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   const level = data.level
   if (level === "detail") return <DetailTable data={data} />
   const rows = data[level].filter(visible)
+  const drill = (e: BreakdownEntity) => onFiltersChange(drillInto(data.filters, level, e.key))
+  const labelOf = (e: BreakdownEntity) => (e.unassigned ? UNASSIGNED_LEVEL_LABEL[level] : e.label)
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
       <CardHeader>
         <CardTitle className="text-lg">{LEVEL_TITLE[level]}</CardTitle>
         <CardDescription>
-          Spend for the period vs {data.comparePeriod.start} to {data.comparePeriod.end}. Select a row to drill in.
+          Spend for the period vs {formatPeriodLabel(data.comparePeriod.start, data.comparePeriod.end)}.{" "}
+          {level === "department" || level === "team" ? `Select a row to drill into ${DRILL_TARGET[level]}.` : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Table aria-label={LEVEL_TITLE[level]}>
-          <TableHeader>
+        <Table aria-label={LEVEL_TITLE[level]} containerClassName={SCROLL_AREA}>
+          <TableHeader className={STICKY_HEAD}>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead className="text-right">Spend</TableHead>
@@ -210,15 +278,19 @@ export function DrilldownTable({ data, onFiltersChange }: { data: BreakdownData;
           </TableHeader>
           <TableBody>
             {rows.map((e) => (
-              <TableRow key={e.key}>
+              <TableRow key={e.key} data-testid="drill-row" className="cursor-pointer" onClick={() => drill(e)}>
                 <TableCell>
                   <button
                     type="button"
                     className="text-left font-medium hover:underline"
-                    onClick={() => onFiltersChange(drillInto(data.filters, level, e.key))}
+                    onClick={(ev) => {
+                      ev.stopPropagation()
+                      drill(e)
+                    }}
                   >
-                    {e.label}
+                    {labelOf(e)}
                   </button>
+                  {e.unassigned && <UnassignedDefinition level={level} />}
                   <Coverage notes={e.coverage} unassigned={e.unassigned || !!e.automation} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(e.cost)}</TableCell>
@@ -282,8 +354,9 @@ function personCell(p: BreakdownProvider, e: BreakdownEntity) {
 
 export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
   const [sort, setSort] = useState<PeopleSort>({ by: "spend", dir: "desc" })
+  const [query, setQuery] = useState("")
   const rows = useMemo(() => {
-    const people = data.person.filter(visible)
+    const people = data.person.filter(visible).filter((e) => matchesSearch(e.unassigned ? UNASSIGNED_LEVEL_LABEL.person : e.label, query))
     const value = (e: BreakdownEntity) =>
       sort.by === "spend" ? e.cost : sort.by === "name" ? 0 : (e.byProvider[sort.by] ?? 0)
     const sorted = [...people.filter((e) => !e.unassigned && !e.automation)].sort((a, b) => {
@@ -292,10 +365,10 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
     })
     // Cursor – Bugbot/automation (issue #51) then Unassigned stay last whatever the sort.
     return [...sorted, ...people.filter((e) => e.automation), ...people.filter((e) => e.unassigned)]
-  }, [data.person, sort])
+  }, [data.person, sort, query])
 
   const csvColumns: CsvColumn<BreakdownEntity>[] = [
-    { header: "Name", value: (e) => e.label },
+    { header: "Name", value: (e) => (e.unassigned ? UNASSIGNED_LEVEL_LABEL.person : e.label) },
     { header: "Spend (USD)", value: (e) => e.cost },
     { header: changeCsvHeader(data), value: (e) => changeCsvValue(e, data.projection) },
     ...data.providers.map((p) => ({
@@ -333,8 +406,9 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
         </CardAction>
       </CardHeader>
       <CardContent>
-        <Table aria-label="People">
-          <TableHeader>
+        <TableSearch label="Search people" value={query} onChange={setQuery} />
+        <Table aria-label="People" containerClassName={SCROLL_AREA}>
+          <TableHeader className={STICKY_HEAD}>
             <TableRow>
               <TableHead aria-sort={ariaSort("name")}>
                 {header("name", "Name")}
@@ -360,8 +434,9 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
                     className="text-left font-medium hover:underline"
                     onClick={() => onFiltersChange({ ...data.filters, person: e.key })}
                   >
-                    {e.label}
+                    {e.unassigned ? UNASSIGNED_LEVEL_LABEL.person : e.label}
                   </button>
+                  {e.unassigned && <UnassignedDefinition level="person" />}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatCurrency(e.cost)}</TableCell>
                 <TableCell className="text-right tabular-nums">
@@ -393,7 +468,7 @@ export function PeopleTable({ data, onFiltersChange }: { data: BreakdownData; on
 /** Wrapping, width-capped Name cell so a long key name or note can't widen the table (issue #41). */
 const NAME_CELL = "min-w-40 max-w-xs whitespace-normal"
 
-const UNASSIGNED_KEY_LABEL = "Unassigned (no registered key)"
+const UNASSIGNED_KEY_LABEL = UNASSIGNED_LEVEL_LABEL.api_key
 const spendRowLabel = (k: { automation?: boolean }) => (k.automation ? AUTOMATION_LABEL : UNASSIGNED_KEY_LABEL)
 /** A CSV row of the API keys table: a registered key (item) under its group, or the Unassigned spend row. */
 type KeyCsvRow = { k: BreakdownApiKey; item: BreakdownKeyItem | null; group: string | null }
@@ -454,15 +529,15 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
           by it. Keys with $0 in the period are hidden unless you show them.
           {tableNote && (
             <span className="mt-1 block text-xs" data-testid="coverage-shared">
-              Not included for every key: {tableNote}
+              Counted in Unassigned (no registered key), not on any key: {tableNote}
             </span>
           )}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <KeyFilterBar filter={keyFilter} onChange={setKeyFilter} result={result} />
-        <Table aria-label="API keys">
-          <TableHeader>
+        <Table aria-label="API keys" containerClassName={SCROLL_AREA}>
+          <TableHeader className={STICKY_HEAD}>
             <TableRow>
               <TableHead>Provider</TableHead>
               <TableHead>Name</TableHead>
@@ -495,7 +570,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                     </span>
                     {shared && (
                       <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground" data-testid="coverage-group">
-                        Not included: {shared}
+                        Counted in Unassigned, not these keys: {shared}
                       </p>
                     )}
                   </TableCell>
@@ -542,6 +617,7 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
                   >
                     {spendRowLabel(k)}
                   </button>
+                  {!k.automation && <UnassignedDefinition level="api_key" />}
                   <Coverage notes={k.coverage} unassigned />
                 </TableCell>
                 <TableCell>—</TableCell>
@@ -582,14 +658,17 @@ export function ApiKeysTable({ data, onFiltersChange }: { data: BreakdownData; o
 }
 
 export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
-  const projects = (data.project ?? []).filter(visible) as BreakdownProject[]
+  const [query, setQuery] = useState("")
+  const projects = ((data.project ?? []).filter(visible) as BreakdownProject[]).filter((p) =>
+    matchesSearch(`${p.unassigned ? UNASSIGNED_LEVEL_LABEL.project : p.label} ${p.providerName ?? ""} ${p.team ?? ""}`, query)
+  )
   // Shown whenever any provider reports a project or workspace (issue #28),
   // even if this period's filters leave only the Unassigned row.
-  const any = data.hasProjects ?? projects.some((p) => !p.unassigned)
+  const any = data.hasProjects ?? (data.project ?? []).some((p) => !p.unassigned)
   if (!any) return null
   const csvColumns: CsvColumn<BreakdownProject>[] = [
     { header: "Provider", value: (p) => p.providerName },
-    { header: "Project", value: (p) => (p.unassigned ? "Unassigned (no project)" : p.label) },
+    { header: "Project", value: (p) => (p.unassigned ? UNASSIGNED_LEVEL_LABEL.project : p.label) },
     { header: "Kind", value: (p) => p.kind },
     { header: "Team", value: (p) => p.team },
     { header: "Spend (USD)", value: (p) => p.cost },
@@ -608,8 +687,9 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
         </CardAction>
       </CardHeader>
       <CardContent>
-        <Table aria-label="Projects">
-          <TableHeader>
+        <TableSearch label="Search projects" value={query} onChange={setQuery} />
+        <Table aria-label="Projects" containerClassName={SCROLL_AREA}>
+          <TableHeader className={STICKY_HEAD}>
             <TableRow>
               <TableHead>Provider</TableHead>
               <TableHead>Project</TableHead>
@@ -628,8 +708,9 @@ export function ProjectsTable({ data, onFiltersChange }: { data: BreakdownData; 
                     className="text-left font-medium hover:underline"
                     onClick={() => onFiltersChange({ ...data.filters, project: p.key })}
                   >
-                    {p.unassigned ? "Unassigned (no project)" : p.label}
+                    {p.unassigned ? UNASSIGNED_LEVEL_LABEL.project : p.label}
                   </button>
+                  {p.unassigned && <UnassignedDefinition level="project" />}
                   {p.kind === "workspace" && <span className="ml-2 text-xs text-muted-foreground">workspace</span>}
                 </TableCell>
                 <TableCell>{p.team ?? "—"}</TableCell>
@@ -660,6 +741,7 @@ export function OrgFilterBar({
   onFiltersChange: OnFilters
 }) {
   const o = data?.options
+  const [search, setSearch] = useState<Partial<Record<keyof DashboardFilters, string>>>({})
   // Does a filter value accept an entity id? "unassigned" accepts null.
   const accepts = (want: string | undefined, have: string | null) =>
     !want || (want === UNASSIGNED_FILTER ? have === null : have === want)
@@ -715,25 +797,46 @@ export function OrgFilterBar({
     automationOk = unassigned
   ) => {
     const automation = automationOk && k !== "project" && (automationShown || filters[k] === AUTOMATION_FILTER)
+    // Issue #88: Person and API key lists are long (hundreds), so they get a search box.
+    const searchable = k === "person" || k === "key"
+    const q = searchable ? (search[k] ?? "") : ""
+    const shown = disambiguate(opts).filter((x) => x.value === filters[k] || matchesSearch(x.label, q))
     return (
-    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      {label}
-      <select aria-label={label} className={selectClass} value={filters[k] ?? ""} onChange={(e) => set(k, e.target.value)}>
-        <option value="">All</option>
-        {opts.map((x) => (
-          <option key={x.value} value={x.value}>
-            {x.label}
-          </option>
-        ))}
-        {automation && <option value={AUTOMATION_FILTER}>{AUTOMATION_LABEL}</option>}
-        {unassigned && <option value="unassigned">Unassigned</option>}
-      </select>
-    </label>
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <label className="flex items-center gap-1.5">
+        {label}
+        <select aria-label={label} className={selectClass} value={filters[k] ?? ""} onChange={(e) => set(k, e.target.value)}>
+          <option value="">All</option>
+          {shown.map((x) => (
+            <option key={x.value} value={x.value}>
+              {x.label}
+            </option>
+          ))}
+          {automation && <option value={AUTOMATION_FILTER}>{AUTOMATION_LABEL}</option>}
+          {unassigned && <option value="unassigned">{UNASSIGNED_OPTION_LABEL[k] ?? "Unassigned"}</option>}
+        </select>
+      </label>
+        {searchable && (
+          <input
+            type="search"
+            aria-label={`Search ${label} list`}
+            placeholder={`Search ${label.toLowerCase()}…`}
+            value={q}
+            onChange={(e) => setSearch({ ...search, [k]: e.target.value })}
+            className={`${selectClass} w-32`}
+          />
+        )}
+        {searchable && q && (
+          <span className="text-[10px]" data-testid={`filter-matches-${k}`}>
+            {shown.length} of {opts.length}
+          </span>
+        )}
+      </span>
     )
   }
   const active = FILTER_KEYS.some((k) => filters[k])
   return (
-    <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filters">
+    <div className="flex flex-wrap items-center gap-3" role="group" aria-label="Filters" data-testid="filter-bar">
       {field("department", "Department", o?.departments.map((d) => ({ value: d.id, label: d.label })) ?? [])}
       {field("team", "Team", teams.map((t) => ({ value: t.id, label: t.label })), teamUnassignedOk, teamAutomationOk)}
       {field(
@@ -746,13 +849,46 @@ export function OrgFilterBar({
       {field("key", "API key", o?.apiKeys.map((k) => ({ value: k.id, label: k.label })) ?? [])}
       {field("project", "Project", o?.projects?.map((p) => ({ value: p.id, label: p.label })) ?? [])}
       {field("provider", "Provider", o?.providers.map((p) => ({ value: p.slug, label: p.label })) ?? [], false)}
-      {active && (
-        <button type="button" className="text-xs text-muted-foreground underline hover:text-foreground" onClick={() => onFiltersChange({})}>
-          Clear filters
-        </button>
-      )}
+      <button
+        type="button"
+        className="text-xs text-muted-foreground underline hover:text-foreground disabled:no-underline disabled:opacity-50"
+        disabled={!active}
+        onClick={() => {
+          setSearch({})
+          onFiltersChange({})
+        }}
+      >
+        Clear filters
+      </button>
     </div>
   )
+}
+
+/** Issue #88: the Unassigned option at each filter says what it means. */
+export const UNASSIGNED_OPTION_LABEL: Partial<Record<keyof DashboardFilters, string>> = {
+  department: "Unassigned (no department)",
+  team: "Unassigned (no team)",
+  person: "Unassigned (no matched person)",
+  key: "No registered key",
+  project: "No project",
+}
+
+/**
+ * Issue #88: identical labels (e.g. four "Deleted User" people) are told apart
+ * with "(2 of 4)" rather than listed as indistinguishable duplicates. Nothing
+ * is merged; admins clean these up under Org structure > People.
+ */
+export function disambiguate<T extends { value: string; label: string }>(opts: T[]): T[] {
+  const count = new Map<string, number>()
+  for (const o of opts) count.set(o.label, (count.get(o.label) ?? 0) + 1)
+  const seen = new Map<string, number>()
+  return opts.map((o) => {
+    const n = count.get(o.label) ?? 1
+    if (n < 2) return o
+    const i = (seen.get(o.label) ?? 0) + 1
+    seen.set(o.label, i)
+    return { ...o, label: `${o.label} (${i} of ${n})` }
+  })
 }
 
 /** The Org tab: breadcrumbs, the drill-down, People, API keys and projects. */
