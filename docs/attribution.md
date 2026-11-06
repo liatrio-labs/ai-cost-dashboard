@@ -359,6 +359,27 @@ cost per provider and day is identical before and after the sync) and
   granularity and stays Unassigned (add the person). Checked by
   `lib/org/cursor-automation.test.ts`.
 
+### Cursor seats (migration 026, issue #82)
+
+Seat fees are not in the Cursor Admin API, so each person's seat type and the
+per-type rate are set on `/admin/org` (`lib/cursor-seats.ts`). Seats bill on a
+**20th-to-20th cycle** (`SEAT_CYCLE_ANCHOR_DAY = 20`), keyed by the month the
+cycle starts in: cycle `2026-11` is Nov 20 - Dec 20, 2026. The stored
+`effective_month` YYYY-MM-01 is that key, and a person's type for a cycle is
+the latest row at or before it, so an assignment carries into every later
+cycle until an admin changes it or sets it to Unassigned (`none`). Edits apply
+from the cycle billed in the current calendar month and never alter an
+earlier cycle.
+
+Calendar-month views: Cursor bills a cycle in advance at its start, so the
+whole cycle's charge lands in the calendar month it starts in (one synthetic
+row per billed person, dated the 1st of that month, attributed to the person
+and so their team and department). Each calendar month holds exactly one
+cycle, so org, people, budget and dashboard totals count each cycle once. In
+a month with a Cursor invoice actual (024) that cycle is composition inside
+the invoice (`composeSeatsWithInvoice`), never added on top. Checked by
+`lib/cursor-seats.test.ts`.
+
 ### Duplicate people (issue #51)
 
 `/admin/org` -> People -> **Possible duplicates** lists people with the same

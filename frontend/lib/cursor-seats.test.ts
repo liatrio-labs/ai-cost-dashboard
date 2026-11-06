@@ -566,7 +566,7 @@ describe("20th-to-20th seat billing cycles (issue #82)", () => {
     expect(now).toHaveLength(105)
     expect(sumCost(now)).toBe(5600)
     expect(now.every((r) => r.date === "2026-11-01")).toBe(true)
-    expect(now.some((r) => r.person_email.startsWith("william.bedford") || r.person_email.startsWith("daniel.helbling"))).toBe(false)
+    expect(now.some((r) => (r.person_email ?? "").startsWith("william.bedford") || (r.person_email ?? "").startsWith("daniel.helbling"))).toBe(false)
 
     // No re-import: the same 107 rows bill every later cycle.
     const later = expandCursorSeats({ assignments, rates: SEED_RATES, people: ppl, cursorProviderId: CURSOR, currentMonth: "2027-04" })
