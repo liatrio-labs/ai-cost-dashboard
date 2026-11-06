@@ -293,14 +293,17 @@ const getPersonSpend: McpTool = {
     const { sp, org, personId } = await queryParams(args, ctx, { personDefault: "caller" })
     const [b, d] = await Promise.all([loadBreakdown(ctx.supabase, sp, ctx.now), loadDashboard(ctx.supabase, sp, ctx.now)])
     const person = org?.people.find((p) => p.id === personId) ?? null
+    // Headline figures (total, Fixed / Variable, change, by provider) all come from the
+    // dashboard KPIs so they always reconcile: fixed + variable === total. The breakdown
+    // supplies only the per-model detail and product splits.
     const total = round2(d.kpis.totalSpend)
     const fixed = round2(d.kpis.fixedSpend ?? 0)
     return {
       period: periodOut(b.period),
       person: person ? { id: person.id, name: person.display_name || person.email } : { id: personId },
-      totalSpend: round2(b.total.cost),
-      previousPeriodSpend: round2(b.total.prevCost),
-      changePercent: b.total.changePercent,
+      totalSpend: total,
+      previousPeriodSpend: round2(d.kpis.prevSpend),
+      changePercent: d.kpis.changePercent,
       fixedSubscriptionSpend: fixed,
       variableUsageSpend: round2(d.kpis.variableSpend ?? total - fixed),
       byProvider: d.tools.map((t) => ({ id: t.id, name: t.name, spend: round2(t.monthlySpend) })),
@@ -464,20 +467,25 @@ const getSeatAssignments: McpTool = {
     const byEmail = new Map(org.people.map((p) => [p.email.toLowerCase(), p]))
     const otherSeats = groups.map((g) => {
       const provider = providers.find((p) => p.id === g.provider_id)
+      const assigned = g.assignments
+        .filter((a) => !emails || emails.has(a.person_email))
+        .map((a) => {
+          const p = byEmail.get(a.person_email)
+          return { personId: p?.id ?? null, name: p ? p.display_name || p.email : a.person_email, seats: a.seats, spend: round2(a.cost_usd) }
+        })
       return {
         provider: provider?.name ?? g.provider_id,
         providerName: provider ? userFacingProviderName(provider.name, provider.display_name) : g.provider_id,
         month: g.month,
-        totalSeats: g.total_seats,
-        totalSpend: round2(g.total_usd),
+        // The whole provider-month bill, labeled as such so a person-scoped call can't be
+        // read as that person's cost; their share is personSeats / personSpend.
+        orgTotalSeats: g.total_seats,
+        orgTotalSpend: round2(g.total_usd),
         pricePerSeat: round2(g.price_per_seat),
-        assignments: g.assignments
-          .filter((a) => !emails || emails.has(a.person_email))
-          .map((a) => {
-            const p = byEmail.get(a.person_email)
-            return { personId: p?.id ?? null, name: p ? p.display_name || p.email : a.person_email, seats: a.seats, spend: round2(a.cost_usd) }
-          }),
-        unassignedSeats: personId ? undefined : g.remainder.seats,
+        assignments: assigned,
+        ...(personId
+          ? { personSeats: assigned.reduce((n, a) => n + a.seats, 0), personSpend: round2(assigned.reduce((n, a) => n + a.spend, 0)) }
+          : { unassignedSeats: g.remainder.seats }),
       }
     })
 

@@ -415,6 +415,15 @@ describe("MCP reads match the dashboard", () => {
     expect(mine).toEqual(byEmail)
   })
 
+  it("person spend headline reconciles: fixed + variable = total = the dashboard's person KPI", async () => {
+    const at = await accessToken()
+    const d = await loadDashboard(fake, new URLSearchParams({ month: "2026-11", person: PE.alice }), NOW)
+    const r = (await callTool(at, "get_person_spend", { month: "2026-11", person: PE.alice })).structuredContent as Record<string, number>
+    expect(r.totalSpend).toBe(d.kpis.totalSpend)
+    expect(r.previousPeriodSpend).toBe(d.kpis.prevSpend)
+    expect(Math.round((r.fixedSubscriptionSpend + r.variableUsageSpend) * 100) / 100).toBe(r.totalSpend)
+  })
+
   it("rejects bad input without loading data", async () => {
     const at = await accessToken()
     expect((await callTool(at, "get_monthly_headline", { month: "Nov" })).isError).toBe(true)
@@ -477,5 +486,29 @@ describe("MCP Cursor cost rules", () => {
       [PE.dave, "premium", 80],
     ])
     expect(writes).toEqual([])
+  })
+
+  it("a person-scoped seat call labels the provider-month bill as org-wide and gives the person's share", async () => {
+    tables.providers = [...tables.providers, { id: "prov-claude-max", name: "claude-max", display_name: "Claude Max", metadata: { billing: "seat" } }]
+    const row = (id: string, seats: number, cost: number, attribution?: Record<string, unknown>) => ({
+      id,
+      user_id: "u-owner",
+      provider_id: "prov-claude-max",
+      timestamp: "2026-11-01T12:00:00.000Z",
+      model_name: "seats",
+      cost_usd: cost,
+      request_count: seats,
+      collection_method: "manual_entry",
+      metadata: { entry_type: "monthly_seats", month: "2026-11", seats, price_per_seat: 200, seat_group_id: "sg-1", ...(attribution ? { attribution } : {}) },
+    })
+    tables.cost_records = [row("cm-a", 1, 200, { granularity: "person", person_email: "alice@liatrio.com" }), row("cm-r", 2, 400, { granularity: "org" })]
+    const at = await accessToken()
+    type Seats = { otherSeatTools: Record<string, unknown>[] }
+    const org = ((await callTool(at, "get_seat_assignments", { month: "2026-11" })).structuredContent as Seats).otherSeatTools[0]
+    expect(org).toMatchObject({ provider: "claude-max", orgTotalSeats: 3, orgTotalSpend: 600, unassignedSeats: 2 })
+    expect(org).not.toHaveProperty("totalSpend")
+    const alice = ((await callTool(at, "get_seat_assignments", { month: "2026-11", person: "alice@liatrio.com" })).structuredContent as Seats).otherSeatTools[0]
+    expect(alice).toMatchObject({ orgTotalSeats: 3, orgTotalSpend: 600, personSeats: 1, personSpend: 200, assignments: [{ personId: PE.alice, seats: 1, spend: 200 }] })
+    expect(alice).not.toHaveProperty("unassignedSeats")
   })
 })
