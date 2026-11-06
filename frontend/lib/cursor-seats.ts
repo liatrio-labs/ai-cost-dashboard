@@ -1,29 +1,48 @@
 /**
- * Cursor seat types per person and the monthly seat fee they cost.
+ * Cursor seat types per person and the seat fee they cost per billing cycle.
  *
  * The Cursor Admin API reports on-demand usage per member but not the seat
- * type (Standard / Premium / Free) or the monthly seat subscription line on
- * the invoice. Migration 026 stores both by hand:
+ * type (Standard / Premium / Free) or the seat subscription line on the
+ * invoice. Migration 026 stores both by hand:
  *
- * - cursor_seat_assignments: a person's seat type from a month onward
- *   (standard / premium / free / none). The type for month M is the row with
- *   the latest effective_month <= M; no row means unassigned.
- * - cursor_seat_rates: a seat type's monthly rate from a month onward,
+ * - cursor_seat_assignments: a person's seat type from a cycle onward
+ *   (standard / premium / free / none). The type for cycle C is the row with
+ *   the latest effective_month <= C; no row means unassigned. A row carries
+ *   into every later cycle until an admin changes or removes it.
+ * - cursor_seat_rates: a seat type's rate per cycle from a cycle onward,
  *   seeded Standard $40, Premium $80, Free $0. Admin-editable.
  *
+ * Billing cycles (issue #82). Seats bill on a cycle that runs from the
+ * SEAT_CYCLE_ANCHOR_DAY (20th) of one month to the same day of the next
+ * (Oct 20 - Nov 20, Nov 20 - Dec 20, ...; end exclusive). A cycle is keyed by
+ * the calendar month it starts in: cycle "2026-11" is Nov 20 - Dec 20, 2026.
+ * The stored effective_month YYYY-MM-01 IS that key ("from the cycle that
+ * starts on the 20th of YYYY-MM onward"), so the 026 rows map onto cycles
+ * with no migration: the Nov 5, 2026 backfill (effective 2026-11-01) means
+ * "from the Nov 20 - Dec 20, 2026 cycle onward".
+ *
+ * Calendar months. Cursor bills a seat cycle in advance at its start, so a
+ * cycle's whole charge lands in the calendar month it starts (and is billed)
+ * in: Nov 20 - Dec 20 counts in November, never split across November and
+ * December. Every calendar month therefore holds exactly one cycle, and the
+ * org / people / budget / dashboard views (which are calendar-month) add it
+ * once. The synthetic rows stay dated the 1st of that month so date filters,
+ * projections (lib/projection.ts) and invoice months line up as before.
+ *
  * Nothing is written to cost_records. At read time each billed person gets
- * one synthetic Cursor row per month, dated the 1st with model_name
- * CURSOR_SEAT_MODEL, attributed to them (and so to their team and
- * department). Free, unassigned ("none") and people with no row cost $0 and
- * get no row. Months before a change keep their earlier type and rate.
+ * one synthetic Cursor row per cycle, dated the 1st of the cycle's start
+ * month with model_name CURSOR_SEAT_MODEL, attributed to them (and so to
+ * their team and department). Free, unassigned ("none") and people with no
+ * row cost $0 and get no row. Cycles before a change keep their earlier type
+ * and rate.
  *
  * Coordination with other Cursor amounts in the same month:
  * - Invoice actual (invoice_overrides, migration 024, lib/invoice-overrides.ts):
- *   the invoice is the billed month total. Seats are composition inside it,
- *   never on top: the seat rows count first (scaled down only if they exceed
- *   the invoice) and the invoice plan scales the month's other Cursor rows to
- *   the remainder (or adds an adjustment row for it when there is no API
- *   spend). The month sums to the invoice exactly.
+ *   the invoice is the billed month total, and the cycle billed in that month
+ *   is composition inside it, never on top: the seat rows count first (scaled
+ *   down only if they exceed the invoice) and the invoice plan scales the
+ *   month's other Cursor rows to the remainder (or adds an adjustment row for
+ *   it when there is no API spend). The month sums to the invoice exactly.
  * - A recurring Cursor cost (recurring_costs, migration 022) in a month that
  *   has per-person seats would bill the same seat dollars twice; the
  *   recurring row is dropped for that month and the admin card says so.
@@ -53,10 +72,104 @@ export const SEAT_TYPE_LABEL: Record<AssignableSeatType, string> = {
 
 export const CURSOR_SLUG = "cursor"
 
+// ---------------------------------------------------------------------------
+// Billing cycles (issue #82)
+// ---------------------------------------------------------------------------
+
+/**
+ * Day of the month a Cursor seat cycle starts (and the previous one ends).
+ * The one place the anchor is set. Must be 1..28 so every month has it.
+ *
+ * Robert asked for the 20th. Cursor admin showed this team's usage cycle as
+ * Oct 19 - Nov 19, 2026 and the seat invoice lines posted on the 19th; the
+ * dashboard follows the requested 20th. Because a cycle's charge is attributed
+ * to the calendar month it starts in, changing the anchor (say to 19) only
+ * changes the cycle dates shown, not which month a charge lands in or any
+ * stored row.
+ */
+export const SEAT_CYCLE_ANCHOR_DAY = 20
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/
+
+/** One seat billing cycle. */
+export interface SeatCycle {
+  /** YYYY-MM of the cycle's start: the cycle key and the calendar month its charge lands in. */
+  key: string
+  /** First day of the cycle, YYYY-MM-DD. */
+  start: string
+  /** First day of the next cycle, YYYY-MM-DD (exclusive). */
+  end: string
+  /** e.g. "Nov 20 – Dec 20, 2026" or "Dec 20, 2026 – Jan 20, 2027". */
+  label: string
+}
+
+const pad = (n: number) => String(n).padStart(2, "0")
+
+/** The cycle with key `ym` (YYYY-MM): ym-ANCHOR to (ym + 1)-ANCHOR. */
+export function seatCycle(ym: string, anchorDay: number = SEAT_CYCLE_ANCHOR_DAY): SeatCycle {
+  const key = toMonth(ym)
+  const next = addMonths(key, 1)
+  const start = `${key}-${pad(anchorDay)}`
+  const end = `${next}-${pad(anchorDay)}`
+  const [y1, m1] = key.split("-").map(Number)
+  const [y2, m2] = next.split("-").map(Number)
+  const a = `${MONTH_NAMES[m1 - 1]} ${anchorDay}`
+  const b = `${MONTH_NAMES[m2 - 1]} ${anchorDay}`
+  const label = y1 === y2 ? `${a} – ${b}, ${y2}` : `${a}, ${y1} – ${b}, ${y2}`
+  return { key, start, end, label }
+}
+
+/**
+ * Key of the cycle containing `date` (YYYY-MM-DD...): its own month from the
+ * anchor day on, the previous month before it. With the 20th, Nov 19 is in
+ * the Oct 20 - Nov 20 cycle ("2026-10") and Nov 20 and Nov 21 are in
+ * Nov 20 - Dec 20 ("2026-11").
+ */
+export function seatCycleKeyForDate(date: string, anchorDay: number = SEAT_CYCLE_ANCHOR_DAY): string {
+  const m = DATE_RE.exec(date)
+  if (!m) throw new Error(`Not a date: ${date}`)
+  const ym = `${m[1]}-${m[2]}`
+  return Number(m[3]) >= anchorDay ? ym : addMonths(ym, -1)
+}
+
+/**
+ * The cycle whose charge lands in calendar month `ym`: the one that starts
+ * (and is billed) in it. Exactly one per month, so calendar-month totals add
+ * each cycle once.
+ */
+export function seatCycleForMonth(ym: string, anchorDay: number = SEAT_CYCLE_ANCHOR_DAY): SeatCycle {
+  return seatCycle(ym, anchorDay)
+}
+
+/**
+ * The calendar month a cycle's charge is attributed to (its start month).
+ * Inverse of seatCycleForMonth.
+ */
+export function calendarMonthOfCycle(cycleKey: string): string {
+  return toMonth(cycleKey)
+}
+
+/**
+ * The cycle an admin edit applies from by default at `now`: the cycle billed
+ * in the current calendar month (UTC). From Nov 1 to Nov 19 that is the
+ * upcoming Nov 20 - Dec 20 cycle (Oct 20 - Nov 20 was billed in October, a
+ * past month, and stays as it is); from Nov 20 to Nov 30 it is the cycle in
+ * progress.
+ */
+export function currentSeatCycle(now: Date, anchorDay: number = SEAT_CYCLE_ANCHOR_DAY): SeatCycle {
+  return seatCycleForMonth(now.toISOString().slice(0, 7), anchorDay)
+}
+
+/** The cycle that contains `now` (UTC). */
+export function seatCycleInProgress(now: Date, anchorDay: number = SEAT_CYCLE_ANCHOR_DAY): SeatCycle {
+  return seatCycle(seatCycleKeyForDate(now.toISOString().slice(0, 10), anchorDay), anchorDay)
+}
+
 /** A cursor_seat_assignments row as PostgREST returns it. */
 export interface SeatAssignment {
   person_id: string
-  /** YYYY-MM-01 */
+  /** YYYY-MM-01: the key of the first cycle this row applies to (that cycle starts YYYY-MM-20). */
   effective_month: string
   seat_type: AssignableSeatType | string
   source?: string | null
@@ -67,7 +180,7 @@ export interface SeatAssignment {
 /** A cursor_seat_rates row as PostgREST returns it (numerics may be strings). */
 export interface SeatRate {
   seat_type: SeatType | string
-  /** YYYY-MM-01 */
+  /** YYYY-MM-01: the key of the first cycle this rate applies to. */
   effective_month: string
   monthly_rate_usd: number | string
   updated_by?: string | null
@@ -92,7 +205,7 @@ const num = (v: unknown): number => {
 
 const cents = (n: number) => Math.round(n * 100) / 100
 
-/** Latest row with month <= ym, by effective_month. */
+/** Latest row with cycle key <= ym, by effective_month. */
 function latestAt<T extends { effective_month: string }>(rows: T[], ym: string): T | null {
   let best: T | null = null
   for (const r of rows) {
@@ -103,25 +216,29 @@ function latestAt<T extends { effective_month: string }>(rows: T[], ym: string):
   return best
 }
 
-/** A person's seat type in month `ym` ("none" when unassigned or no row yet). */
+/**
+ * A person's seat type in cycle `ym` (cycle key, YYYY-MM; "none" when
+ * unassigned or no row yet). The latest row at or before the cycle wins, so
+ * an assignment carries into every later cycle until a later row changes it.
+ */
 export function seatTypeFor(assignments: SeatAssignment[], personId: string, ym: string): AssignableSeatType {
   const row = latestAt(assignments.filter((a) => a.person_id === personId), ym)
   return row && isAssignableSeatType(row.seat_type) ? row.seat_type : "none"
 }
 
-/** Monthly rate of a seat type in month `ym`; "none" (and a type with no rate row) is $0. */
+/** Per-cycle rate of a seat type in cycle `ym`; "none" (and a type with no rate row) is $0. */
 export function rateFor(rates: SeatRate[], type: AssignableSeatType, ym: string): number {
   if (type === "none") return 0
   const row = latestAt(rates.filter((r) => r.seat_type === type), ym)
   return row ? cents(num(row.monthly_rate_usd)) : 0
 }
 
-/** The seat fee attributed to a person for month `ym`. */
+/** The seat fee attributed to a person for cycle `ym`. */
 export function seatCostFor(assignments: SeatAssignment[], rates: SeatRate[], personId: string, ym: string): number {
   return rateFor(rates, seatTypeFor(assignments, personId, ym), ym)
 }
 
-/** Current rate per seat type for month `ym`. */
+/** Rate per seat type for cycle `ym`. */
 export function ratesAt(rates: SeatRate[], ym: string): Record<SeatType, number> {
   return {
     standard: rateFor(rates, "standard", ym),
@@ -131,13 +248,15 @@ export function ratesAt(rates: SeatRate[], ym: string): Record<SeatType, number>
 }
 
 export interface SeatSummary {
+  /** Cycle key (YYYY-MM), also the calendar month the cycle's charge lands in. */
   month: string
+  cycle: SeatCycle
   counts: Record<AssignableSeatType, number>
   rates: Record<SeatType, number>
   total_usd: number
 }
 
-/** Seat counts by type and the billed seat total for month `ym` over `personIds`. */
+/** Seat counts by type and the billed seat total for cycle `ym` over `personIds`. */
 export function seatSummary(assignments: SeatAssignment[], rates: SeatRate[], personIds: string[], ym: string): SeatSummary {
   const counts: Record<AssignableSeatType, number> = { standard: 0, premium: 0, free: 0, none: 0 }
   let total = 0
@@ -146,21 +265,24 @@ export function seatSummary(assignments: SeatAssignment[], rates: SeatRate[], pe
     counts[t] += 1
     total += rateFor(rates, t, ym)
   }
-  return { month: ym, counts, rates: ratesAt(rates, ym), total_usd: cents(total) }
+  return { month: ym, cycle: seatCycle(ym), counts, rates: ratesAt(rates, ym), total_usd: cents(total) }
 }
 
 /**
- * One synthetic row per billed person per month, from the earliest
- * assignment month through `currentMonth` (never into the future). People
- * whose seat is Free, unassigned, or costs $0 get no row. `people` maps a
- * person id to their email (rows are attributed by email, like a manual seat
- * row); assignments of an unknown person are skipped.
+ * One synthetic row per billed person per cycle, from the earliest
+ * assignment cycle through the cycle billed in `currentMonth` (never a later
+ * one). Each row is dated the 1st of its cycle's start month, the calendar
+ * month the cycle's charge lands in. People whose seat is Free, unassigned,
+ * or costs $0 get no row. `people` maps a person id to their email (rows are
+ * attributed by email, like a manual seat row); assignments of an unknown
+ * person are skipped.
  */
 export function expandCursorSeats(input: {
   assignments: SeatAssignment[]
   rates: SeatRate[]
   people: { id: string; email: string }[]
   cursorProviderId: string
+  /** Current calendar month (YYYY-MM); its cycle is the last one expanded. */
   currentMonth: string
 }): RecurringMonthRow[] {
   const { assignments, rates, cursorProviderId, currentMonth } = input
@@ -174,14 +296,16 @@ export function expandCursorSeats(input: {
     byPerson.set(a.person_id, list)
   }
   const first = assignments.map((a) => toMonth(a.effective_month)).sort()[0]
+  const last = seatCycleForMonth(currentMonth).key
   const out: RecurringMonthRow[] = []
-  for (let ym = first; ym <= currentMonth; ym = addMonths(ym, 1)) {
+  for (let cycle = first; cycle <= last; cycle = addMonths(cycle, 1)) {
+    const month = calendarMonthOfCycle(cycle)
     for (const [personId, list] of [...byPerson.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-      const cost = rateFor(rates, seatTypeFor(list, personId, ym), ym)
+      const cost = rateFor(rates, seatTypeFor(list, personId, cycle), cycle)
       if (cost <= 0) continue
       out.push({
-        date: `${ym}-01`,
-        month: ym,
+        date: `${month}-01`,
+        month,
         provider_id: cursorProviderId,
         model_name: CURSOR_SEAT_MODEL,
         total_cost_usd: cost,
@@ -230,7 +354,9 @@ export function seatTotalsByMonth(plan: CursorSeatPlan): Map<string, number> {
 
 /**
  * Fold the seat rows into the invoice plan (lib/invoice-overrides.ts) so an
- * invoiced Cursor month stays at its invoice B with seats as composition:
+ * invoiced Cursor month stays at its invoice B with seats as composition.
+ * The seat rows of a month are the one cycle billed in it, which is also the
+ * seat line on that month's invoice:
  *
  * - seat rows S count first, scaled by B / S only when S > B;
  * - the month's invoice plan then carries only the remainder R = B - S' for
@@ -514,13 +640,18 @@ export class SeatInputError extends Error {
 const MONTH = /^\d{4}-\d{2}$/
 
 /**
- * The month a change takes effect: from_month if given, else the current
- * month. Never before the current month, so past months are not rewritten.
+ * The cycle a change takes effect from (cycle key, YYYY-MM): from_month if
+ * given, else `currentCycle` (the cycle billed in the current calendar month,
+ * currentSeatCycle()). Never before it, so past cycles are not rewritten.
  */
-export function parseFromMonth(v: unknown, currentMonth: string): string {
-  if (v === undefined || v === null || v === "") return currentMonth
-  if (typeof v !== "string" || !MONTH.test(v)) throw new SeatInputError("from_month must be YYYY-MM")
-  if (v < currentMonth) throw new SeatInputError(`from_month must not be before the current month (${currentMonth}); past months are not changed`)
+export function parseFromMonth(v: unknown, currentCycle: string): string {
+  if (v === undefined || v === null || v === "") return currentCycle
+  if (typeof v !== "string" || !MONTH.test(v)) throw new SeatInputError("from_month must be YYYY-MM (the month the cycle starts in)")
+  if (v < currentCycle) {
+    throw new SeatInputError(
+      `from_month must not be before the current cycle (${currentCycle}, ${seatCycle(currentCycle).label}); past months and their cycles are not changed`
+    )
+  }
   return v
 }
 

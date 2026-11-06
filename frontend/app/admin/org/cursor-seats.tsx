@@ -2,9 +2,10 @@
 
 /**
  * Cursor seat types on /admin/org (migration 026): the per-person seat type
- * select on each People row, and a card with the month's seat summary, the
- * admin-editable monthly rates, and the roster CSV backfill. Changes apply
- * from the current month onward; earlier months are never changed.
+ * select on each People row, and a card with the billing cycle's seat summary
+ * (20th-to-20th, issue #82), the admin-editable per-cycle rates, and the
+ * roster CSV backfill. Changes apply from the cycle billed this calendar
+ * month onward and carry forward until changed; earlier cycles never change.
  */
 
 import { useCallback, useEffect, useState } from "react"
@@ -46,7 +47,7 @@ async function call<T>(path: string, body?: unknown): Promise<Result<T>> {
 export interface CursorSeats {
   state: CursorSeatState | null
   error: string | null
-  /** Set one person's seat type from the current month; resolves true on success. */
+  /** Set one person's seat type from the current cycle on; resolves true on success. */
   assign: (personId: string, type: AssignableSeatType) => Promise<boolean>
   setState: (s: CursorSeatState) => void
   setError: (e: string | null) => void
@@ -92,7 +93,11 @@ export function SeatTypeSelect({ seats, personId, label }: { seats: CursorSeats;
   return (
     <select
       aria-label={`Cursor seat for ${label}`}
-      title={available ? "Cursor seat type from this month on" : "Cursor seat types need migration 026"}
+      title={
+        available && seats.state
+          ? `Cursor seat type from the ${seats.state.cycle.label} cycle on, until changed`
+          : "Cursor seat types need migration 026"
+      }
       className={selectClass}
       value={value}
       disabled={!available || saving}
@@ -129,6 +134,14 @@ const REASON: Record<RosterPlan["unmatched"][number]["reason"], string> = {
   no_name: "no name or email",
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** "2026-11" -> "Nov 2026" */
+function monthLabel(ym: string) {
+  const [y, m] = ym.split("-").map(Number)
+  return `${MONTHS[m - 1]} ${y}`
+}
+
 function counts(c: Record<AssignableSeatType, number>) {
   return `${c.standard} Standard · ${c.premium} Premium · ${c.free} Free`
 }
@@ -156,7 +169,7 @@ export function CursorSeatsCard({ seats, org }: { seats: CursorSeats; org: Org }
     if (!r.ok) return seats.setError(r.error)
     seats.setState(r.data)
     seats.setError(null)
-    setMsg(`${SEAT_TYPE_LABEL[t]} rate saved from ${r.data.currentMonth}`)
+    setMsg(`${SEAT_TYPE_LABEL[t]} rate saved from the ${r.data.cycle.label} cycle`)
   }
 
   const runImport = async (confirm: boolean) => {
@@ -169,7 +182,7 @@ export function CursorSeatsCard({ seats, org }: { seats: CursorSeats; org: Org }
     setReport(r.data)
     if (r.data.state) {
       seats.setState(r.data.state)
-      setMsg(`Imported ${r.data.applied} seat assignments from ${r.data.from_month}`)
+      setMsg(`Imported ${r.data.applied} seat assignments from the ${r.data.state.cycle.label} cycle`)
     }
   }
 
@@ -183,9 +196,11 @@ export function CursorSeatsCard({ seats, org }: { seats: CursorSeats; org: Org }
       <CardHeader>
         <CardTitle>Cursor seats</CardTitle>
         <CardDescription>
-          The Cursor API doesn&apos;t report seat types, so they are set here. Each person&apos;s monthly seat fee is
-          attributed to them and their team and counted in Cursor totals. Changes apply from this month on. When a
-          Cursor month has an invoice actual, seats are part of that total, not added to it.
+          The Cursor API doesn&apos;t report seat types, so they are set here. Seats bill per cycle, from the 20th
+          to the 20th; each cycle&apos;s fee counts in the calendar month the cycle starts in. Each person&apos;s seat
+          fee is attributed to them and their team and counted in Cursor totals. A seat type carries into every later
+          cycle until you change it or set it to Unassigned; earlier cycles never change. When a Cursor month has an
+          invoice actual, seats are part of that total, not added to it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -202,15 +217,26 @@ export function CursorSeatsCard({ seats, org }: { seats: CursorSeats; org: Org }
           </p>
         ) : (
           <>
+            <p className="text-sm" data-testid="cursor-seat-cycle">
+              Editing cycle <strong>{state.cycle.label}</strong> (counts in {monthLabel(state.cycle.key)}); changes apply
+              from this cycle on.
+              {state.cycleInProgress.key !== state.cycle.key && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  The cycle in progress, {state.cycleInProgress.label}, was billed in {monthLabel(state.cycleInProgress.key)} and
+                  stays as it is.
+                </span>
+              )}
+            </p>
             {state.summary && (
               <p className="text-sm" data-testid="cursor-seat-summary">
-                {state.summary.month}: {counts(state.summary.counts)} = <strong>{usd(state.summary.total_usd)}</strong> / month
+                {state.summary.cycle.label}: {counts(state.summary.counts)} = <strong>{usd(state.summary.total_usd)}</strong> / cycle
                 {state.summary.counts.none > 0 && <span className="text-muted-foreground"> ({state.summary.counts.none} unassigned)</span>}
               </p>
             )}
             {state.recurringConflict && (
               <p className="flex items-center gap-1 text-sm text-amber-600" role="status">
-                <AlertCircle className="h-4 w-4" /> A recurring Cursor cost also covers this month. While per-person seats
+                <AlertCircle className="h-4 w-4" /> A recurring Cursor cost also covers {monthLabel(state.cycle.key)}. While per-person seats
                 exist it is not counted (it would bill the same seats twice); end it under Recurring costs.
               </p>
             )}
@@ -232,7 +258,7 @@ export function CursorSeatsCard({ seats, org }: { seats: CursorSeats; org: Org }
                   }}
                 >
                   <label className="text-sm">
-                    <span className="block text-muted-foreground">{SEAT_TYPE_LABEL[t]} $/month</span>
+                    <span className="block text-muted-foreground">{SEAT_TYPE_LABEL[t]} $/cycle</span>
                     <Input
                       aria-label={`${SEAT_TYPE_LABEL[t]} monthly rate`}
                       className="w-24"
