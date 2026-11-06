@@ -1,24 +1,16 @@
 /**
- * Cursor seats on /admin/org (migration 026): the "migration 026 not
- * applied" notice with seat selects disabled, the billing cycle being edited
- * (20th to 20th, issue #82), the cycle summary, and a per-person seat change.
+ * Cursor seats under Seat assignments on /admin (migration 026, issue #92):
+ * the "migration 026 not applied" notice with seat selects disabled, the
+ * billing cycle being edited (20th to 20th, issue #82), the cycle summary,
+ * and a per-person seat change from the card's seat list.
  */
 
 import "@testing-library/jest-dom"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { CursorSeatsCard, SeatTypeSelect, useCursorSeats } from "./cursor-seats"
-import type { Org } from "./shared"
+import { CursorSeatAssignmentsCard, CursorSeatsCard, useCursorSeats, type SeatPerson } from "./cursor-seats"
 
-const org = {
-  departments: [],
-  teams: [],
-  people: [{ id: "p1", email: "p1@liatrio.com", display_name: "Pat", team_id: null }],
-  identities: [],
-  apiKeys: [],
-  projects: [],
-  providers: [],
-} as unknown as Org
+const people: SeatPerson[] = [{ id: "p1", email: "p1@liatrio.com", display_name: "Pat" }]
 
 const NOV_CYCLE = { key: "2026-11", start: "2026-11-20", end: "2026-12-20", label: "Nov 20 – Dec 20, 2026" }
 const OCT_CYCLE = { key: "2026-10", start: "2026-10-20", end: "2026-11-20", label: "Oct 20 – Nov 20, 2026" }
@@ -40,12 +32,7 @@ const state = (over: Record<string, unknown> = {}) => ({
 
 function Harness() {
   const seats = useCursorSeats(0)
-  return (
-    <>
-      <CursorSeatsCard seats={seats} org={org} />
-      <SeatTypeSelect seats={seats} personId="p1" label="p1@liatrio.com" />
-    </>
-  )
+  return <CursorSeatsCard seats={seats} people={people} />
 }
 
 const fetchMock = jest.fn()
@@ -62,7 +49,8 @@ describe("CursorSeatsCard", () => {
     )
     render(<Harness />)
     expect(await screen.findByText(/migration 026/)).toBeInTheDocument()
-    expect(screen.getByLabelText("Cursor seat for p1@liatrio.com")).toBeDisabled()
+    // No editable seat select while 026 is missing.
+    expect(screen.queryByLabelText("Cursor seat for p1@liatrio.com")).not.toBeInTheDocument()
   })
 
   it("shows the billing cycle being edited (Nov 20 – Dec 20) and the cycle in progress", async () => {
@@ -89,5 +77,37 @@ describe("CursorSeatsCard", () => {
     const [url, init] = fetchMock.mock.calls.at(-1)!
     expect(url).toBe("/api/admin/org/cursor-seats/assign")
     expect(JSON.parse(init.body)).toEqual({ person_ids: ["p1"], seat_type: "premium" })
+  })
+
+  it("admin Seat assignments card loads people and assigns a seat type through the cursor-seats assign endpoint (#92)", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/admin/org")
+        return reply({
+          people: [
+            { id: "p1", email: "p1@liatrio.com", display_name: "Pat", team_id: null, active: true },
+            { id: "p2", email: "sam@liatrio.com", display_name: "Sam", team_id: null, active: true },
+            { id: "p3", email: "gone@liatrio.com", display_name: "Gone", team_id: null, active: false },
+          ],
+        })
+      if (init?.method === "POST") return reply(state({ current: { p1: "standard", p2: "free" } }))
+      return reply(state())
+    })
+    render(<CursorSeatAssignmentsCard />)
+    const list = await screen.findByTestId("cursor-seat-list")
+    await waitFor(() => expect(screen.getByLabelText("Cursor seat for sam@liatrio.com")).toHaveValue("none"))
+    expect(list).toHaveTextContent("Pat")
+    // Inactive people without a seat are left out of the list.
+    expect(screen.queryByLabelText("Cursor seat for gone@liatrio.com")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Cursor seat for p1@liatrio.com")).toHaveValue("standard")
+
+    await userEvent.selectOptions(screen.getByLabelText("Cursor seat for sam@liatrio.com"), "free")
+    await waitFor(() => expect(screen.getByLabelText("Cursor seat for sam@liatrio.com")).toHaveValue("free"))
+    const [url, init] = fetchMock.mock.calls.at(-1)!
+    expect(url).toBe("/api/admin/org/cursor-seats/assign")
+    expect(JSON.parse(init.body)).toEqual({ person_ids: ["p2"], seat_type: "free" })
+    // Rates, roster import and the cycle summary stay on the same card.
+    expect(screen.getByLabelText("Standard monthly rate")).toBeInTheDocument()
+    expect(screen.getByLabelText("Roster CSV file")).toBeInTheDocument()
+    expect(screen.getByTestId("cursor-seat-summary")).toBeInTheDocument()
   })
 })

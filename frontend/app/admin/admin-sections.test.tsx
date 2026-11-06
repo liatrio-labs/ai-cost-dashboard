@@ -20,6 +20,7 @@ jest.mock("@/components/monthly-entry-form", () => ({ MonthlyEntryForm: mockStub
 jest.mock("@/components/admin/manage-tools", () => ({ ManageTools: mockStub("manage-tools") }))
 jest.mock("@/components/admin/manage-entries", () => ({ ManageEntries: mockStub("manage-entries") }))
 jest.mock("@/components/admin/seat-assignments", () => ({ SeatAssignmentsCard: mockStub("seat-assignments") }))
+jest.mock("@/components/admin/cursor-seats", () => ({ CursorSeatAssignmentsCard: mockStub("cursor-seats") }))
 jest.mock("@/components/admin/admins", () => ({ AdminsCard: mockStub("admins") }))
 jest.mock("@/components/admin/invoice-overrides", () => ({ InvoiceOverridesCard: mockStub("invoice-overrides") }))
 jest.mock("@/components/admin/forecast-settings", () => ({ ForecastSettingsCard: mockStub("forecast-settings") }))
@@ -68,6 +69,10 @@ describe("Admin page sections (#88 AC14)", () => {
     const tools = screen.getByRole("region", { name: "Tools and costs" })
     expect(within(tools).getByTestId("stub-manage-tools")).toBeInTheDocument()
     expect(within(tools).getByTestId("stub-seat-assignments")).toBeInTheDocument()
+    // Issue #92: Cursor seat types are edited next to Claude Ultra seat assignments.
+    const seatArea = tools.querySelector("#seat-assignments") as HTMLElement
+    expect(within(seatArea).getByTestId("stub-seat-assignments")).toBeInTheDocument()
+    expect(within(seatArea).getByTestId("stub-cursor-seats")).toBeInTheDocument()
     const access = screen.getByRole("region", { name: "Access" })
     expect(within(access).getByTestId("stub-admins")).toBeInTheDocument()
     expect(within(access).getByText("People cleanup")).toBeInTheDocument()

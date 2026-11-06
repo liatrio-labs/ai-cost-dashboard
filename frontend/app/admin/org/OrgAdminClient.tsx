@@ -21,7 +21,8 @@ import { BulkTeamBar, CsvImportCard, SelectAllCheckbox, useSelection } from "./b
 import { DuplicatesCard } from "./merge"
 import { ReviewTab } from "./review-inbox"
 import { BudgetsTab } from "./budgets-tab"
-import { CursorSeatsCard, SeatTypeSelect, useCursorSeats } from "./cursor-seats"
+import { useCursorSeats } from "@/components/admin/cursor-seats"
+import { SEAT_TYPE_LABEL } from "@/lib/cursor-seats"
 
 const API = "/api/admin/org"
 
@@ -342,7 +343,7 @@ function NamesToReviewCard({ org, onShow }: { org: Org; onShow: (email: string) 
   )
 }
 
-function PeopleTab({
+export function PeopleTab({
   org,
   mutate,
   onMerged,
@@ -426,7 +427,14 @@ function PeopleTab({
 
       <DuplicatesCard org={org} onMerged={onMerged} />
 
-      <CursorSeatsCard seats={seats} org={org} />
+      {/* Issue #92: Cursor seat types are set under Seat assignments on /admin; rows here only show the type. */}
+      <p className="text-sm text-muted-foreground" data-testid="cursor-seats-moved">
+        Cursor seat types and rates are set under{" "}
+        <Link href="/admin#seat-assignments" className="underline">
+          Admin &gt; Seat assignments
+        </Link>
+        . Each person&apos;s seat fee still counts in their spend.
+      </p>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -483,7 +491,11 @@ function PeopleTab({
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <SeatTypeSelect seats={seats} personId={p.id} label={p.email} />
+                    {seats.state?.available && (seats.state.current[p.id] ?? "none") !== "none" && (
+                      <Badge variant="outline" title="Set under Admin > Seat assignments" data-testid="cursor-seat-label">
+                        Cursor: {SEAT_TYPE_LABEL[seats.state.current[p.id]]}
+                      </Badge>
+                    )}
                     <TeamSelect
                       org={org}
                       value={p.team_id}
