@@ -8,7 +8,7 @@
  * onFiltersChange with the next filter set.
  */
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -756,7 +756,16 @@ export function OrgFilterBar({
 }
 
 /** The Org tab: breadcrumbs, the drill-down, People, API keys and projects. */
-export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; onFiltersChange: OnFilters }) {
+export function OrgBreakdown({
+  data,
+  onFiltersChange,
+  personCursorCycle,
+}: {
+  data: BreakdownData
+  onFiltersChange: OnFilters
+  /** Issue #84: the person view's Cursor billing-cycle on-demand card (already scoped to the person). */
+  personCursorCycle?: ReactNode
+}) {
   return (
     <div className="space-y-6">
       <OrgBreadcrumbs data={data} onFiltersChange={onFiltersChange} />
@@ -770,6 +779,8 @@ export function OrgBreakdown({ data, onFiltersChange }: { data: BreakdownData; o
       {data.level === "detail" && data.cursorProducts && (
         <CursorProductSplit products={data.cursorProducts.products} total={data.cursorProducts.total} />
       )}
+      {/* Person view (issue #84): Cursor billing-cycle on-demand for this person; a separate measure from the calendar-month split above. */}
+      {data.level === "detail" && personCursorCycle}
       {data.level !== "detail" && <PeopleTable data={data} onFiltersChange={onFiltersChange} />}
       <ApiKeysTable data={data} onFiltersChange={onFiltersChange} />
       <ProjectsTable data={data} onFiltersChange={onFiltersChange} />

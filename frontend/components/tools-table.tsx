@@ -163,14 +163,14 @@ export function ToolsTable({ tools, projection }: ToolsTableProps) {
                     </TableCell>
                     <TableCell className="font-mono">
                       {formatCurrency(tool.monthlySpend)}
-                      {/* Issue #73: Cursor counts on-demand (usage-based) spend only. */}
+                      {/* Issue #73: Cursor counts on-demand (usage-based) spend only. Issue #84: it's the calendar month (usage events + seat fees), not the billing cycle. */}
                       {isCursorTool(tool) && (
                         <span
                           className="block font-sans text-xs text-muted-foreground"
-                          title="Usage-based (on-demand) spend only. Usage included in the Cursor Business plan is not billed and counts $0."
+                          title="Calendar-month Cursor spend: usage-based (on-demand) spend from usage events, plus seat subscription fees (20th-to-20th seat cycle) when assigned. Usage included in the Cursor Business plan is not billed and counts $0. The billing-cycle on-demand figure is shown separately below and is not part of this total."
                           data-testid="cursor-on-demand-note"
                         >
-                          on-demand only
+                          on-demand only · calendar month (events + seats)
                         </span>
                       )}
                     </TableCell>

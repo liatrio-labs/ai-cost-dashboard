@@ -604,7 +604,7 @@ describe("Cursor billing-cycle spend (issue #76)", () => {
     effective_per_user_limit_dollars: "100.00",
     captured_at: NOV19,
   })
-  const cycleView = async () => json<Record<string, unknown>>(await getCursorCycle())
+  const cycleView = async () => json<Record<string, unknown>>(await getCursorCycle(req("/api/dashboard/cursor-cycle")))
 
   it("missing-table fallback: without migration 025 the dashboard and breakdown are exactly as before, and the cycle route returns a notice", async () => {
     const dashBefore = await dash("/api/dashboard?month=2026-11")
@@ -882,5 +882,145 @@ describe("Cursor seat attribution (migration 026)", () => {
   it("other read errors on the seat tables still fail loudly", async () => {
     failing.add("cursor_seat_assignments")
     expect((await dash("/api/dashboard?month=2026-11")).status).toBe(500)
+  })
+})
+
+describe("Cursor cycle on-demand in Tools and person views (issue #84)", () => {
+  const OCT19 = "2026-10-19T00:00:00.000Z"
+  const NOV19 = "2026-11-19T00:00:00.000Z"
+  const CAPTURED = "2026-11-03T11:05:00.000Z"
+  const P_CURSOR = "prov-cursor"
+  const member = (email: string, name: string | null, spend: string | null, overall = "99999.0000") => ({
+    cycle_start: OCT19,
+    member_email: email,
+    member_name: name,
+    cursor_user_id: null,
+    role: "member",
+    spend_cents: spend,
+    overall_spend_cents: overall,
+    monthly_limit_dollars: "100.00",
+    hard_limit_override_dollars: null,
+    effective_per_user_limit_dollars: "100.00",
+    captured_at: CAPTURED,
+  })
+  type Scoped = {
+    available: boolean
+    scope?: { kind: string; matchedMembers?: number; reason?: string }
+    current: null | {
+      cycleStart: string
+      cycleEnd: string
+      capturedAt: string | null
+      teamSpendCents: number
+      selectionSpendCents: number | null
+      members: { email: string; name: string | null; spendCents: number | null }[]
+    }
+    previous: unknown[]
+  }
+  const cycle = async (qs = "") => json<Scoped>(await getCursorCycle(req(`/api/dashboard/cursor-cycle${qs ? `?${qs}` : ""}`)))
+  const split = (products: { product: string; cost: number }[] | undefined) =>
+    Object.fromEntries((products ?? []).map((p) => [p.product, p.cost]))
+
+  beforeEach(() => {
+    const org = orgData()
+    // The display-name trap: the org says "Jacob LeCoq", Cursor says "Jacob Lecoq".
+    org.people.push({ id: "p-jacob", email: "jacob.lecoq@liatrio.com", display_name: "Jacob LeCoq", team_id: T.platform })
+    seed(org)
+    tables.person_identities = org.identities as unknown as Row[]
+    tables.cursor_spend_cycles = [
+      { cycle_start: OCT19, team_spend_cents: "273421.0000", team_overall_spend_cents: "999999.0000", member_count: 4, first_captured_at: OCT19, captured_at: CAPTURED },
+    ]
+    tables.cursor_member_cycle_spend = [
+      member("jacob.lecoq@liatrio.com", "Jacob Lecoq", "120000.0000"),
+      member("dave.alias@liatrio.com", "Dave (Cursor)", "50000.0000"), // via Cursor person_identities
+      member("alice@liatrio.com", "Alice", "100000.0000"),
+      member("stranger@example.com", "Jacob LeCoq", "3421.0000"), // same display name, different person
+    ]
+  })
+
+  it("person scope: matches by normalized email despite a display-name difference, never by name", async () => {
+    const { status, body } = await cycle("person=p-jacob")
+    expect(status).toBe(200)
+    expect(body.scope).toEqual({ kind: "filtered", matchedMembers: 1 })
+    expect(body.current!.members.map((m) => m.email)).toEqual(["jacob.lecoq@liatrio.com"])
+    expect(body.current!.selectionSpendCents).toBe(120000)
+    expect(body.current!.teamSpendCents).toBe(273421)
+  })
+
+  it("person scope: a Cursor identity links a member whose email differs from people.email", async () => {
+    const { body } = await cycle(`person=${PE.dave}`)
+    expect(body.current!.members.map((m) => m.email)).toEqual(["dave.alias@liatrio.com"])
+    expect(body.current!.selectionSpendCents).toBe(50000)
+  })
+
+  it("uses spend_cents only (never overall_spend_cents) and keeps the saved cycle dates and snapshot time", async () => {
+    const { body } = await cycle(`person=${PE.alice}`)
+    expect(body.current).toMatchObject({ cycleStart: OCT19, cycleEnd: NOV19, capturedAt: CAPTURED, selectionSpendCents: 100000 })
+    expect(body.current!.members[0].spendCents).toBe(100000)
+  })
+
+  it("Cursor tool scope (provider=cursor, no org filter) is the whole team with earlier cycles", async () => {
+    const { body } = await cycle("provider=cursor")
+    expect(body.scope).toEqual({ kind: "team" })
+    expect(body.current!.members).toHaveLength(4)
+    expect(body.current!.teamSpendCents).toBe(273421)
+    expect(body.current!.selectionSpendCents).toBe(273421)
+  })
+
+  it("team / department scope follows the resolved person's team; unassigned gets unmatched members", async () => {
+    expect((await cycle(`team=${T.platform}`)).body.current!.members.map((m) => m.email).sort()).toEqual([
+      "alice@liatrio.com",
+      "jacob.lecoq@liatrio.com",
+    ])
+    expect((await cycle(`department=${D.eng}`)).body.current!.selectionSpendCents).toBe(120000 + 50000 + 100000)
+    expect((await cycle("person=unassigned")).body.current!.members.map((m) => m.email)).toEqual(["stranger@example.com"])
+  })
+
+  it("a person with no cycle row is an explicit no-match, not $0", async () => {
+    const { body } = await cycle(`person=${PE.bob}`)
+    expect(body.scope).toEqual({ kind: "filtered", matchedMembers: 0 })
+    expect(body.current!.members).toEqual([])
+    expect(body.current!.selectionSpendCents).toBeNull()
+  })
+
+  it("filters that can't scope a per-member snapshot are not_applicable, with a reason", async () => {
+    for (const qs of ["provider=openai", `key=${K.team}`, "project=proj_2", "person=cursor-automation"]) {
+      const { body } = await cycle(qs)
+      expect(body.scope).toMatchObject({ kind: "not_applicable", reason: expect.any(String) })
+      expect(body.current).toBeNull()
+    }
+  })
+
+  it("load errors surface as a 500 with the message (the UI shows it instead of hiding the card)", async () => {
+    failing.add("cursor_member_cycle_spend")
+    const { status, body } = await cycle(`person=${PE.alice}`)
+    expect(status).toBe(500)
+    expect(body).toMatchObject({ error: "cursor_member_cycle_spend unavailable" })
+    failing.clear()
+    failing.add("people")
+    expect((await cycle(`person=${PE.alice}`)).status).toBe(500)
+  })
+
+  it("never adds cycle totals into calendar-month event totals or seat totals", async () => {
+    tables.cursor_seat_rates = [{ seat_type: "premium", effective_month: "2000-01-01", monthly_rate_usd: "80.00" }]
+    tables.cursor_seat_assignments = [{ person_id: PE.dave, effective_month: "2026-11-01", seat_type: "premium", source: "admin" }]
+    const withCycle = {
+      dash: (await dash("/api/dashboard?month=2026-11")).body,
+      daveDash: (await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)).body,
+      daveBrk: (await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.dave}`)).body,
+    }
+    tables.cursor_spend_cycles = []
+    tables.cursor_member_cycle_spend = []
+    const without = {
+      dash: (await dash("/api/dashboard?month=2026-11")).body,
+      daveDash: (await dash(`/api/dashboard?month=2026-11&person=${PE.dave}`)).body,
+      daveBrk: (await brk(`/api/dashboard/breakdown?month=2026-11&person=${PE.dave}`)).body,
+    }
+    expect(withCycle).toEqual(without)
+    // Events ($30) and seats ($80) only; the $500 cycle snapshot is not in them.
+    const cursorTool = withCycle.daveDash.tools.find((t) => t.id === P_CURSOR)!
+    expect(cursorTool.monthlySpend).toBe(30 + 80)
+    expect(split(cursorTool.products)).toEqual({ grok_bot: 0, bugbot: 0, agent_chat: 30, seats: 80 })
+    expect(withCycle.daveBrk.cursorProducts?.total).toBe(30 + 80)
+    expect(reads).not.toContain("cost_records")
   })
 })
