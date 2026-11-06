@@ -6,9 +6,45 @@ import { formatCurrency, type DashboardTool } from "@/lib/dashboard-types"
 
 interface SpendBreakdownChartProps {
   tools: DashboardTool[]
+  /**
+   * Issue #88: the headline total (kpis.totalSpend). The donut shows this
+   * figure so it matches the headline to the cent; summing per-provider
+   * rounded amounts can drift by a cent or more.
+   */
+  total?: number
 }
 
-export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
+/** The donut's center total: the headline figure when given, else the sum of the slices. */
+export function donutTotal(tools: Pick<DashboardTool, "monthlySpend">[], headline?: number): number {
+  if (headline !== undefined && Number.isFinite(headline)) return headline
+  return Math.round(tools.filter((t) => t.monthlySpend > 0).reduce((sum, t) => sum + t.monthlySpend, 0) * 100) / 100
+}
+
+function SpendTooltip({
+  active,
+  payload,
+  total,
+}: {
+  total: number
+  active?: boolean
+  payload?: Array<{ name: string; value: number }>
+}) {
+  if (active && payload && payload.length) {
+    const item = payload[0]
+    const percent = total > 0 ? ((item.value / total) * 100).toFixed(1) : "0"
+    return (
+      <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
+        <p className="font-medium text-foreground">{item.name}</p>
+        <p className="text-sm text-muted-foreground">
+          {formatCurrency(item.value)} ({percent}%)
+        </p>
+      </div>
+    )
+  }
+  return null
+}
+
+export function SpendBreakdownChart({ tools, total: headline }: SpendBreakdownChartProps) {
   const data = tools
     .filter((t) => t.monthlySpend > 0)
     .map((tool) => ({
@@ -17,29 +53,7 @@ export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
       color: tool.color,
     }))
 
-  const total = data.reduce((sum, t) => sum + t.value, 0)
-
-  const CustomTooltip = ({
-    active,
-    payload,
-  }: {
-    active?: boolean
-    payload?: Array<{ name: string; value: number }>
-  }) => {
-    if (active && payload && payload.length) {
-      const item = payload[0]
-      const percent = total > 0 ? ((item.value / total) * 100).toFixed(1) : "0"
-      return (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
-          <p className="font-medium text-foreground">{item.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {formatCurrency(item.value)} ({percent}%)
-          </p>
-        </div>
-      )
-    }
-    return null
-  }
+  const total = donutTotal(tools, headline)
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur">
@@ -70,7 +84,7 @@ export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip content={<SpendTooltip total={total} />} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -86,7 +100,9 @@ export function SpendBreakdownChart({ tools }: SpendBreakdownChartProps) {
               ))}
             </div>
             <div className="mt-4 text-center">
-              <p className="text-3xl font-bold text-foreground">{formatCurrency(total)}</p>
+              <p className="text-3xl font-bold text-foreground" data-testid="donut-total">
+                {formatCurrency(total)}
+              </p>
               <p className="text-sm text-muted-foreground">Total Monthly Spend</p>
             </div>
           </>

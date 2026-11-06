@@ -4,6 +4,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { TrendingUp, TrendingDown, Minus, DollarSign, Boxes, Zap, Trophy } from "lucide-react"
 import {
   formatCurrency,
+  isLowConfidence,
+  lowConfidenceNote,
   projectedChangeLabel,
   projectionTooltip,
   type DashboardKpis,
@@ -18,21 +20,40 @@ interface KPICardsProps {
 
 /** The spend card's change line: projected MoM for the current period, none for a future one. */
 export function spendChange(kpis: DashboardKpis, projection?: DashboardProjection) {
-  if (projection?.status === "future") return { trend: "stable" as const, label: "no data yet", title: undefined }
+  if (projection?.status === "future") return { trend: "stable" as const, label: "no data yet", title: undefined, lowConfidence: false, lowConfidenceTitle: undefined }
   const p = projection?.status === "current" ? projection.kpis : null
   if (p) {
     const pct = p.changePercent
+    const basis = projection!.basis
+    const low = isLowConfidence(basis)
     return {
       trend: pct === null || pct === 0 ? ("stable" as const) : pct > 0 ? ("up" as const) : ("down" as const),
-      label: pct === null ? "new (projected)" : projectedChangeLabel(pct),
-      title: `${projectionTooltip(projection!.basis, p.actualToDate)}; projected ${formatCurrency(p.projectedSpend)} vs ${formatCurrency(p.compareSpend)}`,
+      label: pct === null ? "new (projected)" : projectedChangeLabel(pct, basis),
+      title: `${projectionTooltip(basis, p.actualToDate)}; projected ${formatCurrency(p.projectedSpend)} vs ${formatCurrency(p.compareSpend)}`,
+      lowConfidence: low,
+      lowConfidenceTitle: low ? lowConfidenceNote(basis) : undefined,
     }
   }
   return {
     trend: kpis.changePercent > 0 ? ("up" as const) : kpis.changePercent < 0 ? ("down" as const) : ("stable" as const),
     label: `${kpis.changePercent > 0 ? "+" : ""}${kpis.changePercent}% MoM`,
     title: undefined as string | undefined,
+    lowConfidence: false,
+    lowConfidenceTitle: undefined as string | undefined,
   }
+}
+
+/** Issue #88: marks a projection made from too few complete days to trust. */
+export function LowConfidenceMark({ title }: { title?: string }) {
+  return (
+    <span
+      data-testid="low-confidence"
+      title={title}
+      className="rounded border border-amber-500/50 px-1 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400"
+    >
+      early
+    </span>
+  )
 }
 
 function formatTokens(n: number): string {
@@ -46,7 +67,7 @@ function formatTokens(n: number): string {
 export function KPICards({ kpis, projection }: KPICardsProps) {
   const spend = spendChange(kpis, projection)
 
-  const cards: { title: string; value: string; change: string; icon: typeof DollarSign; trend: "up" | "down" | "stable"; tooltip?: string }[] = [
+  const cards: { title: string; value: string; change: string; icon: typeof DollarSign; trend: "up" | "down" | "stable"; tooltip?: string; lowConfidence?: boolean; lowConfidenceTitle?: string }[] = [
     {
       title: "Total Monthly Spend",
       value: formatCurrency(kpis.totalSpend),
@@ -54,6 +75,8 @@ export function KPICards({ kpis, projection }: KPICardsProps) {
       icon: DollarSign,
       trend: spend.trend,
       tooltip: spend.title,
+      lowConfidence: spend.lowConfidence,
+      lowConfidenceTitle: spend.lowConfidenceTitle,
     },
     {
       title: "Total Tokens",
@@ -102,6 +125,7 @@ export function KPICards({ kpis, projection }: KPICardsProps) {
                 >
                   {kpi.change}
                 </span>
+                {kpi.lowConfidence && <LowConfidenceMark title={kpi.lowConfidenceTitle} />}
               </div>
             </div>
             <div className="mt-4">

@@ -111,6 +111,15 @@ function normalize(view: CursorCycleView | ScopedCursorCycleView): ScopedCursorC
   }
 }
 
+/**
+ * Issue #88: show "Overall incl. included" only when the snapshot stored it
+ * for at least one member. Cursor's /teams/spend often omits overallSpendCents;
+ * a column of dashes reads as $0, so it is hidden and the card says why.
+ */
+export function hasMemberOverall(members: CursorCycleMember[]): boolean {
+  return members.some((m) => m.overallSpendCents !== null)
+}
+
 export function CursorCycleSpendCard({
   view: raw,
   context = "dashboard",
@@ -145,6 +154,7 @@ export function CursorCycleSpendCard({
   }
 
   const filtered = view.scope.kind === "filtered"
+  const showOverall = hasMemberOverall(cur.members)
   const freshness = cycleFreshness(cur, now)
   const single = filtered && cur.members.length === 1 ? cur.members[0] : null
   const totalLabel = !filtered
@@ -220,6 +230,12 @@ export function CursorCycleSpendCard({
               </div>
             </div>
 
+            {!showOverall && cur.members.length > 0 && (
+              <p className="text-xs text-muted-foreground" data-testid="cursor-cycle-overall-missing">
+                Included-usage value per member isn&apos;t shown: Cursor&apos;s /teams/spend snapshot didn&apos;t report it
+                (overallSpendCents) for this cycle, so there is nothing stored to display.
+              </p>
+            )}
             <div className="max-h-96 overflow-auto rounded-md border border-border/50">
               <Table>
                 <TableHeader>
@@ -228,7 +244,7 @@ export function CursorCycleSpendCard({
                     <TableHead className="text-right">On-demand (cycle)</TableHead>
                     <TableHead className="text-right">Limit</TableHead>
                     <TableHead className="hidden text-right md:table-cell">Used</TableHead>
-                    <TableHead className="hidden text-right lg:table-cell">Overall incl. included</TableHead>
+                    {showOverall && <TableHead className="hidden text-right lg:table-cell">Overall incl. included</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -248,9 +264,11 @@ export function CursorCycleSpendCard({
                         <TableCell className="hidden text-right font-mono text-sm text-muted-foreground md:table-cell">
                           {usedOfLimit(m) ?? "–"}
                         </TableCell>
-                        <TableCell className="hidden text-right font-mono text-sm text-muted-foreground lg:table-cell">
-                          {dollars(m.overallSpendCents)}
-                        </TableCell>
+                        {showOverall && (
+                          <TableCell className="hidden text-right font-mono text-sm text-muted-foreground lg:table-cell">
+                            {dollars(m.overallSpendCents)}
+                          </TableCell>
+                        )}
                       </TableRow>
                     )
                   })}

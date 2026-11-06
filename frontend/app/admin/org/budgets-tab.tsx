@@ -7,6 +7,7 @@
  * var names are set). Without migration 020 the tab shows a notice and no form.
  */
 
+import { formatMonthLong } from "@/lib/dashboard-types"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertCircle, Loader2, Pencil, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -199,7 +200,7 @@ export function BudgetsTab({ org, reloadKey }: { org: Org; reloadKey: number }) 
                     <tr>
                       <th className="py-1 pr-2">Subject</th>
                       <th className="py-1 pr-2 text-right">Budget</th>
-                      <th className="py-1 pr-2 text-right">Actual {data.month}</th>
+                      <th className="py-1 pr-2 text-right">Actual {formatMonthLong(data.month)}</th>
                       <th className="py-1 pr-2 text-right">Projected</th>
                       <th className="py-1 pr-2 text-right">% of budget</th>
                       <th className="py-1 pr-2">Status</th>

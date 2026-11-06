@@ -2633,29 +2633,24 @@
     "color": "#24AE1D"
    },
    {
-    "model": "seats",
-    "total": 400,
-    "color": "#00C1DB"
-   },
-   {
     "model": "cursor-auto",
     "total": 245,
-    "color": "#C068F9"
+    "color": "#00C1DB"
    },
    {
     "model": "claude-sonnet",
     "total": 160,
-    "color": "#F77F00"
+    "color": "#C068F9"
    },
    {
     "model": "claude-ai",
     "total": 98,
-    "color": "#89DF00"
+    "color": "#F77F00"
    },
    {
     "model": "gpt-5",
     "total": 85,
-    "color": "#006989"
+    "color": "#89DF00"
    }
   ],
   "breakdown": {
@@ -2935,13 +2930,7 @@
    "2026-10",
    "2026-09"
   ],
-  "byModel": [
-   {
-    "model": "seats",
-    "total": 200,
-    "color": "#24AE1D"
-   }
-  ],
+  "byModel": [],
   "breakdown": {
    "total": {
     "cost": 200,
@@ -3743,16 +3732,6 @@
     "model": "claude-ai",
     "total": 952,
     "color": "#F77F00"
-   },
-   {
-    "model": "chatgpt-business",
-    "total": 900,
-    "color": "#89DF00"
-   },
-   {
-    "model": "seats",
-    "total": 400,
-    "color": "#006989"
    }
   ],
   "breakdown": {
@@ -4026,13 +4005,7 @@
    "2026-10",
    "2026-09"
   ],
-  "byModel": [
-   {
-    "model": "seats",
-    "total": 200,
-    "color": "#24AE1D"
-   }
-  ],
+  "byModel": [],
   "breakdown": {
    "total": {
     "cost": 200,
@@ -4777,14 +4750,9 @@
     "color": "#F77F00"
    },
    {
-    "model": "seats",
-    "total": 400,
-    "color": "#89DF00"
-   },
-   {
     "model": "claude-sonnet",
     "total": 160,
-    "color": "#006989"
+    "color": "#89DF00"
    }
   ],
   "breakdown": {
@@ -5064,13 +5032,7 @@
    "2026-10",
    "2026-09"
   ],
-  "byModel": [
-   {
-    "model": "seats",
-    "total": 200,
-    "color": "#24AE1D"
-   }
-  ],
+  "byModel": [],
   "breakdown": {
    "total": {
     "cost": 200,

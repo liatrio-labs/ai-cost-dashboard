@@ -1,5 +1,6 @@
 "use client"
 
+import { HYGIENE_REASON_LABEL, peopleNeedingReview } from "@/lib/org/person-hygiene"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, ArrowLeft, Loader2, Plus, RefreshCw, Trash2, UserPlus } from "lucide-react"
@@ -306,6 +307,41 @@ export function StructureTab({ org, mutate }: { org: Org; mutate: Mutate }) {
 // People and identities
 // ---------------------------------------------------------------------------
 
+/** Issue #88: people whose shown name needs review (read-only flags; edits and merges stay manual). */
+function NamesToReviewCard({ org, onShow }: { org: Org; onShow: (email: string) => void }) {
+  const flags = peopleNeedingReview(org.people)
+  if (!flags.length) return null
+  return (
+    <Card data-testid="names-to-review">
+      <CardHeader>
+        <CardTitle>Names to review ({flags.length})</CardTitle>
+        <CardDescription>
+          These names look wrong in the dashboard&apos;s Person filter. Show one in the People list to edit its name, or merge it under
+          Possible duplicates if it is the same person as another record. Nothing here changes data by itself.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="max-h-64 space-y-1 overflow-auto text-sm">
+          {flags.map((f) => (
+            <li key={f.person.id} className="flex flex-wrap items-center gap-2" data-testid="name-to-review">
+              <span className="font-medium">{f.label}</span>
+              {f.label !== f.person.email && <span className="text-xs text-muted-foreground">{f.person.email}</span>}
+              {f.reasons.map((r) => (
+                <Badge key={r} variant="outline">
+                  {HYGIENE_REASON_LABEL[r]}
+                </Badge>
+              ))}
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onShow(f.person.email)}>
+                Show in People
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
 function PeopleTab({
   org,
   mutate,
@@ -384,6 +420,9 @@ function PeopleTab({
           </form>
         </CardContent>
       </Card>
+
+      {/* Issue #88: names that look wrong in the Person filter; fix the name or merge, nothing automatic. */}
+      <NamesToReviewCard org={org} onShow={(email) => { setShowInactive(false); setFilter(email) }} />
 
       <DuplicatesCard org={org} onMerged={onMerged} />
 

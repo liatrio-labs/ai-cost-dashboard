@@ -336,6 +336,8 @@ export interface CursorSeatPlan {
   cursorProviderId: string | null
   /** Attributed seat rows (attributeRecurringRows), one per billed person per month. */
   seatRows: CostRow[]
+  /** Stored seat rates (read-only), so views can describe the seat composition (issue #88). */
+  rates?: SeatRate[]
 }
 
 export const EMPTY_SEAT_PLAN: CursorSeatPlan = { cursorProviderId: null, seatRows: [] }

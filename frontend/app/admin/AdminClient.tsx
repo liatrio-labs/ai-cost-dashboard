@@ -21,6 +21,7 @@ import {
   type RecurringDraft,
 } from "@/components/admin/recurring-cost"
 import { currentMonthOf } from "@/lib/recurring-costs"
+import { userFacingProviderName } from "@/lib/cost-types"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
 import { AdminsCard } from "@/components/admin/admins"
@@ -31,6 +32,7 @@ import { ProviderPullCard } from "@/components/admin/provider-pull"
 import { SyncFreshness } from "@/components/sync-freshness"
 import { LiatrioMark } from "@/components/liatrio-logo"
 import { ModeToggle } from "@/components/mode-toggle"
+import { ADMIN_SECTIONS, AdminSection, AdminSectionNav, PeopleHygieneLink } from "@/components/admin/admin-sections"
 
 interface ProviderOption {
   id: string
@@ -53,7 +55,7 @@ export function AdminClient() {
       const data = await res.json()
       const rows: ToolRow[] = Array.isArray(data) ? data : []
       setToolRows(rows)
-      setProviders(rows.map((p) => ({ id: p.id, name: p.display_name || p.name })))
+      setProviders(rows.map((p) => ({ id: p.id, name: userFacingProviderName(p.name, p.display_name) })))
     } catch {
       /* non-fatal: the entry form falls back to fetching /api/providers itself */
     }
@@ -187,193 +189,205 @@ export function AdminClient() {
       </header>
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Per-provider sync freshness and warnings (issue #47) */}
-        <SyncFreshness />
+        {/* Issue #88: section navigation so the long page is scannable. */}
+        <AdminSectionNav />
 
-        {/* Pull data (issue #28: AI Gateway, date range, Sync keys now) */}
-        <ProviderPullCard />
+        <AdminSection id={ADMIN_SECTIONS[0].id} title={ADMIN_SECTIONS[0].title} description={ADMIN_SECTIONS[0].description}>
+          {/* Per-provider sync freshness and warnings (issue #47) */}
+          <SyncFreshness />
 
-        {/* Add a new tool */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Add a new tool</CardTitle>
-            <CardDescription>
-              Register a tool that has no collection API (e.g. a seat-based SaaS subscription). Once
-              added, record its monthly spend below.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={addTool} className="space-y-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1 space-y-1.5">
-                  <label htmlFor="toolName" className="text-sm font-medium">
-                    Tool name
-                  </label>
-                  <Input
-                    id="toolName"
-                    placeholder="e.g. Lovable, GitHub Copilot"
-                    value={toolName}
-                    onChange={(e) => {
-                      setToolName(e.target.value)
-                      setAddToolMsg(null)
-                    }}
-                  />
-                </div>
-                <Button type="submit" disabled={addingTool} className="gap-2">
-                  {addingTool ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  Add tool
+          {/* Pull data (issue #28: AI Gateway, date range, Sync keys now) */}
+          <ProviderPullCard />
+
+          {/* Manual entry */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly entry</CardTitle>
+              <CardDescription>
+                Record monthly spend for a tool without an API (e.g. ChatGPT, or a seat-based tool you
+                added under Tools and costs). Toggle seat-based pricing to enter seats × price per seat.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <MonthlyEntryForm
+                providers={providers.length ? providers : undefined}
+                onSaveSuccess={() => setEntriesReloadKey((k) => k + 1)}
+              />
+              <Separator />
+              <Link href="/dashboard/chatgpt">
+                <Button variant="ghost" size="sm" className="gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  ChatGPT CSV import
                 </Button>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={toolSeatBased}
-                  onChange={(e) => setToolSeatBased(e.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
-                Seat-based subscription
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={toolRecurring}
-                  onChange={(e) => {
-                    setToolRecurring(e.target.checked)
-                    setToolRecurringDraft({ ...toolRecurringDraft, seatBased: toolSeatBased })
-                  }}
-                  className="h-4 w-4 accent-primary"
-                />
-                Monthly recurring cost (counts every month until changed or ended)
-              </label>
-              {toolRecurring ? (
-                <div className="space-y-3 rounded-md border border-border/50 p-3">
-                  <RecurringAmountFields draft={toolRecurringDraft} onChange={setToolRecurringDraft} idPrefix="new-tool" />
-                  <div className="space-y-1 sm:max-w-xs">
-                    <label htmlFor="new-tool-start" className="text-xs font-medium text-muted-foreground">
-                      Start month
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Manage entries */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Manage entries</CardTitle>
+              <CardDescription>
+                Edit or delete previously recorded manual entries. Changes update the dashboard
+                immediately.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ManageEntries reloadKey={entriesReloadKey} />
+            </CardContent>
+          </Card>
+
+        </AdminSection>
+
+        <AdminSection id={ADMIN_SECTIONS[1].id} title={ADMIN_SECTIONS[1].title} description={ADMIN_SECTIONS[1].description}>
+          {/* Add a new tool */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Add a new tool</CardTitle>
+              <CardDescription>
+                Register a tool that has no collection API (e.g. a seat-based SaaS subscription). Once
+                added, record its monthly spend under Data ingest.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={addTool} className="space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="flex-1 space-y-1.5">
+                    <label htmlFor="toolName" className="text-sm font-medium">
+                      Tool name
                     </label>
-                    <MonthSelect
-                      id="new-tool-start"
-                      value={toolRecurringStart}
-                      onChange={setToolRecurringStart}
-                      months={monthChoices(currentMonthOf(new Date()))}
+                    <Input
+                      id="toolName"
+                      placeholder="e.g. Lovable, GitHub Copilot"
+                      value={toolName}
+                      onChange={(e) => {
+                        setToolName(e.target.value)
+                        setAddToolMsg(null)
+                      }}
                     />
                   </div>
+                  <Button type="submit" disabled={addingTool} className="gap-2">
+                    {addingTool ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Add tool
+                  </Button>
                 </div>
-              ) : null}
-              {addToolMsg && (
-                <p
-                  className={`flex items-center gap-1 text-xs ${
-                    addToolMsg.ok ? "text-primary" : "text-destructive"
-                  }`}
-                >
-                  {addToolMsg.ok ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : (
-                    <AlertCircle className="h-3 w-3" />
-                  )}
-                  {addToolMsg.text}
-                </p>
-              )}
-            </form>
-          </CardContent>
-        </Card>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={toolSeatBased}
+                    onChange={(e) => setToolSeatBased(e.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  Seat-based subscription
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={toolRecurring}
+                    onChange={(e) => {
+                      setToolRecurring(e.target.checked)
+                      setToolRecurringDraft({ ...toolRecurringDraft, seatBased: toolSeatBased })
+                    }}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  Monthly recurring cost (counts every month until changed or ended)
+                </label>
+                {toolRecurring ? (
+                  <div className="space-y-3 rounded-md border border-border/50 p-3">
+                    <RecurringAmountFields draft={toolRecurringDraft} onChange={setToolRecurringDraft} idPrefix="new-tool" />
+                    <div className="space-y-1 sm:max-w-xs">
+                      <label htmlFor="new-tool-start" className="text-xs font-medium text-muted-foreground">
+                        Start month
+                      </label>
+                      <MonthSelect
+                        id="new-tool-start"
+                        value={toolRecurringStart}
+                        onChange={setToolRecurringStart}
+                        months={monthChoices(currentMonthOf(new Date()))}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                {addToolMsg && (
+                  <p
+                    className={`flex items-center gap-1 text-xs ${
+                      addToolMsg.ok ? "text-primary" : "text-destructive"
+                    }`}
+                  >
+                    {addToolMsg.ok ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : (
+                      <AlertCircle className="h-3 w-3" />
+                    )}
+                    {addToolMsg.text}
+                  </p>
+                )}
+              </form>
+            </CardContent>
+          </Card>
 
-        {/* Forecast settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Forecast</CardTitle>
-            <CardDescription>
-              The spend forecast plateaus based on total employee count. Update headcount to scale
-              the projection.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ForecastSettingsCard />
-          </CardContent>
-        </Card>
+          {/* Manage tools */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Manage tools</CardTitle>
+              <CardDescription>
+                Add a description and the platform&apos;s admin URL (where to pull more data) for each
+                tool, set up, change or end a manual tool&apos;s monthly recurring cost, or delete a tool
+                and its cost records.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ManageTools
+                tools={toolRows}
+                reloadKey={recurringReloadKey}
+                onChanged={() => {
+                  loadProviders()
+                  setEntriesReloadKey((k) => k + 1)
+                }}
+              />
+            </CardContent>
+          </Card>
 
-        {/* Team / department forecasts (issue #9) */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Team and department forecasts</CardTitle>
-            <CardDescription>
-              The org plateau is split across teams and departments by trailing spend, with
-              Unassigned as its own unit. Override a unit&apos;s plateau or headcount here.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ForecastUnitsCard />
-          </CardContent>
-        </Card>
+          {/* Invoice actuals per provider-month (issue #75) */}
+          <InvoiceOverridesCard providers={providers} />
 
-        {/* Manage tools */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Manage tools</CardTitle>
-            <CardDescription>
-              Add a description and the platform&apos;s admin URL (where to pull more data) for each
-              tool, set up, change or end a manual tool&apos;s monthly recurring cost, or delete a tool
-              and its cost records.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ManageTools
-              tools={toolRows}
-              reloadKey={recurringReloadKey}
-              onChanged={() => {
-                loadProviders()
-                setEntriesReloadKey((k) => k + 1)
-              }}
-            />
-          </CardContent>
-        </Card>
+          <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
 
-        {/* Manual entry */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Monthly entry</CardTitle>
-            <CardDescription>
-              Record monthly spend for a tool without an API (e.g. ChatGPT, or a seat-based tool you
-              added above). Toggle seat-based pricing to enter seats × price per seat.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <MonthlyEntryForm
-              providers={providers.length ? providers : undefined}
-              onSaveSuccess={() => setEntriesReloadKey((k) => k + 1)}
-            />
-            <Separator />
-            <Link href="/dashboard/chatgpt">
-              <Button variant="ghost" size="sm" className="gap-2">
-                <FileSpreadsheet className="h-4 w-4" />
-                ChatGPT CSV import
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+          {/* Forecast settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Forecast</CardTitle>
+              <CardDescription>
+                The spend forecast plateaus based on total employee count. Update headcount to scale
+                the projection.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ForecastSettingsCard />
+            </CardContent>
+          </Card>
 
-        {/* Manage entries */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Manage entries</CardTitle>
-            <CardDescription>
-              Edit or delete previously recorded manual entries. Changes update the dashboard
-              immediately.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ManageEntries reloadKey={entriesReloadKey} />
-          </CardContent>
-        </Card>
+          {/* Team / department forecasts (issue #9) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Team and department forecasts</CardTitle>
+              <CardDescription>
+                The org plateau is split across teams and departments by trailing spend, with
+                Unassigned as its own unit. Override a unit&apos;s plateau or headcount here.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ForecastUnitsCard />
+            </CardContent>
+          </Card>
 
-        {/* Invoice actuals per provider-month (issue #75) */}
-        <InvoiceOverridesCard providers={providers} />
+        </AdminSection>
 
-        <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
-
-        {/* Admins (issue #71) */}
-        <AdminsCard />
+        <AdminSection id={ADMIN_SECTIONS[2].id} title={ADMIN_SECTIONS[2].title} description={ADMIN_SECTIONS[2].description}>
+          {/* Admins (issue #71) */}
+          <AdminsCard />
+          <PeopleHygieneLink />
+        </AdminSection>
       </main>
     </div>
   )

@@ -50,9 +50,9 @@ describe("OrgBreakdown drill-down", () => {
     expect(changeHead).toHaveTextContent("Change (projected)")
     expect(within(changeHead).getByText("Change")).toBeInTheDocument()
     expect(within(changeHead).getByText("(projected)")).toBeInTheDocument()
-    expect(within(rowOf(depts, "Unassigned")).getByText("$30.00")).toBeInTheDocument()
+    expect(within(rowOf(depts, "Unassigned (no department)")).getByText("$30.00")).toBeInTheDocument()
     expect(within(rowOf(depts, "Engineering")).getByTestId("coverage")).toHaveTextContent(
-      "Not included: Windsurf (CascadeAnalytics): org-level only"
+      "Counted in Unassigned, not this row: Windsurf (CascadeAnalytics): org-level only"
     )
 
     await user.click(within(depts).getByRole("button", { name: "Engineering" }))
@@ -94,13 +94,13 @@ describe("PeopleTable", () => {
     const table = screen.getByRole("table", { name: "People" })
     const names = () => within(table).getAllByTestId("person-row").map((r) => within(r).getAllByRole("button")[0].textContent)
 
-    expect(names()).toEqual(["Alice", "Bob", "Dave", "carol@liatrio.com", "Unassigned"])
+    expect(names()).toEqual(["Alice", "Bob", "Dave", "carol@liatrio.com", "Unassigned (no matched person)"])
     const alice = rowOf(table, "Alice")
     expect(within(alice).getByText("$100.00")).toBeInTheDocument() // Anthropic column
     expect(within(alice).getByText("n/a")).toHaveAttribute("title", expect.stringMatching(/Windsurf.*org-level only/))
 
     await user.click(within(table).getByRole("button", { name: "Sort by Spend" }))
-    expect(names()).toEqual(["carol@liatrio.com", "Dave", "Bob", "Alice", "Unassigned"])
+    expect(names()).toEqual(["carol@liatrio.com", "Dave", "Bob", "Alice", "Unassigned (no matched person)"])
     await user.click(within(table).getByRole("button", { name: "Sort by Name" }))
     expect(names()[0]).toBe("Dave")
   })
@@ -262,8 +262,8 @@ describe("org table layout (issue #41)", () => {
     const table = screen.getByRole("table", { name: "API keys" })
     // key_owner has no spend, so no note; the other two keep theirs.
     expect(keyRowCoverage(table)).toEqual([
-      expect.stringMatching(/^Not included: Cursor \(Admin API\): per person; no API keys; Windsurf/),
-      expect.stringMatching(/^Not included: Cursor/),
+      expect.stringMatching(/^Counted in Unassigned, not this row: Cursor \(Admin API\): per person; no API keys; Windsurf/),
+      expect.stringMatching(/^Counted in Unassigned, not this row: Cursor/),
       null,
     ])
     expect(screen.queryByTestId("coverage-shared")).not.toBeInTheDocument()
@@ -277,7 +277,7 @@ describe("org table layout (issue #41)", () => {
     render(<ApiKeysTable data={data} onFiltersChange={() => {}} />)
     await showZeroKeys()
     const table = screen.getByRole("table", { name: "API keys" })
-    expect(screen.getByTestId("coverage-shared")).toHaveTextContent(/^Not included for every key: Cursor \(Admin API\): per person; no API keys/)
+    expect(screen.getByTestId("coverage-shared")).toHaveTextContent(/^Counted in Unassigned \(no registered key\), not on any key: Cursor \(Admin API\): per person; no API keys/)
     expect(keyRowCoverage(table)).toEqual([null, null, null])
     // The Unassigned row's "Includes" note is about different spend and stays.
     expect(within(rowOf(table, "Unassigned (no registered key)")).getByTestId("coverage")).toHaveTextContent(/^Includes /)
@@ -295,10 +295,10 @@ describe("org table layout (issue #41)", () => {
     const table = screen.getByRole("table", { name: "API keys" })
     expect(screen.queryByTestId("coverage-shared")).not.toBeInTheDocument()
     const groupRows = within(table).getAllByTestId("key-group-row")
-    expect(within(groupRows[0]).getByTestId("coverage-group")).toHaveTextContent(/^Not included: Cursor \(Admin API\)/)
+    expect(within(groupRows[0]).getByTestId("coverage-group")).toHaveTextContent(/^Counted in Unassigned, not these keys: Cursor \(Admin API\)/)
     expect(within(groupRows[1]).queryByTestId("coverage-group")).not.toBeInTheDocument()
     // Group 1's rows drop the note; group 2's differing rows keep their own.
-    expect(keyRowCoverage(table)).toEqual([null, null, null, null, expect.stringMatching(/^Not included: Cursor/)])
+    expect(keyRowCoverage(table)).toEqual([null, null, null, null, expect.stringMatching(/^Counted in Unassigned, not this row: Cursor/)])
   })
 
   it("sharedCoverageText returns the note only when every list matches", () => {
@@ -318,7 +318,7 @@ describe("with no org structure", () => {
     render(<OrgBreakdown data={data} onFiltersChange={() => {}} />)
     const depts = screen.getByRole("table", { name: "Departments" })
     expect(within(depts).getAllByRole("row")).toHaveLength(2) // header + Unassigned
-    expect(within(rowOf(depts, "Unassigned")).getByText("$250.00")).toBeInTheDocument()
+    expect(within(rowOf(depts, "Unassigned (no department)")).getByText("$250.00")).toBeInTheDocument()
   })
 })
 
@@ -365,9 +365,9 @@ describe("OrgFilterBar child filters", () => {
 
   it("scopes people to the department and lists department-less teams under Unassigned", () => {
     const { rerender } = render(<OrgFilterBar data={breakdown()} filters={{ department: D.eng }} onFiltersChange={() => {}} />)
-    expect(options("Person")).toEqual(["All", "Alice", "Dave", "Unassigned"])
+    expect(options("Person")).toEqual(["All", "Alice", "Dave", "Unassigned (no matched person)"])
     rerender(<OrgFilterBar data={breakdown()} filters={{ department: "unassigned" }} onFiltersChange={() => {}} />)
-    expect(options("Team")).toEqual(["All", "Orphan", "Unassigned"])
+    expect(options("Team")).toEqual(["All", "Orphan", "Unassigned (no team)"])
   })
 })
 
@@ -498,7 +498,7 @@ describe("Projects and keys under projects (issue #28)", () => {
     expect(names.some((n) => n?.startsWith("Data pipeline key") || n?.startsWith("key_owner") || n?.startsWith("Unowned key"))).toBe(false)
     // The filter reaches the totals too: only the workspace's $25.
     const depts = screen.getByRole("table", { name: "Departments" })
-    expect(within(rowOf(depts, "Unassigned")).getByText("$25.00")).toBeInTheDocument()
+    expect(within(rowOf(depts, "Unassigned (no department)")).getByText("$25.00")).toBeInTheDocument()
   })
 
   it("a key group heading filters by its project", async () => {

@@ -133,7 +133,7 @@ describe("CursorProductSplit", () => {
 })
 
 describe("ToolsTable Cursor on-demand label (issue #73)", () => {
-  it("marks the Cursor row's spend as on-demand only, and no other row", () => {
+  it("labels the Cursor row's spend by cost type (calendar on-demand, no seats here), and no other row", () => {
     render(
       <ToolsTable
         tools={[
@@ -143,10 +143,12 @@ describe("ToolsTable Cursor on-demand label (issue #73)", () => {
         ]}
       />
     )
-    const notes = screen.getAllByTestId("cursor-on-demand-note")
+    // Issue #88: labelled by cost type instead of the old "on-demand only" subtitle.
+    const notes = screen.getAllByTestId("cursor-cost-types")
     expect(notes).toHaveLength(1)
-    expect(notes[0]).toHaveTextContent("on-demand only")
-    expect(notes[0].getAttribute("title")).toMatch(/included in the Cursor Business plan is not billed/i)
+    expect(notes[0]).toHaveTextContent("Calendar on-demand $79.72")
+    expect(screen.queryByTestId("cost-type-seats")).not.toBeInTheDocument()
+    expect(notes[0].getAttribute("title")).toMatch(/included in the Business plan is not billed/i)
   })
 })
 

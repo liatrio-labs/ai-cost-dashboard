@@ -53,18 +53,18 @@ describe("Cursor – Bugbot/automation row (issue #51)", () => {
     const changes: DashboardFilters[] = []
     render(<Harness onChange={(f) => changes.push(f)} />)
     const depts = screen.getByRole("table", { name: "Departments" })
-    expect(names(depts).slice(-2)).toEqual([AUTOMATION_LABEL, "Unassigned"])
+    expect(names(depts).slice(-2)).toEqual([AUTOMATION_LABEL, "Unassigned (no department)"])
     const autoRow = within(depts).getByRole("button", { name: AUTOMATION_LABEL }).closest("tr") as HTMLElement
     expect(within(autoRow).getByText("$70.00")).toBeInTheDocument()
     // Unassigned keeps its $30 (Windsurf 20 + openai key_bare 10), not the Cursor $70.
-    const unRow = within(depts).getByRole("button", { name: "Unassigned" }).closest("tr") as HTMLElement
+    const unRow = within(depts).getByRole("button", { name: "Unassigned (no department)" }).closest("tr") as HTMLElement
     expect(within(unRow).getByText("$30.00")).toBeInTheDocument()
 
     await user.click(within(depts).getByRole("button", { name: AUTOMATION_LABEL }))
     expect(changes.at(-1)).toEqual({ department: AUTOMATION_KEY })
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent(AUTOMATION_LABEL)
     const teams = screen.getByRole("table", { name: "Teams" })
-    expect(names(teams)).toEqual([AUTOMATION_LABEL, "Unassigned"])
+    expect(names(teams)).toEqual([AUTOMATION_LABEL, "Unassigned (no team)"])
   })
 
   it("filter bar offers the line, and keeps department + team automation together", async () => {
@@ -72,7 +72,7 @@ describe("Cursor – Bugbot/automation row (issue #51)", () => {
     const onChange = jest.fn()
     const { rerender } = render(<OrgFilterBar data={breakdown()} filters={{}} onFiltersChange={onChange} />)
     const deptOpts = within(screen.getByLabelText("Department")).getAllByRole("option").map((o) => o.textContent)
-    expect(deptOpts.slice(-2)).toEqual([AUTOMATION_LABEL, "Unassigned"])
+    expect(deptOpts.slice(-2)).toEqual([AUTOMATION_LABEL, "Unassigned (no department)"])
     expect(within(screen.getByLabelText("Project")).getAllByRole("option").map((o) => o.textContent)).not.toContain(AUTOMATION_LABEL)
     await user.selectOptions(screen.getByLabelText("Department"), AUTOMATION_KEY)
     expect(onChange).toHaveBeenLastCalledWith({ department: AUTOMATION_KEY })
@@ -137,7 +137,7 @@ describe("Cursor – Bugbot/automation row (issue #51)", () => {
     rerender(<OrgFilterBar data={breakdown(f3)} filters={f3} onFiltersChange={onChange} />)
     const opts = within(screen.getByLabelText("Person")).getAllByRole("option").map((o) => o.textContent)
     expect(opts).toContain(AUTOMATION_LABEL)
-    expect(opts).not.toContain("Unassigned")
+    expect(opts).not.toContain("Unassigned (no matched person)")
   })
 
   it("filter bar renders before the breakdown loads (data null), e.g. a shared filtered link (Bugbot review)", () => {

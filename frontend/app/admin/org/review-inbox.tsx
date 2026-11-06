@@ -8,6 +8,7 @@
  * hidden and a notice says why.
  */
 
+import { formatMonthLong } from "@/lib/dashboard-types"
 import { useCallback, useEffect, useState } from "react"
 import { AlertCircle, Check, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -102,7 +103,7 @@ export function ReviewTab({ org, mutate, reloadKey }: { org: Org; mutate: Mutate
               </p>
             )}
             <p className="text-sm text-muted-foreground">
-              {inbox.items.length} item(s) · {inbox.hiddenCount} hidden by an earlier decision · months {inbox.months.last} (actual) and {inbox.months.current} (projected)
+              {inbox.items.length} item(s) · {inbox.hiddenCount} hidden by an earlier decision · months {formatMonthLong(inbox.months.last)} (actual) and {formatMonthLong(inbox.months.current)} (projected)
             </p>
             {kinds.map(({ kind, items }) => (
               <section key={kind} className="space-y-2" aria-label={KIND_TITLE[kind]}>
