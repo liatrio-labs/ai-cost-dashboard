@@ -24,6 +24,7 @@ import { currentMonthOf } from "@/lib/recurring-costs"
 import { userFacingProviderName } from "@/lib/cost-types"
 import { ManageEntries } from "@/components/admin/manage-entries"
 import { SeatAssignmentsCard } from "@/components/admin/seat-assignments"
+import { CursorSeatAssignmentsCard } from "@/components/admin/cursor-seats"
 import { AdminsCard } from "@/components/admin/admins"
 import { InvoiceOverridesCard } from "@/components/admin/invoice-overrides"
 import { ForecastSettingsCard } from "@/components/admin/forecast-settings"
@@ -351,7 +352,11 @@ export function AdminClient() {
           {/* Invoice actuals per provider-month (issue #75) */}
           <InvoiceOverridesCard providers={providers} />
 
-          <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
+          {/* Seat assignments: Claude Ultra monthly seat groups, then Cursor seat types (issue #92, migration 026 cycles). */}
+          <div id="seat-assignments" className="space-y-4 scroll-mt-32">
+            <SeatAssignmentsCard onChanged={() => setEntriesReloadKey((k) => k + 1)} />
+            <CursorSeatAssignmentsCard />
+          </div>
 
           {/* Forecast settings */}
           <Card>
