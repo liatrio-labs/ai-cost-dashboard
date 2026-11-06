@@ -10,6 +10,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Issue #94: the MCP server and its OAuth endpoints authenticate with bearer
+  // tokens, not the dashboard's session cookie, so skip the session refresh.
+  const path = request.nextUrl.pathname
+  if (path.startsWith("/api/mcp") || path.startsWith("/api/oauth/") || path.startsWith("/.well-known/")) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })

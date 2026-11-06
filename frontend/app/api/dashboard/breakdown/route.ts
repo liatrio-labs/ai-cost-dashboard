@@ -29,108 +29,23 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
-import { drillLevel, parseFilters, type DashboardFilters } from "@/lib/dashboard-filters"
-import {
-  fetchAttributedDaily,
-  fetchClaudeAiProductRows,
-  fetchIdentities,
-  fetchInvoicePlan,
-  fetchCursorSeatPlan,
-  fetchOrgData,
-  fetchProviders,
-  fetchRecurringDaily,
-  providerIdForSlug,
-  type SupabaseLike,
-} from "@/lib/dashboard-data"
-import { applyInvoicePlanToRaw, type InvoicePlan } from "@/lib/invoice-overrides"
-import { applySpendPlans, EMPTY_SEAT_PLAN } from "@/lib/cursor-seats"
-import { computeBreakdown } from "@/lib/org/breakdown"
-import { resolvePeriod, type PeriodParams, type ProviderRow } from "@/lib/dashboard-compute"
-import { CLAUDE_AI_SLUG, toProductDayRows, type ProductDayRow } from "@/lib/claude-ai-products"
-import { buildOrgIndex } from "@/lib/org/attribution"
-import type { OrgData } from "@/lib/org/types"
+import type { SupabaseLike } from "@/lib/dashboard-data"
+import { loadBreakdown } from "@/lib/dashboard-service"
 
 export const dynamic = "force-dynamic"
 
+// The read model lives in lib/dashboard-service.ts, shared with the MCP server (issue #94).
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies()
-    await requireAuth(cookieStore) // same gate as /api/dashboard
+    await requireAuth(cookieStore) // shared org-wide view; gate on login only
     // Typed client -> the minimal shape lib/dashboard-data.ts needs (see SupabaseLike).
     const supabase = (await createClient(cookieStore)) as unknown as SupabaseLike
-
-    const sp = request.nextUrl.searchParams
-    const filters = parseFilters(sp)
-
-    const [providers, org] = await Promise.all([fetchProviders(supabase), fetchOrgData(supabase)])
-    const providerId = providerIdForSlug(providers, filters.provider)
-    const params = { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
-    const now = new Date()
-    // An unknown provider slug matches nothing (same as fetchAttributedDaily).
-    const unknownProvider = !!filters.provider && !providerId
-    const planPromise = fetchInvoicePlan(supabase) // issue #75
-    const [attributed, recurring, claudeAiProductRows, plan] = await Promise.all([
-      fetchAttributedDaily(supabase, { provider: filters.provider }, providerId),
-      unknownProvider ? Promise.resolve([]) : fetchRecurringDaily(supabase, { now, providerId, org }),
-      personProducts(supabase, providers, org, filters, params, now, planPromise),
-      planPromise,
-    ])
-    // Cursor seat fees per person (migration 026; empty without it).
-    const seats = unknownProvider ? EMPTY_SEAT_PLAN : await fetchCursorSeatPlan(supabase, { now, providerId, org, providers })
-    const rows = unknownProvider ? [] : applySpendPlans([...attributed, ...recurring], plan, seats, { providerId })
-
-    return successResponse(
-      computeBreakdown({
-        rows,
-        org,
-        providers,
-        filters,
-        params,
-        now,
-        claudeAiProductRows,
-      })
-    )
+    return successResponse(await loadBreakdown(supabase, request.nextUrl.searchParams))
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
     if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
     console.error("GET /api/dashboard/breakdown error:", error)
     return errorResponse(message || "Failed to load breakdown", 500)
-  }
-}
-
-/**
- * Issue #48: the person view's Claude.ai records for the period, narrowed to
- * the filters, or null when not a person view, there's no Claude.ai provider,
- * or the read fails. Never throws.
- */
-async function personProducts(
-  supabase: SupabaseLike,
-  providers: ProviderRow[],
-  org: OrgData,
-  filters: DashboardFilters,
-  params: PeriodParams,
-  now: Date,
-  planPromise: Promise<InvoicePlan>
-): Promise<ProductDayRow[] | null> {
-  if (drillLevel(filters) !== "detail") return null
-  if (filters.provider && filters.provider !== CLAUDE_AI_SLUG) return null
-  const providerId = providerIdForSlug(providers, CLAUDE_AI_SLUG)
-  if (!providerId) return null
-  const { start, end } = resolvePeriod(params, now)
-  try {
-    const [raw, identities, plan] = await Promise.all([
-      fetchClaudeAiProductRows(supabase, providerId, start, end, true),
-      fetchIdentities(supabase),
-      planPromise,
-    ])
-    const rows = applyInvoicePlanToRaw(raw, plan)
-    return toProductDayRows(rows, {
-      filters,
-      index: buildOrgIndex({ ...org, identities }),
-      providerId: providerIdForSlug(providers, filters.provider),
-    })
-  } catch (error) {
-    console.error("GET /api/dashboard/breakdown: Claude.ai product split unavailable:", error)
-    return null
   }
 }

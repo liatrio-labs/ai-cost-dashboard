@@ -23,42 +23,19 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { createClient, requireAuth, errorResponse, successResponse } from "@/lib/db"
-import { readCursorCycleSpend, type ReadClient } from "@/lib/cursor-spend"
-import { parseFilters } from "@/lib/dashboard-filters"
-import { fetchIdentities, fetchOrgData, fetchProviders, providerIdForSlug, type SupabaseLike } from "@/lib/dashboard-data"
-import {
-  CURSOR_PROVIDER_SLUG,
-  cycleScopeBlocker,
-  isScopedCycleRequest,
-  scopeCursorCycleView,
-} from "@/lib/cursor-cycle-scope"
+import type { SupabaseLike } from "@/lib/dashboard-data"
+import { loadCursorCycle } from "@/lib/dashboard-service"
 
 export const dynamic = "force-dynamic"
 
+// The read model lives in lib/dashboard-service.ts, shared with the MCP server (issue #94).
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies()
-    await requireAuth(cookieStore) // same gate as /api/dashboard
-    const client = await createClient(cookieStore)
-    const filters = parseFilters(request.nextUrl.searchParams)
-    const view = await readCursorCycleSpend(client as unknown as ReadClient)
-
-    // Org data only when an org filter will actually narrow the members.
-    const needsOrg = view.available && !!view.current && isScopedCycleRequest(filters) && !cycleScopeBlocker(filters)
-    let org = null
-    let cursorProviderId: string | null = null
-    if (needsOrg) {
-      const supabase = client as unknown as SupabaseLike
-      const [providers, orgData, identities] = await Promise.all([
-        fetchProviders(supabase),
-        fetchOrgData(supabase),
-        fetchIdentities(supabase),
-      ])
-      cursorProviderId = providerIdForSlug(providers, CURSOR_PROVIDER_SLUG)
-      // Cursor identities only: the same lookup Cursor usage events get.
-      org = { ...orgData, identities: identities.filter((i) => i.provider_id === cursorProviderId) }
-    }
-    return successResponse(scopeCursorCycleView(view, filters, { org, cursorProviderId }))
+    await requireAuth(cookieStore) // shared org-wide view; gate on login only
+    // Typed client -> the minimal shape lib/dashboard-data.ts needs (see SupabaseLike).
+    const supabase = (await createClient(cookieStore)) as unknown as SupabaseLike
+    return successResponse(await loadCursorCycle(supabase, request.nextUrl.searchParams))
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
     if (message === "Unauthorized") return errorResponse("Unauthorized", 401)
