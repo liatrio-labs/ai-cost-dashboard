@@ -40,7 +40,7 @@ import { OrgBreakdown, OrgFilterBar } from "@/components/org/org-breakdown"
 import { ToolProductCards } from "@/components/claude-ai-products"
 import { CursorCycleOnDemand, useCursorCycle } from "@/components/cursor-cycle-spend"
 import { CURSOR_PROVIDER_SLUG, cycleQueryString } from "@/lib/cursor-cycle-scope"
-import { formatDayLabel, formatMonthLong, formatRangeLabel, type DashboardData } from "@/lib/dashboard-types"
+import { formatDayLabel, formatMonthLong, formatRangeLabel, usageWindowLabel, type DashboardData } from "@/lib/dashboard-types"
 import {
   hasFilters,
   parseFilters,
@@ -410,7 +410,7 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
               </div>
               <SeatsLicensesChart licenses={data!.byLicense ?? []} />
               {/* Issue #48 / #65: Claude.ai and Cursor by product, summing to their tool rows. */}
-              <ToolProductCards tools={data!.tools} />
+              <ToolProductCards tools={data!.tools} usageWindow={usageWindowLabel(data!.period, data!.projection?.today)} />
               {/* Issue #76 / #84: billing-cycle (not calendar-month) Cursor on-demand, scoped to the org filters. */}
               {showCursorCycle && <CursorCycleOnDemand load={cursorCycle} onRetry={retryCursorCycle} context="dashboard" />}
               <TrendChart trends={data!.trends} currentMonth={data!.projection?.currentMonth} />

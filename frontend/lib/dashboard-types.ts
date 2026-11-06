@@ -59,6 +59,14 @@ export interface DashboardLicense {
 
 export interface DashboardKpis {
   totalSpend: number
+  /**
+   * Issue #90: seats, licenses and other flat bills (lib/cost-types.ts
+   * costNature). fixedSpend + variableSpend === totalSpend to the cent.
+   * Optional so older payloads still render.
+   */
+  fixedSpend?: number
+  /** Issue #90: metered usage; totalSpend - fixedSpend. */
+  variableSpend?: number
   prevSpend: number
   changePercent: number
   totalTokens: number
@@ -186,6 +194,19 @@ export function formatPeriodLabel(start: string, end: string): string {
     if (end === `${ym}-${String(last).padStart(2, "0")}`) return formatMonthLong(ym)
   }
   return formatRangeLabel(start, end)
+}
+
+/**
+ * Issue #90: the calendar window that usage in a period covers. A period that
+ * contains today only has usage through today: "Nov 1 – Nov 6, 2026 (month to
+ * date)". Otherwise the period itself ("October 2026", "Oct 5 – Nov 3, 2026").
+ * Never the Cursor billing cycle.
+ */
+export function usageWindowLabel(period: { start: string; end: string }, today?: string | null): string {
+  if (today && today >= period.start && today <= period.end) {
+    return `${formatRangeLabel(period.start, today)} (${period.start.slice(8) === "01" ? "month" : "period"} to date)`
+  }
+  return formatPeriodLabel(period.start, period.end)
 }
 
 /** "2026-10-01" -> "Oct 1, 2026". */

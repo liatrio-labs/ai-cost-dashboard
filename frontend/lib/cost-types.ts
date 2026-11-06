@@ -24,6 +24,7 @@ import {
   SEAT_MODEL,
 } from "@/lib/projection"
 import { splitHeaderLabel } from "@/lib/header-label"
+import { allocateCents } from "@/lib/product-breakdown"
 
 /** Manual entries that are not seat-based use this model name. */
 export const MANUAL_MODEL = "manual"
@@ -142,4 +143,35 @@ export function cursorSeatComposition(
     p.type === "other" ? `${p.count} other ${unit}${p.count === 1 ? "" : "s"} × ${usd(p.rate)}` : `${p.count} ${p.label} × ${usd(p.rate)}`
   const free = freeRate !== null && freeRate === 0 ? "; Free seats bill $0" : ""
   return { parts: list, total, text: `${list.map(piece).join(" + ")} = ${usd(total)}${free}` }
+}
+
+// ---------------------------------------------------------------------------
+// Fixed / subscription vs variable / usage (issue #90)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed is a row licenseKind() already treats as a seat / license / flat bill
+ * (the #88 "Seats and licenses" rows: Cursor seats, Claude Ultra and ChatGPT
+ * seats, recurring costs, flat manual entries, invoice adjustments, which only
+ * exist for provider-months with no metered spend). Variable is everything
+ * else: metered usage (Cursor usage events, Claude.ai, Anthropic / OpenAI API,
+ * Vercel AI Gateway, ...). Same rule as the model chart vs the licenses chart,
+ * so the two never disagree.
+ */
+export type CostNature = "fixed" | "variable"
+
+export function costNature(modelName: string | null | undefined, providerSlug: string | null | undefined): CostNature {
+  return licenseKind(modelName, providerSlug) === null ? "variable" : "fixed"
+}
+
+/**
+ * Round the exact fixed dollars of a period and its exact total to cents that
+ * add up exactly to the headline total, rounded the way the headline is
+ * (Math.round of the exact total in cents). Variable is the rest, so the two
+ * always sum to the headline; largest remainder decides a stray cent.
+ */
+export function splitFixedVariable(totalExact: number, fixedExact: number): { fixed: number; variable: number; total: number } {
+  const totalCents = Math.round(totalExact * 100)
+  const [f, v] = allocateCents(totalCents, [fixedExact * 100, (totalExact - fixedExact) * 100])
+  return { fixed: f / 100, variable: v / 100, total: totalCents / 100 }
 }

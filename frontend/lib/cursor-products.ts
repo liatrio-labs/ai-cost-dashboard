@@ -13,7 +13,7 @@
  * only when there are any.
  */
 
-import { productNum, roundSplit, type ProductSlice, type ProductSplit } from "@/lib/product-breakdown"
+import { productNum, roundSplit, sliceSubtotal, type ProductGroup, type ProductSlice, type ProductSplit } from "@/lib/product-breakdown"
 
 export const CURSOR_SLUG = "cursor"
 
@@ -53,4 +53,39 @@ export function splitCursorByProduct(daily: { model_name: string; total_cost_usd
   }
   const order: readonly CursorProduct[] = exact.seats !== 0 ? [...CURSOR_PRODUCTS, CURSOR_SEAT_PRODUCT] : CURSOR_PRODUCTS
   return roundSplit(order, CURSOR_PRODUCT_LABEL, exact, total)
+}
+
+/** Issue #90: the seat slice on the card says it is a subscription, not usage. */
+export const CURSOR_SEAT_SLICE_LABEL = "Cursor seats (subscription)"
+
+/**
+ * Issue #90: Cursor slices grouped by cost type for the by-product card.
+ * Variable usage (Grok Bot, Bugbot, Agent/Chat: usage events by model) is one
+ * group and subscription (Cursor seats, model "cursor seats") another, so
+ * usage shares are of the usage subtotal, not of usage + seats. Buckets come
+ * from cursorProductBucket unchanged. The usage slices only ever hold the
+ * selected calendar period's usage events (month to date for the current
+ * month), never the billing-cycle window; `usageWindow` labels that window.
+ * Seats are the full cycle subscription billed in the month. Returns null when there are no seat
+ * slices (nothing to separate: the card shows the usage slices as before).
+ * The two subtotals sum to the Cursor total to the cent.
+ */
+export function cursorProductGroups(products: ProductSlice[], usageWindow?: string | null): ProductGroup[] | null {
+  const seats = products.filter((p) => p.product === CURSOR_SEAT_PRODUCT)
+  if (seats.length === 0) return null
+  const usage = products.filter((p) => p.product !== CURSOR_SEAT_PRODUCT)
+  return [
+    {
+      key: "variable",
+      label: `Variable usage, calendar ${usageWindow ?? "month"} (metered usage events)`,
+      subtotal: sliceSubtotal(usage),
+      products: usage,
+    },
+    {
+      key: "fixed",
+      label: "Subscription (fixed): seats for the 20th-to-20th Cursor cycle, not prorated",
+      subtotal: sliceSubtotal(seats),
+      products: seats.map((p) => ({ ...p, label: CURSOR_SEAT_SLICE_LABEL })),
+    },
+  ]
 }

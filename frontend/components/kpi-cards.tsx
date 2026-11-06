@@ -56,6 +56,30 @@ export function LowConfidenceMark({ title }: { title?: string }) {
   )
 }
 
+/**
+ * Issue #90: the headline's fixed / subscription and variable / usage parts,
+ * or null when the payload has no split. They sum to totalSpend to the cent
+ * (lib/cost-types.ts splitFixedVariable). Actuals only: the projection mark
+ * on the card stays about the total.
+ */
+export function spendSplit(kpis: DashboardKpis) {
+  if (typeof kpis.fixedSpend !== "number" || typeof kpis.variableSpend !== "number") return null
+  return [
+    {
+      key: "fixed",
+      label: "Fixed / subscription",
+      detail: "seats, licenses and flat monthly bills; Cursor seats are the full 20th-to-20th cycle fee, not prorated",
+      value: kpis.fixedSpend,
+    },
+    {
+      key: "variable",
+      label: "Variable / usage",
+      detail: "metered API and usage-event spend dated in this calendar period (month to date for the current month); never the Cursor billing-cycle on-demand figure",
+      value: kpis.variableSpend,
+    },
+  ]
+}
+
 function formatTokens(n: number): string {
   if (!n) return "—"
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
@@ -66,6 +90,7 @@ function formatTokens(n: number): string {
 
 export function KPICards({ kpis, projection }: KPICardsProps) {
   const spend = spendChange(kpis, projection)
+  const split = spendSplit(kpis)
 
   const cards: { title: string; value: string; change: string; icon: typeof DollarSign; trend: "up" | "down" | "stable"; tooltip?: string; lowConfidence?: boolean; lowConfidenceTitle?: string }[] = [
     {
@@ -132,6 +157,16 @@ export function KPICards({ kpis, projection }: KPICardsProps) {
               <p className="text-2xl font-bold text-foreground">{kpi.value}</p>
               <p className="text-sm text-muted-foreground">{kpi.title}</p>
             </div>
+            {kpi.title === "Total Monthly Spend" && split && (
+              <dl className="mt-3 space-y-1 border-t border-border/50 pt-3 text-xs" data-testid="spend-split">
+                {split.map((s) => (
+                  <div key={s.key} className="flex items-baseline justify-between gap-2" title={`${s.label}: ${s.detail}`} data-testid={`spend-${s.key}`}>
+                    <dt className="text-muted-foreground">{s.label}</dt>
+                    <dd className="font-mono tabular-nums text-foreground">{formatCurrency(s.value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </CardContent>
         </Card>
       ))}

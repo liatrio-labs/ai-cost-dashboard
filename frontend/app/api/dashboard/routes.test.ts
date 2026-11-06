@@ -174,6 +174,9 @@ describe("GET /api/dashboard", () => {
     // pre-#8 behavior.
     expect(body.kpis).toEqual({
       totalSpend: 250,
+      // Issue #90: no seat / license rows in this fixture, so all of it is usage.
+      fixedSpend: 0,
+      variableSpend: 250,
       prevSpend: 85,
       changePercent: 194,
       totalTokens: 7000,
