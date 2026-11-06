@@ -59,6 +59,14 @@ export interface DashboardLicense {
 
 export interface DashboardKpis {
   totalSpend: number
+  /**
+   * Issue #90: seats, licenses and other flat bills (lib/cost-types.ts
+   * costNature). fixedSpend + variableSpend === totalSpend to the cent.
+   * Optional so older payloads still render.
+   */
+  fixedSpend?: number
+  /** Issue #90: metered usage; totalSpend - fixedSpend. */
+  variableSpend?: number
   prevSpend: number
   changePercent: number
   totalTokens: number

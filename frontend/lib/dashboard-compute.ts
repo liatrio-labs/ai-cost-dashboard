@@ -38,6 +38,7 @@ import type { ProductSlice } from "@/lib/product-breakdown"
 import {
   cursorSeatComposition,
   licenseKind,
+  splitFixedVariable,
   licenseLabel,
   userFacingDescription,
   userFacingProviderName,
@@ -319,6 +320,8 @@ export function computeDashboard({
     // Issue #88: seats / subscriptions / invoice adjustments, by kind and provider (not models).
     const license = new Map<string, { kind: LicenseKind; providerId: string; cost: number }>()
     let total = 0
+    // Issue #90: fixed / subscription dollars (the license rows above); variable is total - fixed.
+    let fixed = 0
     let tokens = 0
     for (const r of daily) {
       if (r.date < start || r.date > end) continue
@@ -334,13 +337,14 @@ export function computeDashboard({
         const l = license.get(lk) || { kind, providerId: r.provider_id, cost: 0 }
         l.cost += cost
         license.set(lk, l)
+        fixed += cost
       } else {
         model.set(r.model_name, (model.get(r.model_name) || 0) + cost)
       }
       total += cost
       tokens += tok
     }
-    return { prov, model, license, total, tokens }
+    return { prov, model, license, total, fixed, tokens }
   }
 
   const cur = aggregate(periodStart, periodEnd)
@@ -472,8 +476,12 @@ export function computeDashboard({
 
   // KPIs (active period vs the preceding equal-length window)
   const changePercent = prev.total > 0 ? Math.round(((cur.total - prev.total) / prev.total) * 100) : 0
+  // Issue #90: the headline split into fixed / subscription and variable / usage, summing to totalSpend to the cent.
+  const split = splitFixedVariable(cur.total, cur.fixed)
   const kpis = {
-    totalSpend: Math.round(cur.total * 100) / 100,
+    totalSpend: split.total,
+    fixedSpend: split.fixed,
+    variableSpend: split.variable,
     prevSpend: Math.round(prev.total * 100) / 100,
     changePercent,
     totalTokens: cur.tokens,
