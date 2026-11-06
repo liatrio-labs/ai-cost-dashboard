@@ -110,4 +110,29 @@ describe("CursorSeatsCard", () => {
     expect(screen.getByLabelText("Roster CSV file")).toBeInTheDocument()
     expect(screen.getByTestId("cursor-seat-summary")).toBeInTheDocument()
   })
+
+  it("shows a loading state, not 'No people match', while the people directory is in flight (#92)", async () => {
+    let releasePeople: (v: unknown) => void = () => {}
+    fetchMock.mockImplementation((url: string) =>
+      url === "/api/admin/org" ? new Promise((r) => (releasePeople = r)) : reply(state())
+    )
+    render(<CursorSeatAssignmentsCard />)
+    expect(await screen.findByTestId("cursor-seat-people-loading")).toBeInTheDocument()
+    expect(screen.queryByText("No people match.")).not.toBeInTheDocument()
+    releasePeople({ ok: true, status: 200, json: async () => ({ people: [{ id: "p1", email: "p1@liatrio.com", display_name: "Pat", active: true }] }) })
+    expect(await screen.findByLabelText("Cursor seat for p1@liatrio.com")).toHaveValue("standard")
+  })
+
+  it("keeps a failed people load visible after the seat state loads (#92)", async () => {
+    let releaseSeats: (v: unknown) => void = () => {}
+    fetchMock.mockImplementation((url: string) =>
+      url === "/api/admin/org" ? reply({ error: "people boom" }, 500) : new Promise((r) => (releaseSeats = r))
+    )
+    render(<CursorSeatAssignmentsCard />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    // Seats resolve after the people failure; their success must not clear it.
+    releaseSeats({ ok: true, status: 200, json: async () => state() })
+    expect(await screen.findByRole("alert")).toHaveTextContent("people boom")
+    expect(screen.getByTestId("cursor-seat-summary")).toBeInTheDocument()
+  })
 })

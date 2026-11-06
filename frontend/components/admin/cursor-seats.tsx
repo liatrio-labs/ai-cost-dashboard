@@ -161,13 +161,22 @@ function counts(c: Record<AssignableSeatType, number>) {
  * Per-person seat types: active people plus anyone (even inactive) who holds
  * a seat, filterable. Each select saves through the assign endpoint.
  */
-function SeatList({ seats, people }: { seats: CursorSeats; people: SeatPerson[] }) {
+function SeatList({
+  seats,
+  people,
+  peopleError,
+}: {
+  seats: CursorSeats
+  /** null while the people directory is still loading. */
+  people: SeatPerson[] | null
+  peopleError?: string | null
+}) {
   const [filter, setFilter] = useState("")
   const current = seats.state?.current
   const q = filter.trim().toLowerCase()
   const rows = useMemo(
     () =>
-      people
+      (people ?? [])
         .filter((p) => p.active !== false || (current?.[p.id] ?? "none") !== "none")
         .filter((p) => !q || p.email.toLowerCase().includes(q) || (p.display_name ?? "").toLowerCase().includes(q))
         .sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email)),
@@ -196,13 +205,33 @@ function SeatList({ seats, people }: { seats: CursorSeats; people: SeatPerson[] 
             <SeatTypeSelect seats={seats} personId={p.id} label={p.email} />
           </div>
         ))}
-        {rows.length === 0 && <p className="p-2 text-sm text-muted-foreground">No people match.</p>}
+        {peopleError ? (
+          <p className="flex items-center gap-1 p-2 text-sm text-destructive" role="alert">
+            <AlertCircle className="h-4 w-4" /> {peopleError}
+          </p>
+        ) : people === null ? (
+          <p className="flex items-center gap-2 p-2 text-sm text-muted-foreground" data-testid="cursor-seat-people-loading">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading people…
+          </p>
+        ) : (
+          rows.length === 0 && <p className="p-2 text-sm text-muted-foreground">No people match.</p>
+        )}
       </div>
     </div>
   )
 }
 
-export function CursorSeatsCard({ seats, people }: { seats: CursorSeats; people: SeatPerson[] }) {
+export function CursorSeatsCard({
+  seats,
+  people,
+  peopleError = null,
+}: {
+  seats: CursorSeats
+  /** null while the people directory is still loading. */
+  people: SeatPerson[] | null
+  /** A failed people load, kept apart from the seat API error so a later seats success can't hide it. */
+  peopleError?: string | null
+}) {
   const { state, error } = seats
   const [rates, setRates] = useState<Record<SeatType, string>>({ standard: "", premium: "", free: "" })
   const [csv, setCsv] = useState("")
@@ -243,7 +272,7 @@ export function CursorSeatsCard({ seats, people }: { seats: CursorSeats; people:
   }
 
   const nameOf = (id: string) => {
-    const p = people.find((x) => x.id === id)
+    const p = people?.find((x) => x.id === id)
     return p?.display_name || p?.email || id
   }
 
@@ -390,7 +419,7 @@ export function CursorSeatsCard({ seats, people }: { seats: CursorSeats; people:
             </div>
             {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 
-            <SeatList seats={seats} people={people} />
+            <SeatList seats={seats} people={people} peopleError={peopleError} />
           </>
         )}
       </CardContent>
@@ -405,8 +434,8 @@ export function CursorSeatsCard({ seats, people }: { seats: CursorSeats; people:
  */
 export function CursorSeatAssignmentsCard() {
   const seats = useCursorSeats(0)
-  const [people, setPeople] = useState<SeatPerson[]>([])
-  const { setError } = seats
+  const [people, setPeople] = useState<SeatPerson[] | null>(null)
+  const [peopleError, setPeopleError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -414,14 +443,14 @@ export function CursorSeatAssignmentsCard() {
       .then(async (res) => {
         const body = await res.json().catch(() => ({}))
         if (!live) return
-        if (!res.ok) return setError((body as { error?: string }).error || `Failed to load people (${res.status})`)
+        if (!res.ok) return setPeopleError((body as { error?: string }).error || `Failed to load people (${res.status})`)
         setPeople(((body as { people?: SeatPerson[] }).people ?? []) as SeatPerson[])
       })
-      .catch((e) => live && setError(e instanceof Error && e.message ? e.message : "Failed to load people"))
+      .catch((e) => live && setPeopleError(e instanceof Error && e.message ? e.message : "Failed to load people"))
     return () => {
       live = false
     }
-  }, [setError])
+  }, [])
 
-  return <CursorSeatsCard seats={seats} people={people} />
+  return <CursorSeatsCard seats={seats} people={people} peopleError={peopleError} />
 }
