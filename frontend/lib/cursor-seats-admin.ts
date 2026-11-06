@@ -2,7 +2,8 @@
  * Server-side reads and writes for Cursor seat types (migration 026).
  * Service-role client only (callers are admin-gated). Writes go through
  * set_cursor_seat_assignments() / set_cursor_seat_rate(), which apply a change
- * from a month onward, so earlier months never change. Nothing here touches
+ * from a billing cycle onward (p_from_month = the cycle key YYYY-MM-01, see
+ * lib/cursor-seats.ts), so earlier cycles never change. Nothing here touches
  * cost_records.
  */
 
@@ -13,36 +14,49 @@ import {
   MIGRATION_026_MESSAGE,
   SEAT_ASSIGNMENT_COLUMNS,
   SEAT_RATE_COLUMNS,
+  currentSeatCycle,
   isMissingSeatTables,
   ratesAt,
+  seatCycleInProgress,
   seatSummary,
   seatTypeFor,
   type AssignableSeatType,
   type SeatAssignment,
+  type SeatCycle,
   type SeatRate,
   type SeatSummary,
   type SeatType,
 } from "@/lib/cursor-seats"
-import { covers, currentMonthOf, isMissingRelation, RECURRING_COLUMNS, type RecurringCost } from "@/lib/recurring-costs"
+import { covers, isMissingRelation, RECURRING_COLUMNS, type RecurringCost } from "@/lib/recurring-costs"
 
 export interface CursorSeatState {
   available: boolean
   /** Set when migration 026 isn't applied. */
   notice: string | null
+  /**
+   * Key (YYYY-MM) of the cycle edits apply from by default: the cycle billed
+   * in the current calendar month (currentSeatCycle). Also that month.
+   */
   currentMonth: string
-  /** Current rate per seat type. */
+  /** That cycle's dates, e.g. Nov 20 – Dec 20, 2026. */
+  cycle: SeatCycle
+  /** The cycle today falls in (on Nov 6 that is Oct 20 – Nov 20, already billed in October). */
+  cycleInProgress: SeatCycle
+  /** Rate per seat type for `cycle`. */
   rates: Record<SeatType, number>
   rateHistory: SeatRate[]
-  /** person id -> seat type this month (people with no row are unassigned). */
+  /** person id -> seat type in `cycle` (people with no row are unassigned). */
   current: Record<string, AssignableSeatType>
   assignmentCount: number
   summary: SeatSummary | null
-  /** A recurring Cursor cost covers this month; per-person seats replace it while both exist. */
+  /** A recurring Cursor cost covers the cycle's month; per-person seats replace it while both exist. */
   recurringConflict: boolean
 }
 
 export async function loadCursorSeatState(admin: SupabaseClient, now = new Date()): Promise<CursorSeatState> {
-  const currentMonth = currentMonthOf(now)
+  const cycle = currentSeatCycle(now)
+  const currentMonth = cycle.key
+  const cycleInProgress = seatCycleInProgress(now)
   const [a, r] = await Promise.all([
     admin.from("cursor_seat_assignments").select(SEAT_ASSIGNMENT_COLUMNS).order("effective_month"),
     admin.from("cursor_seat_rates").select(SEAT_RATE_COLUMNS).order("effective_month"),
@@ -54,6 +68,8 @@ export async function loadCursorSeatState(admin: SupabaseClient, now = new Date(
           available: false,
           notice: MIGRATION_026_MESSAGE,
           currentMonth,
+          cycle,
+          cycleInProgress,
           rates: { standard: 0, premium: 0, free: 0 },
           rateHistory: [],
           current: {},
@@ -76,6 +92,8 @@ export async function loadCursorSeatState(admin: SupabaseClient, now = new Date(
     available: true,
     notice: null,
     currentMonth,
+    cycle,
+    cycleInProgress,
     rates: ratesAt(rates, currentMonth),
     rateHistory: rates,
     current,
@@ -102,7 +120,7 @@ function rpcError(error: { code?: string; message?: string }, fallback: string):
   throw new HttpError(400, error.message || fallback)
 }
 
-/** Set seat types from `fromMonth` (YYYY-MM) onward; returns rows written. */
+/** Set seat types from cycle `fromMonth` (cycle key YYYY-MM) onward; returns rows written. */
 export async function setSeatAssignments(
   admin: SupabaseClient,
   rows: { person_id: string; seat_type: AssignableSeatType }[],
@@ -121,7 +139,7 @@ export async function setSeatAssignments(
   return Number(data) || 0
 }
 
-/** Set a seat type's monthly rate from `fromMonth` (YYYY-MM) onward. */
+/** Set a seat type's per-cycle rate from cycle `fromMonth` (cycle key YYYY-MM) onward. */
 export async function setSeatRate(admin: SupabaseClient, type: SeatType, fromMonth: string, rate: number, setBy: string | null): Promise<void> {
   const { error } = await admin.rpc("set_cursor_seat_rate", {
     p_seat_type: type,

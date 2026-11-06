@@ -1,7 +1,7 @@
 /**
  * Cursor seats on /admin/org (migration 026): the "migration 026 not
- * applied" notice with seat selects disabled, the month summary, and a
- * per-person seat change.
+ * applied" notice with seat selects disabled, the billing cycle being edited
+ * (20th to 20th, issue #82), the cycle summary, and a per-person seat change.
  */
 
 import "@testing-library/jest-dom"
@@ -20,15 +20,20 @@ const org = {
   providers: [],
 } as unknown as Org
 
+const NOV_CYCLE = { key: "2026-11", start: "2026-11-20", end: "2026-12-20", label: "Nov 20 – Dec 20, 2026" }
+const OCT_CYCLE = { key: "2026-10", start: "2026-10-20", end: "2026-11-20", label: "Oct 20 – Nov 20, 2026" }
+
 const state = (over: Record<string, unknown> = {}) => ({
   available: true,
   notice: null,
   currentMonth: "2026-11",
+  cycle: NOV_CYCLE,
+  cycleInProgress: OCT_CYCLE,
   rates: { standard: 40, premium: 80, free: 0 },
   rateHistory: [],
   current: { p1: "standard" },
   assignmentCount: 1,
-  summary: { month: "2026-11", counts: { standard: 1, premium: 0, free: 0, none: 0 }, rates: { standard: 40, premium: 80, free: 0 }, total_usd: 40 },
+  summary: { month: "2026-11", cycle: NOV_CYCLE, counts: { standard: 1, premium: 0, free: 0, none: 0 }, rates: { standard: 40, premium: 80, free: 0 }, total_usd: 40 },
   recurringConflict: false,
   ...over,
 })
@@ -60,10 +65,20 @@ describe("CursorSeatsCard", () => {
     expect(screen.getByLabelText("Cursor seat for p1@liatrio.com")).toBeDisabled()
   })
 
-  it("shows the month's seat total and saves a person's seat type", async () => {
+  it("shows the billing cycle being edited (Nov 20 – Dec 20) and the cycle in progress", async () => {
+    fetchMock.mockImplementation(() => reply(state()))
+    render(<Harness />)
+    const cycle = await screen.findByTestId("cursor-seat-cycle")
+    expect(cycle).toHaveTextContent("Editing cycle Nov 20 – Dec 20, 2026 (counts in Nov 2026)")
+    expect(cycle).toHaveTextContent("Oct 20 – Nov 20, 2026, was billed in Oct 2026")
+    expect(screen.getByTestId("cursor-seat-summary")).toHaveTextContent("Nov 20 – Dec 20, 2026: 1 Standard")
+    expect(screen.getByLabelText("Cursor seat for p1@liatrio.com")).toHaveAttribute("title", expect.stringContaining("Nov 20 – Dec 20, 2026 cycle on"))
+  })
+
+  it("shows the cycle's seat total and saves a person's seat type", async () => {
     fetchMock.mockImplementation((url: string, init?: RequestInit) =>
       init?.method === "POST"
-        ? reply(state({ current: { p1: "premium" }, summary: { month: "2026-11", counts: { standard: 0, premium: 1, free: 0, none: 0 }, rates: { standard: 40, premium: 80, free: 0 }, total_usd: 80 } }))
+        ? reply(state({ current: { p1: "premium" }, summary: { month: "2026-11", cycle: NOV_CYCLE, counts: { standard: 0, premium: 1, free: 0, none: 0 }, rates: { standard: 40, premium: 80, free: 0 }, total_usd: 80 } }))
         : reply(state())
     )
     render(<Harness />)

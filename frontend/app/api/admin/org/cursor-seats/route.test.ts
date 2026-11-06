@@ -170,6 +170,10 @@ describe("backfill from the Nov 5 roster assigns seat types by email (and name w
     ])
     const state = applied.body.state
     expect(state.summary).toMatchObject({ month: "2026-11", total_usd: 5760, counts: { standard: 74, premium: 35, free: 1 } })
+    // Issue #82: on Nov 5 edits apply from the Nov 20 – Dec 20 cycle (billed in November); Oct 20 – Nov 20 is in progress and untouched.
+    expect(state.cycle).toEqual({ key: "2026-11", start: "2026-11-20", end: "2026-12-20", label: "Nov 20 – Dec 20, 2026" })
+    expect(state.cycleInProgress).toMatchObject({ key: "2026-10", label: "Oct 20 – Nov 20, 2026" })
+    expect(state.summary.cycle.label).toBe("Nov 20 – Dec 20, 2026")
     // Matched by email (stored upper-case) and by exact name.
     expect(state.current[personByEmail("robert@liatrio.com")]).toBe("premium")
     expect(state.current[personByEmail("drew.khoury@liatrio.com")]).toBe("standard")

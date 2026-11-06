@@ -597,6 +597,12 @@ SELECT create_monthly_partition(2027, 1); -- Creates cost_records_2027_01
   IF EXISTS public.cursor_seat_assignments; DROP TABLE IF EXISTS
   public.cursor_seat_rates;`. **Needs Robert's explicit approval before it is
   applied to production.**
+  Issue #82 (no new migration): seats bill on a 20th-to-20th cycle, and
+  `effective_month` YYYY-MM-01 is read as the key of the cycle that starts on
+  the 20th of YYYY-MM ("from that cycle onward"). The first-of-month CHECKs
+  and both RPCs stay as they are, so existing rows (the Nov 5, 2026 backfill
+  at 2026-11-01 = from Nov 20 - Dec 20, 2026) need no change. The anchor day
+  lives only in `frontend/lib/cursor-seats.ts` (`SEAT_CYCLE_ANCHOR_DAY`).
 
 ### Testing migrations locally
 

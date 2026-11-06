@@ -1,5 +1,6 @@
 /**
- * Cursor seat types per person and the monthly seat fee (migration 026).
+ * Cursor seat types per person and the seat fee per 20th-to-20th billing
+ * cycle (migration 026, issue #82).
  * Pure functions only; the routes are covered in app/api/dashboard/routes.test.ts
  * and app/api/admin/org/cursor-seats/route.test.ts.
  */
@@ -9,6 +10,13 @@ import { join } from "path"
 import {
   CURSOR_SEAT_MODEL,
   EMPTY_SEAT_PLAN,
+  SEAT_CYCLE_ANCHOR_DAY,
+  calendarMonthOfCycle,
+  currentSeatCycle,
+  seatCycle,
+  seatCycleForMonth,
+  seatCycleInProgress,
+  seatCycleKeyForDate,
   applyCursorSeatPlan,
   applySpendPlans,
   composeSeatsWithInvoice,
@@ -404,5 +412,214 @@ describe("safe without migration 026 (missing-table fallback)", () => {
     expect(expandCursorSeats({ assignments: [], rates: SEED_RATES, people: [], cursorProviderId: CURSOR, currentMonth: "2026-11" })).toEqual([])
     const rows = [{ date: "2026-11-01", provider_id: CURSOR, model_name: "auto", total_cost_usd: 1 }]
     expect(applySpendPlans(rows, EMPTY_INVOICE_PLAN, EMPTY_SEAT_PLAN)).toBe(rows)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #82: 20th-to-20th billing cycles, carry-forward, backfill, invoices
+// ---------------------------------------------------------------------------
+
+describe("20th-to-20th seat billing cycles (issue #82)", () => {
+  it("the anchor is one constant, the 20th", () => {
+    expect(SEAT_CYCLE_ANCHOR_DAY).toBe(20)
+  })
+
+  it("cycle window vs calendar month (boundaries on the 19th/20th/21st)", () => {
+    // A cycle is keyed by its start month and runs anchor to anchor, end exclusive.
+    expect(seatCycle("2026-10")).toEqual({ key: "2026-10", start: "2026-10-20", end: "2026-11-20", label: "Oct 20 – Nov 20, 2026" })
+    expect(seatCycle("2026-11")).toEqual({ key: "2026-11", start: "2026-11-20", end: "2026-12-20", label: "Nov 20 – Dec 20, 2026" })
+    expect(seatCycle("2026-12").label).toBe("Dec 20, 2026 – Jan 20, 2027")
+
+    // Date -> the cycle containing it.
+    expect(seatCycleKeyForDate("2026-11-19")).toBe("2026-10") // last day of Oct 20 – Nov 20
+    expect(seatCycleKeyForDate("2026-11-20")).toBe("2026-11") // first day of Nov 20 – Dec 20
+    expect(seatCycleKeyForDate("2026-11-21")).toBe("2026-11")
+    expect(seatCycleKeyForDate("2026-11-01")).toBe("2026-10")
+    expect(seatCycleKeyForDate("2027-01-19")).toBe("2026-12")
+    expect(seatCycleKeyForDate("2027-01-20T00:00:00Z")).toBe("2027-01")
+    expect(seatCycleInProgress(new Date("2026-11-19T23:59:59Z")).label).toBe("Oct 20 – Nov 20, 2026")
+    expect(seatCycleInProgress(new Date("2026-11-20T00:00:00Z")).label).toBe("Nov 20 – Dec 20, 2026")
+    expect(seatCycleInProgress(new Date("2026-11-21T12:00:00Z")).key).toBe("2026-11")
+
+    // Calendar month -> the one cycle whose charge lands in it (the cycle that
+    // starts, and is billed, in that month). Edits default to it whatever the day.
+    for (const d of ["2026-11-01", "2026-11-06", "2026-11-19", "2026-11-20", "2026-11-21", "2026-11-30"]) {
+      expect(currentSeatCycle(new Date(`${d}T12:00:00Z`)).label).toBe("Nov 20 – Dec 20, 2026")
+    }
+    // Every calendar month holds exactly one cycle and the cycles tile with no gap or overlap.
+    const months = ["2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]
+    const cycles = months.map((m) => seatCycleForMonth(m))
+    expect(new Set(cycles.map((c) => c.key)).size).toBe(months.length)
+    expect(cycles.map((c) => calendarMonthOfCycle(c.key))).toEqual(months)
+    for (let i = 1; i < cycles.length; i++) expect(cycles[i].start).toBe(cycles[i - 1].end)
+
+    // Expanded rows land in the cycle's start month, dated the 1st.
+    const rows = expandCursorSeats({
+      assignments: [{ person_id: "a", effective_month: "2026-11-01", seat_type: "standard" }],
+      rates: SEED_RATES,
+      people: [{ id: "a", email: "a@x.com" }],
+      cursorProviderId: CURSOR,
+      currentMonth: "2026-12",
+    })
+    expect(rows.map((r) => [r.date, r.total_cost_usd])).toEqual([
+      ["2026-11-01", 40], // Nov 20 – Dec 20
+      ["2026-12-01", 40], // Dec 20 – Jan 20
+    ])
+
+    // A different anchor moves the dates shown, not the month a cycle lands in.
+    expect(seatCycle("2026-11", 19).label).toBe("Nov 19 – Dec 19, 2026")
+    expect(seatCycleKeyForDate("2026-11-19", 19)).toBe("2026-11")
+  })
+
+  const people = [
+    { id: "dave", email: "dave@liatrio.com" },
+    { id: "erin", email: "erin@liatrio.com" },
+  ]
+  const expand = (assignments: SeatAssignment[], currentMonth: string) =>
+    expandCursorSeats({ assignments, rates: SEED_RATES, people, cursorProviderId: CURSOR, currentMonth })
+
+  it("assignment carries into the next cycle until removed", () => {
+    // One row, entered once for Nov 20 – Dec 20; nothing re-entered after that.
+    const assignments: SeatAssignment[] = [{ person_id: "dave", effective_month: "2026-11-01", seat_type: "premium", source: "admin" }]
+    for (const cycle of ["2026-11", "2026-12", "2027-01", "2027-06"]) {
+      expect(seatTypeFor(assignments, "dave", cycle)).toBe("premium")
+      expect(seatCostFor(assignments, SEED_RATES, "dave", cycle)).toBe(80)
+    }
+    expect(seatTypeFor(assignments, "dave", "2026-10")).toBe("none") // before it took effect
+    const rows = expand(assignments, "2027-03")
+    expect(rows.map((r) => [r.month, r.person_email, r.total_cost_usd])).toEqual([
+      ["2026-11", "dave@liatrio.com", 80],
+      ["2026-12", "dave@liatrio.com", 80],
+      ["2027-01", "dave@liatrio.com", 80],
+      ["2027-02", "dave@liatrio.com", 80],
+      ["2027-03", "dave@liatrio.com", 80],
+    ])
+    // A change of type from a later cycle carries forward too.
+    const changed = [...assignments, { person_id: "dave", effective_month: "2027-01-01", seat_type: "standard" }]
+    expect(expand(changed, "2027-03").map((r) => r.total_cost_usd)).toEqual([80, 80, 40, 40, 40])
+  })
+
+  it("removal (none) stops future cycles; earlier cycles unchanged", () => {
+    const before: SeatAssignment[] = [
+      { person_id: "dave", effective_month: "2026-11-01", seat_type: "standard" },
+      { person_id: "erin", effective_month: "2026-11-01", seat_type: "premium" },
+    ]
+    const beforeRows = expand(before, "2027-02")
+    // Erin removed from the Jan 20 – Feb 20, 2027 cycle onward.
+    const after: SeatAssignment[] = [...before, { person_id: "erin", effective_month: "2027-01-01", seat_type: "none" }]
+    const afterRows = expand(after, "2027-02")
+    const byMonth = (rows: typeof afterRows, ym: string) => sumCost(rows.filter((r) => r.month === ym))
+    // Earlier cycles: identical rows.
+    for (const ym of ["2026-11", "2026-12"]) {
+      expect(afterRows.filter((r) => r.month === ym)).toEqual(beforeRows.filter((r) => r.month === ym))
+      expect(byMonth(afterRows, ym)).toBe(120)
+    }
+    // From the removal on, Erin has no row; Dave keeps carrying forward.
+    for (const ym of ["2027-01", "2027-02"]) {
+      expect(afterRows.filter((r) => r.month === ym).map((r) => r.person_email)).toEqual(["dave@liatrio.com"])
+      expect(byMonth(afterRows, ym)).toBe(40)
+    }
+    expect(seatTypeFor(after, "erin", "2026-12")).toBe("premium")
+    expect(seatTypeFor(after, "erin", "2027-05")).toBe("none")
+    // A past cycle cannot be targeted: the default and minimum is the cycle billed this month.
+    expect(() => parseSeatAssignInput({ person_id: "erin", seat_type: "none", from_month: "2026-10" }, new Set(["erin"]), "2026-11")).toThrow(
+      /current cycle \(2026-11, Nov 20 – Dec 20, 2026\)/
+    )
+    expect(parseSeatAssignInput({ person_id: "erin", seat_type: "none" }, new Set(["erin"]), currentSeatCycle(new Date("2026-11-06T12:00:00Z")).key).from_month).toBe("2026-11")
+  })
+
+  /**
+   * The production backfill of Nov 5, 2026: 107 matched people, all with
+   * effective_month 2026-11-01 -> 70 Standard, 35 Premium, 1 Free (William
+   * Bedford), 1 none (Daniel Helbling, Removed). $5,600 per cycle at $40/$80/$0.
+   */
+  function productionBackfill() {
+    const ppl: { id: string; email: string }[] = []
+    const rows: SeatAssignment[] = []
+    const add = (n: number, type: string, prefix: string) => {
+      for (let i = 0; i < n; i++) {
+        const id = `${prefix}${String(i).padStart(3, "0")}`
+        ppl.push({ id, email: `${id}@liatrio.com` })
+        rows.push({ person_id: id, effective_month: "2026-11-01", seat_type: type, source: "roster", set_by: "robert@liatrio.com" })
+      }
+    }
+    add(70, "standard", "std")
+    add(35, "premium", "prem")
+    add(1, "free", "william.bedford")
+    add(1, "none", "daniel.helbling")
+    return { people: ppl, assignments: rows }
+  }
+
+  it("existing 2026-11-01 backfill rows still apply and carry forward", () => {
+    const { people: ppl, assignments } = productionBackfill()
+    expect(assignments).toHaveLength(107)
+    const ids = ppl.map((p) => p.id)
+    // effective_month 2026-11-01 = from the Nov 20 – Dec 20, 2026 cycle (billed in November) onward.
+    const nov = seatSummary(assignments, SEED_RATES, ids, "2026-11")
+    expect(nov).toMatchObject({ month: "2026-11", counts: { standard: 70, premium: 35, free: 1, none: 1 }, total_usd: 5600 })
+    expect(nov.cycle.label).toBe("Nov 20 – Dec 20, 2026")
+    // The Oct 20 – Nov 20 cycle (billed in October) is before the backfill: no seats, as before #82.
+    expect(seatSummary(assignments, SEED_RATES, ids, "2026-10").total_usd).toBe(0)
+
+    // On Nov 6 (the current calendar month is November) November already carries the cycle, exactly as under 026.
+    const now = expandCursorSeats({ assignments, rates: SEED_RATES, people: ppl, cursorProviderId: CURSOR, currentMonth: "2026-11" })
+    expect(now).toHaveLength(105)
+    expect(sumCost(now)).toBe(5600)
+    expect(now.every((r) => r.date === "2026-11-01")).toBe(true)
+    expect(now.some((r) => (r.person_email ?? "").startsWith("william.bedford") || (r.person_email ?? "").startsWith("daniel.helbling"))).toBe(false)
+
+    // No re-import: the same 107 rows bill every later cycle.
+    const later = expandCursorSeats({ assignments, rates: SEED_RATES, people: ppl, cursorProviderId: CURSOR, currentMonth: "2027-04" })
+    for (const ym of ["2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04"]) {
+      expect(sumCost(later.filter((r) => r.month === ym))).toBe(5600)
+      expect(later.filter((r) => r.month === ym)).toHaveLength(105)
+    }
+    expect(later.some((r) => r.month > "2027-04" || r.month < "2026-11")).toBe(false)
+  })
+
+  describe("no double-count with invoice_overrides (Sep/Oct invoiced months)", () => {
+    const { people: ppl, assignments: backfill } = productionBackfill()
+    // Production invoice actuals (migration 024); they already include the seat lines billed on the 19th.
+    const OVERRIDES = [
+      { provider_id: CURSOR, month: "2026-09-01", billed_amount_usd: "9429.08" },
+      { provider_id: CURSOR, month: "2026-10-01", billed_amount_usd: "11282.40" },
+    ]
+    const api = [
+      { date: "2026-09-10", provider_id: CURSOR, model_name: "auto", total_cost_usd: 1500, person_id: "std000" },
+      { date: "2026-10-10", provider_id: CURSOR, model_name: "auto", total_cost_usd: 2500, person_id: "prem000" },
+      { date: "2026-11-03", provider_id: CURSOR, model_name: "auto", total_cost_usd: 300, person_id: "std001" },
+    ]
+    const plan = buildInvoicePlan({ overrides: OVERRIDES, basisRows: api.filter((r) => r.date < "2026-11"), manualRows: [] })
+    const monthSum = (rows: { date: string; total_cost_usd: number | string }[], ym: string) => sumCost(rows.filter((r) => r.date.startsWith(ym)))
+    const seatPlan = (assignments: SeatAssignment[]): CursorSeatPlan => ({
+      cursorProviderId: CURSOR,
+      seatRows: attributeRecurringRows(expandCursorSeats({ assignments, rates: SEED_RATES, people: ppl, cursorProviderId: CURSOR, currentMonth: "2026-11" })),
+    })
+
+    it("the backfill leaves Sep and Oct at their invoices and adds the Nov 20 cycle to November only", () => {
+      const out = applySpendPlans(api, plan, seatPlan(backfill))
+      expect(monthSum(out, "2026-09")).toBe(9429.08)
+      expect(monthSum(out, "2026-10")).toBe(11282.4)
+      expect(monthSum(out, "2026-11")).toBe(300 + 5600)
+    })
+
+    it("seats in an invoiced month are composition inside the invoice, never on top", () => {
+      // Suppose seats had been recorded from the Sep 20 cycle: Sep and Oct each carry a $5,600 cycle.
+      const fromSep = backfill.map((a) => ({ ...a, effective_month: "2026-09-01" }))
+      const seats = seatPlan(fromSep)
+      const out = applySpendPlans(api, plan, seats)
+      expect(monthSum(out, "2026-09")).toBe(9429.08)
+      expect(monthSum(out, "2026-10")).toBe(11282.4)
+      const seatIn = (ym: string) => sumCost(out.filter((r) => r.date.startsWith(ym) && r.model_name === CURSOR_SEAT_MODEL))
+      expect(seatIn("2026-09")).toBe(5600)
+      expect(seatIn("2026-10")).toBe(5600)
+      // On-demand usage gets the remainder of each invoice.
+      expect(sumCost(out.filter((r) => r.date.startsWith("2026-09") && r.model_name === "auto"))).toBe(3829.08)
+      expect(sumCost(out.filter((r) => r.date.startsWith("2026-10") && r.model_name === "auto"))).toBe(5682.4)
+      // Adding seats on top of the invoice would have overcounted each month by $5,600.
+      expect(monthSum([...applyInvoicePlan(api, plan), ...seats.seatRows], "2026-10")).toBe(11282.4 + 5600)
+      // One cycle per invoiced month: never two cycles' charges in one month.
+      expect(seats.seatRows.filter((r) => r.date.startsWith("2026-10"))).toHaveLength(105)
+    })
   })
 })

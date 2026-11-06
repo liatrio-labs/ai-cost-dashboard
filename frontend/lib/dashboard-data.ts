@@ -362,8 +362,9 @@ export async function fetchCursorSeatData(
 }
 
 /**
- * Per-person Cursor seat rows (lib/cursor-seats.ts) through the current
- * month, attributed like cost_records_daily_attributed rows. Combine with the
+ * Per-person Cursor seat rows (lib/cursor-seats.ts), one per billed person per
+ * 20th-to-20th cycle, each in the calendar month the cycle starts in, through
+ * the cycle billed in the current month, attributed like cost_records_daily_attributed rows. Combine with the
  * invoice plan through applySpendPlans (lib/cursor-seats.ts), which keeps an
  * invoiced Cursor month at its invoice. Empty without migration 026, with no
  * Cursor provider, or under a filter for another provider.

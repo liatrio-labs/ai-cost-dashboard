@@ -235,8 +235,12 @@ not shown.
 Cursor **seat fees** (migration 026) are not in the Admin API either, so each person's
 Cursor seat type (Standard / Premium / Free / unassigned) is set on `/admin/org` ->
 People, and the monthly rates (initially Standard $40, Premium $80, Free $0) are edited in
-the Cursor seats card there. Each billed person gets their seat fee as Cursor spend for
-the month, attributed to them and their team. Changes apply from the current month on.
+the Cursor seats card there. Seats bill on a 20th-to-20th cycle (issue #82; anchor
+`SEAT_CYCLE_ANCHOR_DAY` in `frontend/lib/cursor-seats.ts`): each billed person gets one
+cycle's seat fee as Cursor spend in the calendar month the cycle starts in (Nov 20 - Dec 20
+counts in November), attributed to them and their team. A seat type carries into every
+later cycle until an admin changes it or sets it to Unassigned; changes apply from the
+cycle billed in the current month (shown on the card) and never alter earlier cycles.
 The Nov 5, 2026 roster is committed as seed data
 (`database/seeds/cursor-seat-roster-2026-11-05.csv`, 74 Standard + 36 Premium + 1 Free =
 $5,840); import it from the same card (matched by email, else exact name; unmatched rows
