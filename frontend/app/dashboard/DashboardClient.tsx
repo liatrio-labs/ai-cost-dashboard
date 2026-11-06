@@ -449,6 +449,13 @@ export function DashboardClient({ isAdmin = false }: { isAdmin?: boolean }) {
             )}
           </Tabs>
         )}
+
+        {/* Issue #84: the cycle has its own dates, so it still shows when the period has no calendar-month spend for these filters. */}
+        {!hasPeriodData && showCursorCycle && (
+          <div className="mt-6">
+            <CursorCycleOnDemand load={cursorCycle} onRetry={retryCursorCycle} context={filters.person ? "person" : "dashboard"} />
+          </div>
+        )}
       </main>
 
       <footer className="border-t border-border/50 py-6">
