@@ -19,6 +19,7 @@ import {
   lowConfidenceNote,
   projectedPercentText,
   projectionTooltip,
+  usageWindowLabel,
 } from "@/lib/dashboard-types"
 import { Input } from "@/components/ui/input"
 import { LowConfidenceMark } from "@/components/kpi-cards"
@@ -913,7 +914,11 @@ export function OrgBreakdown({
       )}
       {/* Person view (issue #65): Cursor spend by product (Grok Bot, Bugbot, Agent/Chat). */}
       {data.level === "detail" && data.cursorProducts && (
-        <CursorProductSplit products={data.cursorProducts.products} total={data.cursorProducts.total} />
+        <CursorProductSplit
+          products={data.cursorProducts.products}
+          total={data.cursorProducts.total}
+          usageWindow={usageWindowLabel(data.period, data.projection.today)}
+        />
       )}
       {/* Person view (issue #84): Cursor billing-cycle on-demand for this person; a separate measure from the calendar-month split above. */}
       {data.level === "detail" && personCursorCycle}

@@ -61,3 +61,21 @@ export function roundSplit<P extends string>(
     products: order.map((p, i) => ({ product: p, label: labelOf[p], cost: cents[i] / 100 })),
   }
 }
+
+/**
+ * Issue #90: slices shown as their own group (e.g. variable usage vs
+ * subscription) with a subtotal; shares are of the group subtotal, never of
+ * the card total.
+ */
+export interface ProductGroup<P extends string = string> {
+  key: string
+  label: string
+  /** Sum of the group's (already cent-rounded) slices. */
+  subtotal: number
+  products: ProductSlice<P>[]
+}
+
+/** Sum of cent-rounded slice costs, kept in cents so groups add up to the split total. */
+export function sliceSubtotal(products: ProductSlice[]): number {
+  return products.reduce((c, p) => c + Math.round(p.cost * 100), 0) / 100
+}
