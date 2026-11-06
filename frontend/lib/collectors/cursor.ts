@@ -298,6 +298,18 @@ export function transform(
   return records
 }
 
+/**
+ * Append `items` onto `target` in place, one element at a time (issue #86).
+ * `target.push(...items)` passes every element as a call argument, which
+ * throws "Maximum call stack size exceeded" once a batch reaches ~120k+
+ * events (a November 90-day backfill returned ~161k). A plain loop has no
+ * argument-count limit. Returns `target` for convenience.
+ */
+export function appendAll<T>(target: T[], items: readonly T[]): T[] {
+  for (let i = 0; i < items.length; i++) target.push(items[i])
+  return target
+}
+
 function basicAuthHeader(apiKey: string): string {
   return "Basic " + Buffer.from(`${apiKey}:`).toString("base64")
 }
@@ -341,7 +353,7 @@ async function fetchUsageEventsWindow(
       pagination?: { hasNextPage?: boolean; currentPage?: number }
     }
     const batch = json?.usageEvents ?? []
-    events.push(...batch)
+    appendAll(events, batch)
 
     const hasNext = json?.pagination?.hasNextPage === true
     if (!hasNext || batch.length === 0) break
@@ -356,7 +368,7 @@ async function fetchUsageEventsWindow(
  * Fetch all usage events across [startMs, endMs] of arbitrary length by
  * chunking into <= 30-day windows.
  */
-async function fetchAllUsageEvents(
+export async function fetchAllUsageEvents(
   apiKey: string,
   startMs: number,
   endMs: number
@@ -369,7 +381,7 @@ async function fetchAllUsageEvents(
     // adjacent windows never overlap (no double-counted boundary events).
     const winEnd = Math.min(cursor + windowMs - 1, endMs)
     const batch = await fetchUsageEventsWindow(apiKey, cursor, winEnd)
-    all.push(...batch)
+    appendAll(all, batch)
     cursor = winEnd + 1
   }
   return all
