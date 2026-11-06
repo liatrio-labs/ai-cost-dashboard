@@ -181,7 +181,7 @@ describe("Org tab (#88 AC5, AC7, AC13)", () => {
     const people = screen.getByRole("table", { name: "People" })
     const before = within(people).getAllByTestId("person-row").length
     // Sticky headers inside a bounded scroll area, on every Org table.
-    for (const name of ["Departments", "People", "API keys"]) {
+    for (const name of ["Teams", "People", "API keys"]) {
       const t = screen.getByRole("table", { name })
       expect(t.querySelector("thead")!.className).toMatch(/\bsticky\b/)
       expect(t.parentElement!.className).toMatch(/max-h-\[70vh\] overflow-auto/)
