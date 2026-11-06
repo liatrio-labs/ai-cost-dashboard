@@ -136,6 +136,10 @@ service**. Collection is in-process; the cron routes only authenticate the reque
   when set explicitly; it has no default. Without migration 023 only env admins exist and
   the Admins section shows a "migration 023 not applied" notice.
 - The dashboard data is shared — all authenticated users see the same org-wide spend.
+- **MCP server:** `https://ai-cost.liatr.io/api/mcp` exposes the same data read-only to
+  Claude, Cursor and other MCP clients (`{ "mcpServers": { "ai-cost": { "url": "https://ai-cost.liatr.io/api/mcp" } } }`).
+  Sign-in is Google, `@liatrio.com` only, checked server-side. Setup, tools and the
+  `MCP_OAUTH_SECRET` / `MCP_PUBLIC_URL` env vars: [docs/mcp.md](docs/mcp.md).
 - `/admin/org` manages departments, teams, people (and their provider identities),
   API key and project ownership, imports people from emails seen in collected data
   (dry run, then confirm), and shows the monthly Unassigned queue with one-click
@@ -171,7 +175,7 @@ Useful env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, the provider tokens (e.g.
 `ANTHROPIC_ADMIN_KEY`, `OPENAI_ADMIN_KEY` + `OPENAI_ORG_ID`, `CURSOR_ADMIN_KEY`,
 `AI_GATEWAY_API_KEY`, plus `VERCEL_TOKEN` and `VERCEL_TEAM_ID` for the AI Gateway
-key sync), optionally `ADMIN_EMAILS` / `DASHBOARD_OWNER_EMAIL` and `ADMIN_DOMAINS` (no default), and the budget-alert vars (`BUDGET_ALERTS_MODE`,
+key sync), optionally `ADMIN_EMAILS` / `DASHBOARD_OWNER_EMAIL` and `ADMIN_DOMAINS` (no default), `MCP_OAUTH_SECRET` and `MCP_PUBLIC_URL` for the MCP server (docs/mcp.md), and the budget-alert vars (`BUDGET_ALERTS_MODE`,
 `BUDGET_ALERT_SLACK_WEBHOOK_URL`, `BUDGET_ALERT_EMAIL_TO`, `BUDGET_ALERT_EMAIL_FROM`,
 `RESEND_API_KEY`; see Budgets below).
 Set `NEXT_PUBLIC_SKIP_AUTH=true` to bypass auth in local dev.

@@ -44,7 +44,6 @@ import {
   scopeCursorCycleView,
   type ScopedCursorCycleView,
 } from "@/lib/cursor-cycle-scope"
-import type { DashboardData } from "@/lib/dashboard-types"
 import {
   fetchAllPaged,
   fetchAttributedDaily,
@@ -59,7 +58,8 @@ import {
   type SupabaseLike,
 } from "@/lib/dashboard-data"
 
-export type DashboardPayload = DashboardData & { filters: DashboardFilters }
+/** computeDashboard's result (the DashboardData contract) plus the parsed filters. */
+export type DashboardPayload = ReturnType<typeof computeDashboard> & { filters: DashboardFilters }
 
 function periodParams(sp: URLSearchParams): PeriodParams {
   return { month: sp.get("month"), start: sp.get("start"), end: sp.get("end") }
