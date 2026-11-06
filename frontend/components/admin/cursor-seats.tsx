@@ -163,12 +163,12 @@ function counts(c: Record<AssignableSeatType, number>) {
  */
 function SeatList({ seats, people }: { seats: CursorSeats; people: SeatPerson[] }) {
   const [filter, setFilter] = useState("")
-  const current = seats.state?.current ?? {}
+  const current = seats.state?.current
   const q = filter.trim().toLowerCase()
   const rows = useMemo(
     () =>
       people
-        .filter((p) => p.active !== false || (current[p.id] ?? "none") !== "none")
+        .filter((p) => p.active !== false || (current?.[p.id] ?? "none") !== "none")
         .filter((p) => !q || p.email.toLowerCase().includes(q) || (p.display_name ?? "").toLowerCase().includes(q))
         .sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email)),
     [people, current, q]
