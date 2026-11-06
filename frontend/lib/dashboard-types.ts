@@ -203,7 +203,7 @@ export function formatPeriodLabel(start: string, end: string): string {
  * Never the Cursor billing cycle.
  */
 export function usageWindowLabel(period: { start: string; end: string }, today?: string | null): string {
-  if (today && today >= period.start && today < period.end) {
+  if (today && today >= period.start && today <= period.end) {
     return `${formatRangeLabel(period.start, today)} (${period.start.slice(8) === "01" ? "month" : "period"} to date)`
   }
   return formatPeriodLabel(period.start, period.end)

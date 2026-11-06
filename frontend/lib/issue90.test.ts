@@ -69,7 +69,7 @@ describe("headline KPIs: fixed + variable = Total Monthly Spend", () => {
     expect(cents(kpis.fixedSpend) + cents(kpis.variableSpend)).toBe(cents(kpis.totalSpend))
   })
 
-  it("fixed equals the Seats and licenses chart total (same rule as #88)", () => {
+  it("fixed equals the Seats and licenses chart total for whole-cent rows (same rule as #88)", () => {
     const d = dash()
     expect(d.kpis.fixedSpend).toBe(d.byLicense.reduce((s, l) => s + l.total, 0))
   })
@@ -174,6 +174,9 @@ describe("Cursor by product groups usage apart from seats", () => {
 describe("usageWindowLabel", () => {
   it("is month to date for the current month", () => {
     expect(usageWindowLabel({ start: "2026-11-01", end: "2026-11-30" }, "2026-11-06")).toBe("Nov 1 – Nov 6, 2026 (month to date)")
+  })
+  it("is still month to date on the month's last day (the period end is inclusive)", () => {
+    expect(usageWindowLabel({ start: "2026-11-01", end: "2026-11-30" }, "2026-11-30")).toBe("Nov 1 – Nov 30, 2026 (month to date)")
   })
   it("is the whole month for a past month", () => {
     expect(usageWindowLabel({ start: "2026-10-01", end: "2026-10-31" }, "2026-11-06")).toBe("October 2026")
