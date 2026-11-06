@@ -26,13 +26,14 @@ import {
 import { ProductSubRows } from "@/components/product-breakdown"
 import { CursorCostTypeBadges } from "@/components/cost-type-badges"
 import type { CursorCycleView } from "@/lib/cursor-spend"
+import type { ScopedCursorCycleView } from "@/lib/cursor-cycle-scope"
 
 interface ToolsTableProps {
   tools: DashboardTool[]
   /** Issue #39: when the period contains today, Change is the projected change. */
   projection?: DashboardProjection
   /** Issue #88: the saved Cursor billing-cycle snapshot, for the reconciliation note only (never added in). */
-  cursorCycle?: CursorCycleView | null
+  cursorCycle?: CursorCycleView | ScopedCursorCycleView | null
 }
 
 /** The Cursor tool row: it carries the Cursor product split (issue #65), the same check ToolProductCards uses. */

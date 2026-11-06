@@ -10,6 +10,9 @@
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency, type CursorCostTypes } from "@/lib/dashboard-types"
 import type { CursorCycleView } from "@/lib/cursor-spend"
+import type { ScopedCursorCycleView } from "@/lib/cursor-cycle-scope"
+
+type AnyCycleView = CursorCycleView | ScopedCursorCycleView
 
 export const COST_TYPE_LABEL = {
   seats: "Seats",
@@ -21,14 +24,18 @@ const utcDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
 
 /** The saved current cycle's dates and on-demand total, or null when there's no snapshot. */
-export function cycleReconciliation(view: CursorCycleView | null | undefined): { label: string; total: number } | null {
+export function cycleReconciliation(view: AnyCycleView | null | undefined): { label: string; total: number } | null {
   if (!view || !view.available || !view.current) return null
   const c = view.current
-  return { label: `${utcDate(c.cycleStart)} to ${utcDate(c.cycleEnd)}${c.cycleEndEstimated ? " (end estimated)" : ""}`, total: c.teamSpendCents / 100 }
+  // #84's scoped view: a person/team filter narrows to that selection's members.
+  const filtered = "scope" in view && view.scope.kind === "filtered"
+  const cents = filtered && "selectionSpendCents" in c ? c.selectionSpendCents : c.teamSpendCents
+  if (cents === null || cents === undefined) return null
+  return { label: `${utcDate(c.cycleStart)} to ${utcDate(c.cycleEnd)}${c.cycleEndEstimated ? " (end estimated)" : ""}`, total: cents / 100 }
 }
 
 /** One-line explanation of what the Cursor total is and is not. */
-export function cursorReconciliationText(types: CursorCostTypes | undefined, view: CursorCycleView | null | undefined): string {
+export function cursorReconciliationText(types: CursorCostTypes | undefined, view: AnyCycleView | null | undefined): string {
   const parts: string[] = []
   if (types) {
     parts.push(
@@ -56,7 +63,7 @@ export function CursorCostTypeBadges({
   /** The Cursor row total (used as calendar on-demand when no cost types were computed). */
   total: number
   types?: CursorCostTypes
-  cycle?: CursorCycleView | null
+  cycle?: AnyCycleView | null
 }) {
   const title = cursorReconciliationText(types, cycle)
   const cyc = cycleReconciliation(cycle)

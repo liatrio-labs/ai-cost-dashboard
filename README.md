@@ -230,6 +230,13 @@ shows the current cycle's dates, team on-demand total, per-member on-demand and 
 and earlier cycles' final totals, labelled as billing-cycle figures distinct from the
 calendar-month totals. Usage events stay the source for history, calendar months and the
 by-product split. Without migration 025 the card shows a notice and nothing else changes.
+The same card (issue #84) appears on the Tools tab and in the Org person view, scoped to
+the org filters: members match people by normalized email or a Cursor person identity,
+exactly like Cursor usage events (never by display name), and team / department follow
+the matched person. API key, project, automation and non-Cursor provider filters show a
+"not applicable" note. Load errors, a person with no cycle row, and a stale snapshot
+(older than 6 hours, or the cycle has reset) are shown explicitly, never as a hidden card
+or a $0. The cycle figure is never added to calendar-month event totals or seat fees.
 Invoices, credits, seat fees and seat types are not in the documented Admin API and are
 not shown.
 Cursor **seat fees** (migration 026) are not in the Admin API either, so each person's

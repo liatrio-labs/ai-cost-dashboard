@@ -36,18 +36,12 @@ export function CursorProductSplit({ products, total, title = "Cursor by product
       title={title}
       testId="cursor-products"
       description={
-        products.some((p) => p.product === "seats" && p.cost !== 0) ? (
-          <>
-            Cursor spend for the calendar period: on-demand usage split by model, plus Cursor seats (seat fees, not usage); adds up to the
-            Cursor total of {formatCurrency(total)}. Usage included in the Business plan is not billed and counts $0. Grok Bot is grok-bot-*
-            models, Bugbot is github_bugbot, Agent/Chat is every other model.
-          </>
-        ) : (
-          <>
-            Cursor on-demand (usage-based) spend split by model; adds up to the Cursor total of {formatCurrency(total)}. Usage included in the
-            Business plan is not billed and counts $0. Grok Bot is grok-bot-* models, Bugbot is github_bugbot, Agent/Chat is every other model.
-          </>
-        )
+        <>
+          Calendar-month Cursor on-demand (usage-based) spend from usage events, split by model, plus seat subscription fees (Seats, 20th-to-20th
+          seat cycle) when assigned; adds up to the Cursor total of {formatCurrency(total)}. Usage included in the
+          Business plan is not billed and counts $0. Grok Bot is grok-bot-* models, Bugbot is github_bugbot, Agent/Chat is every other model.
+          This is not the billing-cycle on-demand figure, which is shown on its own card and never added to this total.
+        </>
       }
     />
   )
